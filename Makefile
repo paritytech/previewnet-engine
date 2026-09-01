@@ -204,8 +204,8 @@ fetch: build-spawner
 generate: build-spawner
 	@node $(CURDIR)/bin/ppn.mjs generate "$(BIN_DIR)"
 
-# Compile the workspace: @ppn/network-config, @ppn/cli and the spawner service.
-# `build-spawner` is kept as an alias because CI and server/redeploy.sh call it.
+# Compile the workspace: @ppn/network-config and @ppn/cli.
+# `build-spawner` is kept as an alias because existing callers use that name.
 build build-spawner:
 	@cd $(CURDIR) && \
 	if command -v pnpm >/dev/null 2>&1; then \

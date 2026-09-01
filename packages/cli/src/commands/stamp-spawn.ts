@@ -1,12 +1,12 @@
 // `ppn stamp-spawn` — write the spawn stamp for a network this process is not spawning.
 //
 // A stopgap, and worth naming as one. `ppn start` writes data/spawn.json as part of bringing a
-// network up, but a server does not run `ppn start`: ppn.service spawns zombie-cli directly,
+// network up, but a server does not run `ppn start`: a deployment spawns zombie-cli directly,
 // for historical reasons (the unit predates the CLI's start verb). So the stamp — spawn time,
 // profile, mode, PPN version — was simply missing on every deployment, and the dashboard had
 // nothing to show for it.
 //
-// This exists so server/redeploy.sh can write the same stamp, through the same writer, until
+// This exists so the deploy overlay can write the same stamp, through the same writer, until
 // `ppn start` grows a server mode that the unit can use directly. When it does, this command
 // goes with the duplication it papers over. See docs/DASHBOARD.md.
 
@@ -29,7 +29,7 @@ export async function stampSpawn(args: string[], opts: StampSpawnOptions = {}): 
 
   // The same precedence the dashboard uses to find the directory it reads the stamp back
   // from, so the two cannot disagree about where it lives: DATA_DIR from the environment
-  // (what ppn.service sets), then PPN_DATA_DIR out of the ports files (what redeploy.sh
+  // (what the supervisor sets), then PPN_DATA_DIR out of the ports files (what the deploy overlay
   // patches), then the workspace default.
   const ports = readEnvFile(path.join(REPO, 'config', 'ports.env'));
   const localOverride = path.join(WS, 'config', 'ports.local.env');

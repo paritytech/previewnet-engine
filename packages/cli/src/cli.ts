@@ -352,7 +352,7 @@ export function buildProgram(): Command {
     .description(
       'Write data/spawn.json — spawn time, mode, profile, PPN version — for a network this\n' +
         'process is not spawning itself. `ppn start` does this as part of starting a network;\n' +
-        'a server needs it separately because ppn.service spawns zombienet directly.'
+        'a server needs it separately because a deployment spawns zombienet directly.'
     )
     .option('--fork', 'record this as a fork rather than a genesis spawn')
     .option('--data-dir <path>', 'where the stamp goes; default $DATA_DIR, then $PPN_DATA_DIR')

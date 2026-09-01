@@ -3,14 +3,13 @@
 // zombienet forwards no environment to custom processes, so everything the dashboard,
 // eth-rpc, the dub stack and the storage provider cannot derive has to be *stated*.
 // `ppn start` states it twice: config/ports.local.env (read by custom processes) and
-// zombie-cli's child environment (inherited by node-level processes). A server never runs
-// `ppn start` — ppn.service spawns zombie-cli directly — so the same facts are restated by
-// hand across server/redeploy.sh, server/systemd/ppn.service and /etc/ppn/deploy.env.
+// zombie-cli's child environment (inherited by node-level processes). A deployment that
+// spawns zombie-cli directly never runs `ppn start`, so it has to restate the same facts
+// itself.
 //
-// This module is the canonical statement: `ppn start` builds its real environment from the
-// builders below, and the key lists are derived from those same builders — so the list the
-// server-side conformance test (server/tests/spawn-env-conformance.test.mjs) checks against
-// cannot drift from what the code actually does.
+// This module is the canonical statement, and the contract a deployment implements: it is
+// exported as `@parity/ppn/spawn-env` so the restating side can assert against the key lists
+// rather than keeping its own copy in step by hand.
 
 /** Facts config/ports.local.env states for zombienet's custom processes. */
 export interface LocalEnvFacts {

@@ -8,7 +8,7 @@
 //
 // One writer, called by every path that spawns. There used to be exactly one such path
 // (`ppn start`), so this logic sat inside it — and a server, which spawns zombie-cli straight
-// from ppn.service, wrote no stamp at all. Its dashboard then had no spawn time, no profile
+// spawning zombie-cli itself, wrote no stamp at all. Its dashboard then had no spawn time, no profile
 // and no PPN version to show. Adding a second caller to the same writer is the point: a field
 // added here cannot reach one path and silently miss the other.
 
