@@ -41,7 +41,8 @@
 # Which network to run — one of networks/*.json (see networks/README.md). Only
 # previewnet can start from genesis; every other network is fork-only (FORK=1).
 # Non-previewnet networks keep their own binaries (bin/<network>/), fork bundle
-# (fork-bundle-<network>/) and data directory (data-fork-<network>/).
+# (fork-bundle-<network>/) and data directory (data-fork-<network>/). Every network is
+# named, previewnet included.
 NETWORK ?= previewnet
 export PPN_NETWORK := $(NETWORK)
 ifeq ($(wildcard $(CURDIR)/networks/$(NETWORK).json),)
@@ -73,7 +74,7 @@ SCRIPTS_DIR := $(CURDIR)/scripts
 
 # Fork mode: spawn from the live network's state instead of genesis. The bundle and
 # its zombienet config are generated (never checked in) — see docs/FORK.md.
-FORK_DIR := $(CURDIR)/fork-bundle$(if $(filter previewnet,$(NETWORK)),,-$(NETWORK))
+FORK_DIR := $(CURDIR)/fork-bundle-$(NETWORK)
 FORK_TOML := $(FORK_DIR)/fork.toml
 
 ifeq ($(FORK),1)

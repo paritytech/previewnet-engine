@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { dataDirFor, binDirFor, forkDirFor, checkPorts } from '../src/commands/start.js';
+import { forkBundleName, forkBundleAsset } from '../src/lib/fork-bundle-name.js';
 
 // `ppn start <network>` must become $PPN_NETWORK before anything downstream runs: fetch,
 // fork fetch-bundle and every service resolve the network from the environment, not from an
@@ -19,9 +20,24 @@ describe('start network selection', () => {
     assert.match(dataDirFor('devnet', true), /data-fork-devnet$/);
     assert.match(binDirFor('devnet'), /bin\/devnet$/);
     assert.match(forkDirFor('devnet'), /fork-bundle-devnet$/);
-    // previewnet is the unsuffixed default everywhere.
+    // previewnet is the unsuffixed default for what it OWNS as the genesis network: its
+    // binaries and its chain data.
     assert.match(dataDirFor('previewnet', false), /data$/);
     assert.match(binDirFor('previewnet'), /bin$/);
+  });
+
+  // A fork bundle is not something this repo owns: it is a snapshot of somebody's running
+  // chain, and previewnet.substrate.dev is no more ours than dot.li is. The name used to be
+  // the exception — bare `fork-bundle`, which reads as "the obvious one" only if you already
+  // know that host exists — and nothing tested it, so it survived every refactor.
+  it('names previewnet\'s bundle like every other network\'s', () => {
+    assert.match(forkDirFor('previewnet'), /fork-bundle-previewnet$/);
+    assert.equal(forkBundleName('previewnet'), 'fork-bundle-previewnet');
+    assert.equal(forkBundleAsset('previewnet'), 'fork-bundle-previewnet.tar.gz');
+    // Same shape for everyone: no branch anywhere derives a bundle name.
+    for (const net of ['previewnet', 'devnet', 'paseo-next-v2']) {
+      assert.equal(forkBundleAsset(net), `fork-bundle-${net}.tar.gz`);
+    }
   });
 
   it('start() exports its network argument as PPN_NETWORK', async () => {

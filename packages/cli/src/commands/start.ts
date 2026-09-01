@@ -22,6 +22,7 @@ import {
 } from '@parity/ppn-network-config';
 import { writeSpawnStamp } from '../lib/spawn-stamp.js';
 import { localEnvContent, childEnv } from '../lib/spawn-env.js';
+import { forkBundleName } from '../lib/fork-bundle-name.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
@@ -85,8 +86,9 @@ export function binDirFor(name: string): string {
   return name === 'previewnet' ? path.join(WS, 'bin') : path.join(WS, 'bin', name);
 }
 
+/** Where a network's bitten bundle lives. See lib/fork-bundle-name.ts on the naming. */
 export function forkDirFor(name: string): string {
-  return path.join(WS, `fork-bundle${name === 'previewnet' ? '' : `-${name}`}`);
+  return path.join(WS, forkBundleName(name));
 }
 
 const ports = () => readEnvFile(path.join(REPO, 'config', 'ports.env'));
