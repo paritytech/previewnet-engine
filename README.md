@@ -5,6 +5,13 @@ validators, plus Asset Hub (2-second blocks via elastic scaling), People, Bullet
 Storage, plus the Ethereum RPC, IPFS, identity backend and storage provider those chains
 expect, already wired together.
 
+## Start it
+
+Needs **Node.js 22+** and GitHub auth, because the binaries and runtimes come from GitHub
+releases and some are private: `gh auth login`, or set `GITHUB_TOKEN`. On Apple Silicon,
+disable IPv6 first ([polkadot-sdk#8918](https://github.com/paritytech/polkadot-sdk/issues/8918)):
+`sudo networksetup -setv6off Wi-Fi`.
+
 ```bash
 git clone https://github.com/paritytech/previewnet-engine.git
 cd previewnet-engine
@@ -12,12 +19,14 @@ make start
 ```
 
 First run downloads ~500 MB of binaries and runtimes, then spawns. When it is up, the
-dashboard at <http://127.0.0.1:8090> shows every chain, service and endpoint.
+dashboard at <http://127.0.0.1:8090> shows every chain, service and endpoint. If it does not
+come up, `make doctor` checks the requirements above.
 
 > **`make` or `ppn`?** `make` exists only inside a clone, as a front door for the common
 > things; every target delegates to `ppn`, which is the same CLI npm installs. Anything
 > `make` does, `ppn` does with flags: `make start FORK=1 NETWORK=devnet` is
 > `ppn start --fork devnet`. The examples below use `ppn`, so they work either way.
+> `make help` lists the targets; `ppn <command> --help` lists the flags.
 
 ## What you would use it for
 
@@ -66,17 +75,6 @@ ppn upgrade asset-hub ./asset_hub_runtime.wasm
 | Ethereum RPC | `http://127.0.0.1:8545` | JSON-RPC onto Asset Hub |
 | IPFS | `:8080` gateway, `:5001` API | |
 | Identity backend | `http://127.0.0.1:8092` | auth, usernames, tickets; `/docs` for the API |
-
-## Prerequisites
-
-- **Node.js 22+**
-- **GitHub auth**: `gh auth login`, or set `GITHUB_TOKEN`. Binaries and runtimes come from
-  GitHub releases, some private.
-- **Apple Silicon**: disable IPv6, per
-  [polkadot-sdk#8918](https://github.com/paritytech/polkadot-sdk/issues/8918):
-  `sudo networksetup -setv6off Wi-Fi` (undo with `-setv6automatic`).
-
-`make doctor` checks all of this, and `make help` lists every target.
 
 ## Docker
 
