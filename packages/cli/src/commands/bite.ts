@@ -30,6 +30,7 @@ import {
 import { blake2AsHex } from '@polkadot/util-crypto';
 import { githubToken, downloadUrl } from '../lib/github.js';
 import { extractTarGz, extractZip, withTempDir } from '../lib/archive.js';
+import { forkBundleName, forkBundleAsset } from '../lib/fork-bundle-name.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
@@ -412,7 +413,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
     );
   }
 
-  const out = path.resolve(args[0] || path.join(WS, `fork-bundle${net.name === 'previewnet' ? '' : '-' + net.name}`));
+  const out = path.resolve(args[0] || path.join(WS, forkBundleName(net.name)));
   const binDir = path.join(WS, 'bin', net.name === 'previewnet' ? '' : net.name);
   const baseUrl = opts.source ?? net.bite.source;
   const chains = networkChains(net);
@@ -614,8 +615,8 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
  */
 export async function fetchBundle(args: string[]): Promise<void> {
   const net = loadCurrentNetwork();
-  const out = path.resolve(args[0] || path.join(WS, `fork-bundle${net.name === 'previewnet' ? '' : '-' + net.name}`));
-  const asset = net.name === 'previewnet' ? 'fork-bundle.tar.gz' : `fork-bundle-${net.name}.tar.gz`;
+  const out = path.resolve(args[0] || path.join(WS, forkBundleName(net.name)));
+  const asset = forkBundleAsset(net.name);
   const versions = readEnvFile(path.join(REPO, 'config', 'versions.env'));
   const token = githubToken();
   const { fetchRelease, downloadAsset } = await import('../lib/github.js');

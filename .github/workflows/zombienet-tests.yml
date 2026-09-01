@@ -553,7 +553,7 @@ jobs:
       matrix:
         include:
           - network: previewnet
-            bundle: fork-bundle
+            bundle: fork-bundle-previewnet
             data: data-fork
           - network: paseo-next-v2
             bundle: fork-bundle-paseo-next-v2

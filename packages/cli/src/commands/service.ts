@@ -17,6 +17,7 @@ import { loadCurrentNetwork, readEnvFile, hrmpChannels, type NetworkDef, repoRoo
   workspaceRoot,
   BOB_SS58,
 } from '@parity/ppn-network-config';
+import { forkBundleName } from '../lib/fork-bundle-name.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
@@ -659,13 +660,10 @@ async function pinBulletinProducts(ctx: ServiceContext, deps: ServiceDeps = {}):
     console.log('pin-bulletin-products: PRODUCT_SYNC=0, skipping');
     return;
   }
-  // Bundles are per network: previewnet's is fork-bundle/, everything else's is
-  // fork-bundle-<network>/ — the same rule `ppn start --fork` uses. Reading only the unsuffixed
-  // path made this service announce "not a fork, nothing to do" on every other network's fork,
-  // which is indistinguishable from a fork that genuinely has no products.
-  const forkDir =
-    process.env.FORK_DIR ||
-    path.join(WS, ctx.net.name === 'previewnet' ? 'fork-bundle' : `fork-bundle-${ctx.net.name}`);
+  // Bundles are per network, previewnet included — the same rule `ppn start --fork` uses.
+  // Reading only one hard-coded path made this service announce "not a fork, nothing to do"
+  // on every other network's fork, indistinguishable from a fork with genuinely no products.
+  const forkDir = process.env.FORK_DIR || path.join(WS, forkBundleName(ctx.net.name));
   const manifestPath = path.join(forkDir, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
     console.log(`pin-bulletin-products: no ${manifestPath} — not a fork, nothing to do`);
