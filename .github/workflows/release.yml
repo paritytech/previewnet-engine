@@ -294,28 +294,137 @@ jobs:
   # and the registry versions. It runs after build-dist because an npm version cannot be
   # recut, so burning one on a build that was going to fail costs a version forever.
   # ==========================================================================
-  publish-npm:
-    needs: [prepare, build-dist]
+  # Cheap, and it decides whether the expensive job below runs at all. npm versions are
+  # immutable, so a re-run must not try to publish one twice: without this, a release whose
+  # npm step succeeded and whose create-release failed would wedge that version forever, since
+  # no tag exists to stop Release running again.
+  npm-check:
+    needs: [prepare]
     if: ${{ needs.prepare.outputs.publish == 'true' }}
-    uses: ./.github/workflows/npm-release.yml
-    with:
-      version: ${{ needs.prepare.outputs.tag }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.live.outputs.version }}
+      skip: ${{ steps.live.outputs.skip }}
+    steps:
+      - name: Already on the registry?
+        id: live
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          live=0
+          for pkg in @parity/ppn-network-config @parity/ppn; do
+            if curl -sfo /dev/null "https://registry.npmjs.org/$pkg/$VERSION"; then
+              live=$((live + 1))
+            fi
+          done
+          case "$live" in
+            0) echo "skip=false" >> "$GITHUB_OUTPUT"
+               echo "Publishing $VERSION" ;;
+            2) echo "skip=true" >> "$GITHUB_OUTPUT"
+               echo "Both packages already serve $VERSION. Nothing to publish." ;;
+            # Half published can never be completed under this version, so it needs a person.
+            *) echo "::error::$live of 2 packages are at $VERSION. Release a new version."
+               exit 1 ;;
+          esac
+
+  publish-npm:
+    needs: [prepare, build-dist, npm-check]
+    if: ${{ needs.npm-check.outputs.skip != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.npm-check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # The published tarballs must carry no deployment endpoint, and must carry the launchers
+      # zombienet execs by path. Both are asserted by packing for real and reading the result,
+      # so this gate has to pass before anything is handed to the publisher.
+      - name: Verify the publish surface
+        run: pnpm --filter @parity/ppn test
+
+      - name: Set versions
+        run: |
+          for pkg in packages/network-config packages/cli; do
+            (cd "$pkg" && npm pkg set version="$VERSION")
+          done
+          # The CLI's dependency on the library is `workspace:*`; `pnpm pack` below rewrites it
+          # to the concrete version. npm would publish the protocol verbatim and every install
+          # would fail with EUNSUPPORTEDPROTOCOL, which is why packing uses pnpm, not npm.
+
+      - name: Pack
+        run: |
+          mkdir -p packs
+          for pkg in packages/network-config packages/cli; do
+            (cd "$pkg" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/packs")
+          done
+          ls -ltr packs
+
+      # The publisher reads the packs off this run; the npm token lives in
+      # paritytech/npm_publish_automation, not here.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ github.sha }}
+          path: packs
+
+      - name: Trigger npm_publish_automation
+        uses: octokit/request-action@dad4362715b7fb2ddedf9772c8670824af564f0d # v2.4.0
+        with:
+          route: POST /repos/paritytech/npm_publish_automation/actions/workflows/publish.yml/dispatches
+          ref: main
+          inputs: '${{ format(''{{ "repo": "{0}", "run_id": "{1}" }}'', github.repository, github.run_id) }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.NPM_PUBLISH_AUTOMATION_TOKEN }}
+
+      # The dispatch above only proves the request was accepted; the publish happens in another
+      # repo and never reports back. Without this the job goes green on a publish that never
+      # landed, and create-release below gates on that green.
+      - name: Wait for the registry to serve it
+        run: |
+          deadline=$((SECONDS + 600))
+          for pkg in @parity/ppn-network-config @parity/ppn; do
+            until curl -sfo /dev/null "https://registry.npmjs.org/$pkg/$VERSION"; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::error::$pkg@$VERSION is not on the registry after 10 minutes."
+                echo "Check the run in paritytech/npm_publish_automation." >&2
+                exit 1
+              fi
+              sleep 15
+            done
+            echo "$pkg@$VERSION is live"
+          done
 
 
   # ==========================================================================
   # Create Release
   # ==========================================================================
   create-release:
-    needs: [prepare, build-dist, build-docker, publish-npm]
-    # Gated on publish-npm so a release is all-or-nothing. This job creates the tag, so a
+    needs: [prepare, build-dist, build-docker, npm-check, publish-npm]
+    # Gated on the npm jobs so a release is all-or-nothing. This job creates the tag, so a
     # failed publish leaves none behind and the same version can be re-run once fixed.
+    # publish-npm is skipped, not run, when npm-check found the version already served: that
+    # is the re-run case and it must still cut the release.
     if: >-
       ${{ !cancelled()
       && needs.prepare.outputs.publish == 'true'
       && needs.prepare.result == 'success'
       && needs.build-dist.result == 'success'
-      && needs.publish-npm.result == 'success' }}
+      && needs.npm-check.result == 'success'
+      && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
