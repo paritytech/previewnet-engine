@@ -253,7 +253,7 @@ jobs:
           if-no-files-found: warn
 
   integration-tests:
-    runs-on: ubuntu-latest
+    runs-on: parity-large
     timeout-minutes: 90
 
     steps:
@@ -298,14 +298,10 @@ jobs:
 
       - name: Start network with zombie-cli
         run: |
-          # A fresh spawn directory, with the identity databases inside it.
-          #
-          # This runner is persistent, and those databases are a projection of chain state: the
-          # username indexer keeps a checkpoint of how far it has projected. Left in data/ by an
-          # earlier run, that checkpoint starts out past the new genesis chain's head, so the
-          # indexer resyncs an empty range for ever and a registration is accepted with a 202 and
-          # never appears. Nothing errors — it reads as a slow chain, which is what the identity
-          # registration test's budget was raised twice to chase.
+          # A fresh spawn directory, with the identity databases inside it. Those databases are a
+          # projection of chain state: an indexer checkpoint surviving into a new genesis run
+          # starts past the chain's head, and registrations then return 202 and never land. Kept
+          # as a guard now the runner is ephemeral, because the failure is silent.
           #
           # Reaching postgres.sh through ports.local.env because zombie-cli does not forward the
           # environment into custom_processes; that file exists for exactly this.
@@ -535,11 +531,11 @@ jobs:
   # A spawn that merely starts proves none of that, so this asserts behaviour instead.
   # ==========================================================================
   fork-e2e:
-    # Its own runner, not the persistent one integration-tests uses. Both spawn a network on
+    # Its own runner, not the one integration-tests uses. Both spawn a network on
     # the fixed ports in config/ports.env, so sharing a machine means fighting over p2p 30334
     # ("Can't bind") — and serialising them to avoid that cost ~9min of queueing for a job
     # that only takes 4.5.
-    runs-on: ubuntu-latest
+    runs-on: parity-large
     timeout-minutes: 45
     strategy:
       # Every network CI bites, spawned. Biting and spawning are different things: the nightly
