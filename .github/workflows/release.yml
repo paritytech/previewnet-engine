@@ -165,6 +165,17 @@ jobs:
       - name: Build the workspace
         run: make build
 
+      # The tarball carries these package.json files verbatim, so without this a deployed
+      # tree reports whatever version was last committed while npm reports the real one.
+      # Safe after install: the lockfile records `workspace:*` and a link, not a version.
+      - name: Stamp the release version
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          for pkg in . packages/network-config packages/cli; do
+            (cd "$pkg" && npm pkg set version="${TAG#v}")
+          done
+
       - name: Package
         run: |
           mkdir -p artifacts
@@ -277,15 +288,34 @@ jobs:
 
 
   # ==========================================================================
+  # Publish npm
+  #
+  # Part of the release, not a channel of its own: one number covers the tarball, the image
+  # and the registry versions. It runs after build-dist because an npm version cannot be
+  # recut, so burning one on a build that was going to fail costs a version forever.
+  # ==========================================================================
+  publish-npm:
+    needs: [prepare, build-dist]
+    if: ${{ needs.prepare.outputs.publish == 'true' }}
+    uses: ./.github/workflows/npm-release.yml
+    with:
+      version: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+
+
+  # ==========================================================================
   # Create Release
   # ==========================================================================
   create-release:
-    needs: [prepare, build-dist, build-docker]
+    needs: [prepare, build-dist, build-docker, publish-npm]
+    # Gated on publish-npm so a release is all-or-nothing. This job creates the tag, so a
+    # failed publish leaves none behind and the same version can be re-run once fixed.
     if: >-
       ${{ !cancelled()
       && needs.prepare.outputs.publish == 'true'
       && needs.prepare.result == 'success'
-      && needs.build-dist.result == 'success' }}
+      && needs.build-dist.result == 'success'
+      && needs.publish-npm.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
