@@ -165,6 +165,17 @@ jobs:
       - name: Build the workspace
         run: make build
 
+      # The tarball carries these package.json files verbatim, so without this a deployed
+      # tree reports whatever version was last committed while npm reports the real one.
+      # Safe after install: the lockfile records `workspace:*` and a link, not a version.
+      - name: Stamp the release version
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          for pkg in . packages/network-config packages/cli; do
+            (cd "$pkg" && npm pkg set version="${TAG#v}")
+          done
+
       - name: Package
         run: |
           mkdir -p artifacts
