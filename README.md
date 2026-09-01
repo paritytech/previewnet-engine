@@ -1,44 +1,9 @@
 # Product Preview Network
 
-Spin up a local Polkadot ecosystem with one command. Includes relay chain, Asset Hub (with 2-second blocks via elastic scaling), People Chain, Bulletin Chain, and Web3 Storage Chain.
-
-## Quick Start
-
-**Install the CLI:**
-
-```bash
-npm install -g @parity/ppn      # puts `ppn` on your PATH
-ppn --help
-```
-
-or run it without installing: `npx @parity/ppn --help`. Needs Node.js 22+.
-
-**Then point it at a network.** This is the one thing to know: the package ships the engine, not the
-network definitions. A network is a descriptor — `networks/<name>.json`, which states which binary
-every chain runs, from which release, and what its services are — and descriptors are *your* data,
-not ours. `ppn` looks for them in this order:
-
-1. `$PPN_HOME` — set it to a directory that has a `networks/` folder;
-2. otherwise, the nearest ancestor of your working directory that has one.
-
-That directory is also where `ppn` keeps its state: `bin/` for downloaded binaries (~500 MB),
-`data/` for chain state, `fork-bundle*/` for bitten networks.
-
-```bash
-export PPN_HOME=~/my-network      # holds networks/<name>.json
-ppn show                          # what resolves: binaries, runtimes, releases, services
-ppn start                         # fetch what is missing, generate specs, spawn
-ppn kill                          # stop everything
-```
-
-`ppn fetch` downloads from GitHub releases, some of them private, so it needs auth — `gh auth login`
-(HTTPS, letting it configure git credentials) or `GITHUB_TOKEN`. It fails naming the artifact and
-the repository when a token cannot see one, rather than half-populating `bin/`.
-
-See `networks/README.md` for the descriptor schema, and `ppn show --json` for the shape a tool can
-read.
-
-**Working on PPN itself** (clone this repo — the descriptors live here):
+A complete Polkadot ecosystem on your machine, in one command: a Paseo relay chain with six
+validators, plus Asset Hub (2-second blocks via elastic scaling), People, Bulletin and Web3
+Storage — with the Ethereum RPC, IPFS, identity backend and storage provider those chains
+expect, already wired together.
 
 ```bash
 git clone https://github.com/paritytech/previewnet-engine.git
@@ -46,131 +11,123 @@ cd previewnet-engine
 make start
 ```
 
-`make` is a front door: every target delegates to `ppn`, and a checkout is just a workspace whose
-`networks/` the walk-up above finds for you.
+First run downloads ~500 MB of binaries and runtimes, then spawns. When it is up, the
+dashboard at <http://127.0.0.1:8090> shows every chain, service and endpoint.
 
-## Docker
+## What you would use it for
 
-> **Note**: Docker mode is currently **not supported on Apple Silicon Macs** (M1/M2/M3/M4) due to p2p networking issues under x86_64 emulation. Use native mode (`make start`) on ARM Macs instead.
+**Develop against the whole stack, not a mock.** Contracts on Asset Hub through
+`eth-rpc` at `:8545`, identity on People, storage on Bulletin and Web3 Storage. Everything
+speaks to everything, the way it does in production.
 
-Run in Docker using the Makefile (recommended):
-
-```bash
-DOCKER=1 make start             # Persistent
-DOCKER=1 make start EPHEMERAL=1 # No persistence
-DOCKER=1 make start CLEAN=1     # Wipe data first
-DOCKER=1 make kill              # Stop container
-```
-
-Or run directly:
+**Start from real state instead of genesis.** A fork continues from a live network's block,
+so contracts, registrations and balances are already there.
 
 ```bash
-docker run --rm -it --platform linux/amd64 -p 10000-10030:10000-10030 -p 8545:8545 paritytech/previewnet-engine
+make start FORK=1                      # from the latest published snapshot
+make start FORK=1 NETWORK=paseo-next-v2
 ```
 
-### Dev Container
+**Test a build before it ships.** Any binary or runtime can be repointed without editing
+anything, which is what makes this useful as a release gate — run the full network against a
+candidate and see what breaks.
 
-Use PPN as your VS Code dev container — it runs the network in the background while giving you a full dev shell (Ubuntu 24.04 + Node 20).
-
-Create `.devcontainer/devcontainer.json` in your project:
-
-```jsonc
-{
-  "name": "PPN Dev Environment",
-  "image": "paritytech/previewnet-engine:latest",
-  "overrideCommand": true,
-  "runArgs": ["--platform=linux/amd64"],
-  "forwardPorts": [10000, 10010, 10020, 10030, 8545],
-  "postStartCommand": "/ppn/scripts/docker-entrypoint.sh &"
-}
+```bash
+ppn start --binary polkadot-omni-node=file:/path/to/your/build
+ppn start --runtime asset-hub=file:/path/to/runtime.wasm
+ppn start --binary polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w33-rc2
 ```
 
-Then reopen in VS Code with **Dev Containers: Reopen in Container**. PPN starts automatically in the background. Access endpoints at `ws://localhost:10000` from both inside the container and the host.
+**Rehearse a runtime upgrade.** Authorize and apply one against a chain that is already
+running, and watch it cross the boundary.
 
-> **Note:** Docker mode only works on Linux. macOS (Apple Silicon) is not supported — p2p networking fails under x86_64 emulation. Use native mode (`make start`) instead.
+```bash
+ppn upgrade asset-hub ./asset_hub_runtime.wasm
+```
+
+**Run a preview network for your team.** See
+[docs/DEPLOYING-YOUR-OWN.md](docs/DEPLOYING-YOUR-OWN.md).
+
+## The network
+
+| | Endpoint | |
+| --- | --- | --- |
+| Relay (alice … ferdie) | `ws://127.0.0.1:10000` – `10005` | 6 validators, Paseo |
+| Asset Hub | `ws://127.0.0.1:10020` | **2-second blocks**, elastic scaling |
+| People | `ws://127.0.0.1:10010` | individuality |
+| Bulletin | `ws://127.0.0.1:10030` | transaction storage |
+| Web3 Storage | `ws://127.0.0.1:10040` | storage parachain |
+| Dashboard | <http://127.0.0.1:8090> | status UI and API for all of the above |
+| Ethereum RPC | `http://127.0.0.1:8545` | JSON-RPC onto Asset Hub |
+| IPFS | `:8080` gateway, `:5001` API | |
+| Identity backend | `http://127.0.0.1:8092` | auth, usernames, tickets; `/docs` for the API |
 
 ## Prerequisites
 
-- **GitHub auth**: `gh auth login` or set `GITHUB_TOKEN`
-- **Node.js 22+**: Required for tests and startup helper scripts
+- **Node.js 22+**
+- **GitHub auth** — `gh auth login`, or set `GITHUB_TOKEN`. Binaries and runtimes come from
+  GitHub releases, some private.
+- **Apple Silicon**: disable IPv6, per
+  [polkadot-sdk#8918](https://github.com/paritytech/polkadot-sdk/issues/8918):
+  `sudo networksetup -setv6off Wi-Fi` (undo with `-setv6automatic`).
 
-**Mac Users (Apple Silicon)**: Disable IPv6 due to [known bug](https://github.com/paritytech/polkadot-sdk/issues/8918):
+`make doctor` checks all of this. `make help` lists every target; each one delegates to `ppn`,
+so `ppn <command> --help` is the fuller reference.
 
-```bash
-sudo networksetup -setv6off Wi-Fi
-# To re-enable: sudo networksetup -setv6automatic Wi-Fi
-```
-
-## Commands
-
-```bash
-make start              # Start network (fetches/generates if needed)
-make kill               # Stop running network
-make fresh              # Clean, fetch, generate, and start
-make fetch              # Download binaries and runtimes
-make generate           # Generate chain spec files
-make test               # Run integration tests
-make doctor             # Check prerequisites
-make clean              # Remove bin/, data/, and design-families/
-make clean-bin          # Remove only bin/ (keeps chain data)
-make clean-data         # Remove only data/ (keeps binaries)
-make help               # Show all commands and options
-```
-
-Every target delegates to `ppn`, which takes the same work as flags. `ppn <command> --help`
-lists them, including the environment variable each one mirrors:
+## Docker
 
 ```bash
-ppn start --fork                       # continue from a bitten bundle, not genesis
-ppn start --fork --pin-products        # also import this network's DotNS products
-ppn start --binary polkadot=file:/b    # run a locally built binary (PPN_BINARIES)
-ppn start --runtime asset-hub=file:/w  # start from a locally built runtime (PPN_RUNTIMES)
-ppn bite --upgrade asset-hub=./ah.wasm # authorize a runtime at import, for a fork with no sudo
-ppn upgrade asset-hub ./ah.wasm        # upgrade a chain that is already running
+DOCKER=1 make start
 ```
 
-## Network Endpoints
+Linux only. p2p networking fails on Apple Silicon under x86_64 emulation — use `make start`.
 
-| Node | WebSocket | Notes |
-| ------ | ----------- | --------- |
-| Relay Alice | `ws://127.0.0.1:10000` | Validator |
-| Relay Bob | `ws://127.0.0.1:10001` | Validator |
-| Relay Charlie | `ws://127.0.0.1:10002` | Validator |
-| Relay Dave | `ws://127.0.0.1:10003` | Validator |
-| Relay Eve | `ws://127.0.0.1:10004` | Validator |
-| Relay Ferdie | `ws://127.0.0.1:10005` | Validator |
-| Asset Hub (collator 1) | `ws://127.0.0.1:10020` | **2-second blocks** (elastic scaling) |
-| People Chain | `ws://127.0.0.1:10010` | Individuality pallet |
-| Bulletin | `ws://127.0.0.1:10030` | Transaction storage |
-| Web3 Storage | `ws://127.0.0.1:10040` | Decentralized storage parachain (ID 1600) |
+## Using it against your own network
 
-## Architecture
+The `ppn` CLI is [published separately](https://www.npmjs.com/package/@parity/ppn) and is not
+tied to the networks defined here. It reads *descriptors* — `networks/<name>.json`, naming the
+binary, release and runtime for every chain — so you can point it at your own instead of
+cloning this repo.
 
-```tree
-product-preview-net/
-├── Makefile                  # Entry point (make start)
-├── bin/                      # Downloaded binaries and generated specs (gitignored)
-├── config/
-│   ├── ports.env             # Port configuration for all services
-│   └── versions.env          # Shared toolchain versions (zombienet, kubo, etc.)
-├── packages/                 # pnpm workspace: network-config (library), cli (the `ppn` tool), dashboard-ui
-├── networks/                 # Network descriptors (see networks/README.md)
-├── scripts/                  # Launchers zombienet execs + helper scripts
-│   ├── run-tests.sh          # Integration test runner
-│   ├── assign-cores.sh       # Elastic scaling core assignment
-│   └── ipfs-swarm.sh         # IPFS swarm connection
-├── zombienet-configs/
-│   └── local-dev.toml        # Checked-in reference copy (auto-updated)
-└── tests/                    # Zombienet integration tests
+```bash
+npm install -g @parity/ppn
+export PPN_HOME=~/my-network     # holds networks/my-net.json
+ppn show                         # what resolves: binaries, runtimes, releases, services
 ```
+
+See [`packages/cli/README.md`](packages/cli/README.md) for that path, and
+[`networks/README.md`](networks/README.md) for the descriptor schema.
+
+## Docs
+
+| | |
+| --- | --- |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | workspace layout, package boundaries, what a release contains |
+| [FORK.md](docs/FORK.md) | how forking works, and what a bundle is |
+| [DASHBOARD.md](docs/DASHBOARD.md) | the status UI, its API, and the action plane |
+| [PROFILES.md](docs/PROFILES.md) | `local` vs `deployable`: funded accounts, sudo, signing keys |
+| [RUNTIME-UPGRADE.md](docs/RUNTIME-UPGRADE.md) | upgrading a chain that is running |
+| [DEVICE-UNIQUENESS-BACKEND.md](docs/DEVICE-UNIQUENESS-BACKEND.md) | identity backend roles and endpoints |
+| [DEPLOYING-YOUR-OWN.md](docs/DEPLOYING-YOUR-OWN.md) | running this for a team |
+
+## Security
+
+This is development and preview-network tooling. It has **not** been audited, and the default
+profile deliberately runs well-known development keys (`//Alice` and friends) as funded sudo
+accounts. Do not point it at anything holding real value, and read
+[PROFILES.md](docs/PROFILES.md) before running it anywhere long-lived or reachable by others.
+
+To report a vulnerability, follow the
+[Parity security policy](https://github.com/paritytech/.github/blob/main/SECURITY.md).
 
 ## Parity's deployment
 
-Parity runs a preview network from this engine at `previewnet.substrate.dev`. That deployment —
-its endpoints, server tooling and release pipeline — lives in a separate private repo; this one
-is the engine it installs. To stand up your own, see
-[docs/DEPLOYING-YOUR-OWN.md](docs/DEPLOYING-YOUR-OWN.md).
+Parity runs a preview network from this engine at `previewnet.substrate.dev`. That deployment,
+its server tooling and its release pipeline live in a separate repo; this one is the engine it
+installs.
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Copyright 2026 Parity Technologies
