@@ -1,19 +1,24 @@
 name: NPM Release
 
-# Publishing the tool, which is a different thing from publishing a network build.
+# Publishing the packages. Normally not run directly: release.yml calls it, so one stable
+# release publishes the dist tarball, the image and the registry versions off one commit
+# under one number. There is deliberately no tag trigger: a second normal route is how a
+# registry version ends up with no engine release behind it.
 #
-# `release.yml` cuts a timestamped release (v20260814.093012) whose artifacts are binaries,
-# runtimes and a fork bundle. Those tags are not semver and must not drive an npm version, so
-# this workflow has its own trigger: a `npm-v*` tag, or a dispatch with an explicit version.
+# The dispatch is the recovery path, for when a release cut the packages but not the release
+# (or the other way round) and re-running release.yml is refused because the tag now exists.
 #
 # The npm token lives in paritytech/npm_publish_automation, not here. This job builds, proves
-# the tarballs are safe to publish, packs them, and hands them over — the same shape as
-# paritytech/host-api-test-sdk.
+# the tarballs are safe to publish, packs them, hands them over, then waits for the registry
+# to actually serve the version.
 
 on:
-  push:
-    tags:
-      - "npm-v*"
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to publish. A leading `v` is stripped, so a release tag works."
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -36,12 +41,11 @@ jobs:
 
       - name: Resolve the version
         id: version
+        env:
+          VERSION_IN: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION="${GITHUB_REF_NAME#npm-v}"
-          fi
+          # Callers pass the release tag as-is, so accept `v0.2.0` and publish `0.2.0`.
+          VERSION="${VERSION_IN#v}"
           # Refuse anything npm would reject, or that would publish a nonsense version.
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "not a semver version: '$VERSION'" >&2
@@ -92,3 +96,23 @@ jobs:
           inputs: '${{ format(''{{ "repo": "{0}", "run_id": "{1}" }}'', github.repository, github.run_id) }}'
         env:
           GITHUB_TOKEN: ${{ secrets.NPM_PUBLISH_AUTOMATION_TOKEN }}
+
+      # The dispatch above only proves the request was accepted; the publish happens in another
+      # repo and never reports back. Without this the job goes green on a publish that never
+      # landed, and release.yml gates the GitHub release on that green.
+      - name: Wait for the registry to serve it
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          deadline=$((SECONDS + 600))
+          for pkg in @parity/ppn-network-config @parity/ppn; do
+            until curl -sfo /dev/null "https://registry.npmjs.org/$pkg/$VERSION"; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::error::$pkg@$VERSION is not on the registry after 10 minutes."
+                echo "Check the run in paritytech/npm_publish_automation." >&2
+                exit 1
+              fi
+              sleep 15
+            done
+            echo "$pkg@$VERSION is live"
+          done

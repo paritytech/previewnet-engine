@@ -184,7 +184,7 @@ zombienet-configs/
 ├── release.yml               # Stable semver release: dist tarball, changelog, Docker image
 ├── nightly-bites.yml         # Nightly bite → the rolling `bites` pre-release (bundles only)
 ├── bite-network.yml          # Bite one network on demand (artifact, not a release)
-├── npm-release.yml           # Publish the npm packages (on npm-v* tags)
+├── npm-release.yml           # Publish the npm packages (called by release.yml)
 └── zombienet-tests.yml       # PR gates: lint, drift, npm smoke, integration, fork-e2e
 ```
 
@@ -241,7 +241,10 @@ cat /tmp/zombie-*/alice-paseo-validator.log    # View specific node logs
 
 - Manual dispatch with a semver `version`, or called by `zombienet-tests.yml` as a PR dry run
 - Packs the deployable dist tarball, builds and pushes `paritytech/previewnet-engine`
+- Publishes the npm packages at the same version, via `npm-release.yml`
 - Cuts a GitHub release with generated notes as the changelog; stable releases own `latest`
+- All-or-nothing: the release is cut last and only if npm published, so a failed publish
+  leaves no tag and the same version can be re-run
 
 ### Nightly bites (`.github/workflows/nightly-bites.yml`)
 
@@ -259,8 +262,15 @@ cat /tmp/zombie-*/alice-paseo-validator.log    # View specific node logs
 
 ### npm (`.github/workflows/npm-release.yml`)
 
-- On `npm-v*` tags: packs `@parity/ppn-network-config` and `@parity/ppn` with pnpm (which
-  rewrites `workspace:*` to concrete versions) and hands them to `npm_publish_automation`
+- Called by `release.yml`, so the packages ship with the release rather than needing a second
+  deliberate step. No tag trigger: a second normal route is how a registry version ends up
+  with no engine release behind it. Dispatch it directly only to recover a half-done release
+- Packs `@parity/ppn-network-config` and `@parity/ppn` with pnpm (which rewrites
+  `workspace:*` to concrete versions), hands them to `npm_publish_automation`, then waits for
+  the registry to serve the version. That wait is the only proof of success: the handover is a
+  fire-and-forget dispatch to another repo
+- The engine must be listed in `npm_publish_automation`'s `packages.ts`, keyed by repo name,
+  or the publish refuses
 
 ### On-demand bite (`.github/workflows/bite-network.yml`)
 

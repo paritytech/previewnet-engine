@@ -38,14 +38,13 @@ jobs:
           bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           ./actionlint -color
 
-  # The release, run for real and published nowhere: the tarball is packed, the networks are
-  # bitten, the DotNS contracts are deployed and the image is built. Only the push and the
-  # release itself are skipped, so a release that would have failed fails here instead —
-  # on the PR, where it is cheap to fix. See release.yml's `publish` input.
+  # The release, run for real and published nowhere: the tarball is packed and the image is
+  # built. The image push, the npm publish and the release itself are skipped, so a release
+  # that would have failed fails here instead, on the PR, where it is cheap to fix.
+  # See release.yml's `publish` input.
   release-dry-run:
-    # Pull requests only. The point is to catch a release that would have failed *before* it
-    # is merged; after the merge deploy.yml cuts the real one, so running this too is fifteen
-    # minutes of duplicated bites and a second claim on the same live endpoints.
+    # Pull requests only: a release is a deliberate dispatch, so there is nothing on main for
+    # this to get ahead of.
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/release.yml
     with:

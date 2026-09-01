@@ -277,15 +277,34 @@ jobs:
 
 
   # ==========================================================================
+  # Publish npm
+  #
+  # Part of the release, not a channel of its own: one number covers the tarball, the image
+  # and the registry versions. It runs after build-dist because an npm version cannot be
+  # recut, so burning one on a build that was going to fail costs a version forever.
+  # ==========================================================================
+  publish-npm:
+    needs: [prepare, build-dist]
+    if: ${{ needs.prepare.outputs.publish == 'true' }}
+    uses: ./.github/workflows/npm-release.yml
+    with:
+      version: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+
+
+  # ==========================================================================
   # Create Release
   # ==========================================================================
   create-release:
-    needs: [prepare, build-dist, build-docker]
+    needs: [prepare, build-dist, build-docker, publish-npm]
+    # Gated on publish-npm so a release is all-or-nothing. This job creates the tag, so a
+    # failed publish leaves none behind and the same version can be re-run once fixed.
     if: >-
       ${{ !cancelled()
       && needs.prepare.outputs.publish == 'true'
       && needs.prepare.result == 'success'
-      && needs.build-dist.result == 'success' }}
+      && needs.build-dist.result == 'success'
+      && needs.publish-npm.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
