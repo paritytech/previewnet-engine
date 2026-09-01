@@ -199,7 +199,7 @@ jobs:
   # ==========================================================================
   build-docker:
     needs: prepare
-    runs-on: parity-large
+    runs-on: ubuntu-latest
     # No environment on a dry run: it exists to carry the registry credentials, and a run
     # that pushes nothing needs none — which also keeps the build off any approval gate.
     environment: ${{ needs.prepare.outputs.publish == 'true' && 'docker' || '' }}

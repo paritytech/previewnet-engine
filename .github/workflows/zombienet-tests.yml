@@ -124,7 +124,7 @@ jobs:
   # resolving into node_modules once descriptors shipped, and the launchers dying on zombienet's
   # HOME-less environment. No test running in a checkout could see any of them.
   npm-install-smoke-test:
-    runs-on: parity-default
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -253,7 +253,7 @@ jobs:
           if-no-files-found: warn
 
   integration-tests:
-    runs-on: parity-large-persistent
+    runs-on: ubuntu-latest
     timeout-minutes: 90
 
     steps:
@@ -539,7 +539,7 @@ jobs:
     # the fixed ports in config/ports.env, so sharing a machine means fighting over p2p 30334
     # ("Can't bind") — and serialising them to avoid that cost ~9min of queueing for a job
     # that only takes 4.5.
-    runs-on: parity-large
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       # Every network CI bites, spawned. Biting and spawning are different things: the nightly
