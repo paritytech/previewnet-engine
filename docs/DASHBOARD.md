@@ -77,10 +77,20 @@ block number as `specName/specVersion` and the node's own version. The stamp say
 
 ### Actions are a separate, gated plane
 
-Read-only by default everywhere. Runtime upgrades (reusing `packages/cli/src/upgrade/`) and
-binary-swap-with-restart are exposed only when the profile is `local`, or when a server
-operator sets an explicit token. Fail-closed: an environment that says nothing gets no actions.
-An upgrade is a sudo call; the gate is the security boundary.
+Runtime upgrades (reusing `packages/cli/src/upgrade/`) and binary-swap-with-restart are sudo
+calls, so what may run one is decided by **who can reach the socket**:
+
+| `DASHBOARD_HOST` | `DASHBOARD_ACTIONS_TOKEN` | actions |
+|---|---|---|
+| unset (`127.0.0.1`) | unset | open — only this machine can call |
+| anything wider | unset | off, 403 |
+| anything wider | set | the exact bearer only, else 401 |
+
+Reachability and not a profile, because a profile cannot get here. This gate used to read
+`PPN_PROFILE` and default to `local`, and zombienet strips the environment of custom
+processes (see below), so on a deployed host it always read `local` and every caller was
+authorized for sudo. Binding is the one input that cannot be silently absent: the socket is
+either reachable or it is not.
 
 ### Environments
 

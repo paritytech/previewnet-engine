@@ -68,9 +68,9 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
   const port = Number(process.env.DASHBOARD_PORT || ctx.ports.DASHBOARD_PORT || 8090);
   // Env first, then the ports file — the same precedence dataDir uses below, and for the
   // same reason: the dashboard runs as a zombienet custom process, which is handed no
-  // environment. redeploy.sh writes PPN_PUBLIC_URL to /etc/ppn/deploy.env for ppn.service,
-  // but that never reaches here, so a server advertised ws://127.0.0.1:8090 for every chain
-  // — an address no browser on the far side of nginx can use.
+  // environment. Setting PPN_PUBLIC_URL for the supervisor does not reach here, so a server
+  // that only did that advertised ws://127.0.0.1:8090 for every chain — an address no
+  // browser on the far side of a reverse proxy can use.
   const baseUrl =
     process.env.PPN_PUBLIC_URL || ctx.ports.PPN_PUBLIC_URL || `http://127.0.0.1:${port}`;
   const proxyEnabled = (process.env.DASHBOARD_PROXY ?? '1') !== '0';
@@ -81,16 +81,20 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
     ctx.ports.PPN_DATA_DIR ||
     path.join(path.dirname(ctx.sharedBinDir), 'data');
 
-  // Actions are sudo: a runtime upgrade is a root call, so the plane is fail-closed.
-  // Open on the local profile (your machine, your Alice); anywhere else only with an
-  // explicit bearer token an operator chose to set. An environment that says nothing
-  // gets a read-only dashboard.
-  const profile = process.env.PPN_PROFILE || 'local';
+  // Actions are sudo: a runtime upgrade is a root call. What may run one is decided by who
+  // can reach this socket, not by a profile — PPN_PROFILE does not survive zombienet, which
+  // strips the environment of custom processes, so reading it here resolves to the local
+  // default on a deployed host and opens sudo to the network.
+  //
+  // Bound to loopback: open, because the only callers are on this machine. Bound anywhere
+  // else: a bearer token the operator set, or the dashboard is read-only.
+  const host = process.env.DASHBOARD_HOST || ctx.ports.DASHBOARD_HOST || '127.0.0.1';
+  const loopbackOnly = host === '127.0.0.1' || host === '::1' || host === 'localhost';
   const actionsToken = process.env.DASHBOARD_ACTIONS_TOKEN || null;
-  const actionsEnabled = profile === 'local' || actionsToken !== null;
+  const actionsEnabled = loopbackOnly || actionsToken !== null;
   const authorized = (req: http.IncomingMessage): boolean => {
     if (!actionsEnabled) return false;
-    if (profile === 'local' && !actionsToken) return true;
+    if (!actionsToken) return loopbackOnly;
     return req.headers.authorization === `Bearer ${actionsToken}`;
   };
 
@@ -431,10 +435,11 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
     socket.on('error', () => upstream.destroy());
   });
 
-  server.listen(port, () => {
-    console.log(`dashboard: ${baseUrl}`);
+  server.listen(port, host, () => {
+    console.log(`dashboard: ${baseUrl} (bound ${host})`);
     console.log(`  api:    ${baseUrl}/api/network`);
     console.log(`  proxy:  ${proxyEnabled ? [...routes.keys()].join(' ') : 'off'}`);
+    console.log(`  actions: ${actionsEnabled ? (actionsToken ? 'bearer token' : 'open on loopback') : 'off'}`);
   });
 
   // zombienet owns the lifecycle; hold the process open until it kills us.
