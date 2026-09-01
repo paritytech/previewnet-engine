@@ -1,8 +1,8 @@
-# Product Preview Network
+# Product Preview Network (PPN)
 
 A complete Polkadot ecosystem on your machine, in one command: a Paseo relay chain with six
 validators, plus Asset Hub (2-second blocks via elastic scaling), People, Bulletin and Web3
-Storage — with the Ethereum RPC, IPFS, identity backend and storage provider those chains
+Storage, plus the Ethereum RPC, IPFS, identity backend and storage provider those chains
 expect, already wired together.
 
 ```bash
@@ -14,6 +14,11 @@ make start
 First run downloads ~500 MB of binaries and runtimes, then spawns. When it is up, the
 dashboard at <http://127.0.0.1:8090> shows every chain, service and endpoint.
 
+> **`make` or `ppn`?** `make` exists only inside a clone, as a front door for the common
+> things; every target delegates to `ppn`, which is the same CLI npm installs. Anything
+> `make` does, `ppn` does with flags: `make start FORK=1 NETWORK=devnet` is
+> `ppn start --fork devnet`. The examples below use `ppn`, so they work either way.
+
 ## What you would use it for
 
 **Develop against the whole stack, not a mock.** Contracts on Asset Hub through
@@ -24,12 +29,12 @@ speaks to everything, the way it does in production.
 so contracts, registrations and balances are already there.
 
 ```bash
-make start FORK=1                      # from the latest published snapshot
-make start FORK=1 NETWORK=paseo-next-v2
+ppn start --fork                 # from the latest published snapshot
+ppn start --fork paseo-next-v2   # a different network
 ```
 
 **Test a build before it ships.** Any binary or runtime can be repointed without editing
-anything, which is what makes this useful as a release gate — run the full network against a
+anything, which is what makes this useful as a release gate. Run the full network against a
 candidate and see what breaks.
 
 ```bash
@@ -65,14 +70,13 @@ ppn upgrade asset-hub ./asset_hub_runtime.wasm
 ## Prerequisites
 
 - **Node.js 22+**
-- **GitHub auth** — `gh auth login`, or set `GITHUB_TOKEN`. Binaries and runtimes come from
+- **GitHub auth**: `gh auth login`, or set `GITHUB_TOKEN`. Binaries and runtimes come from
   GitHub releases, some private.
 - **Apple Silicon**: disable IPv6, per
   [polkadot-sdk#8918](https://github.com/paritytech/polkadot-sdk/issues/8918):
   `sudo networksetup -setv6off Wi-Fi` (undo with `-setv6automatic`).
 
-`make doctor` checks all of this. `make help` lists every target; each one delegates to `ppn`,
-so `ppn <command> --help` is the fuller reference.
+`make doctor` checks all of this, and `make help` lists every target.
 
 ## Docker
 
@@ -80,13 +84,13 @@ so `ppn <command> --help` is the fuller reference.
 DOCKER=1 make start
 ```
 
-Linux only. p2p networking fails on Apple Silicon under x86_64 emulation — use `make start`.
+Linux only. p2p networking fails on Apple Silicon under x86_64 emulation, so use `make start`.
 
 ## Using it against your own network
 
 The `ppn` CLI is [published separately](https://www.npmjs.com/package/@parity/ppn) and is not
-tied to the networks defined here. It reads *descriptors* — `networks/<name>.json`, naming the
-binary, release and runtime for every chain — so you can point it at your own instead of
+tied to the networks defined here. It reads *descriptors*: `networks/<name>.json`, naming the
+binary, release and runtime for every chain, so you can point it at your own instead of
 cloning this repo.
 
 ```bash
