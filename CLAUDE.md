@@ -262,9 +262,11 @@ cat /tmp/zombie-*/alice-paseo-validator.log    # View specific node logs
 
 ### npm (`.github/workflows/npm-release.yml`)
 
-- Called by `release.yml`, so the packages ship with the release rather than needing a second
-  deliberate step. No tag trigger: a second normal route is how a registry version ends up
-  with no engine release behind it. Dispatch it directly only to recover a half-done release
+- Only ever called by `release.yml`. No dispatch and no tag trigger, so `Release` is the one
+  runnable release workflow and there is nothing to pick between
+- Skips publishing when the registry already serves the version, which is what makes re-running
+  `Release` for the same version safe. Half published is a hard error: npm versions are
+  immutable, so the missing half can never be filled in and the fix is a new version
 - Packs `@parity/ppn-network-config` and `@parity/ppn` with pnpm (which rewrites
   `workspace:*` to concrete versions), hands them to `npm_publish_automation`, then waits for
   the registry to serve the version. That wait is the only proof of success: the handover is a

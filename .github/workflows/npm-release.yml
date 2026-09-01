@@ -1,12 +1,14 @@
-name: NPM Release
+name: npm publish (part of Release)
 
-# Publishing the packages. Normally not run directly: release.yml calls it, so one stable
-# release publishes the dist tarball, the image and the registry versions off one commit
-# under one number. There is deliberately no tag trigger: a second normal route is how a
-# registry version ends up with no engine release behind it.
+# Not a way to release anything. Release is the one button; this is a step inside it, named
+# so the Actions sidebar says so. No dispatch and no tag trigger: every extra route is how a
+# registry version ends up with no engine release behind it, or how someone publishes the
+# packages while believing they cut a release.
 #
-# The dispatch is the recovery path, for when a release cut the packages but not the release
-# (or the other way round) and re-running release.yml is refused because the tag now exists.
+# Re-running Release for the same version is safe, because publishing is skipped when the
+# registry already serves it. Without that, a release whose npm step succeeded and whose
+# `create-release` failed would wedge that version forever: no tag exists so Release will run
+# again, and npm refuses to publish a version twice.
 #
 # The npm token lives in paritytech/npm_publish_automation, not here. This job builds, proves
 # the tarballs are safe to publish, packs them, hands them over, then waits for the registry
@@ -19,26 +21,15 @@ on:
         description: "Version to publish. A leading `v` is stripped, so a release tag works."
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to publish (e.g. 0.1.0)"
-        required: true
-        type: string
 
 jobs:
-  publish:
+  # Cheap, and it decides whether the expensive job runs at all.
+  check:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      skip: ${{ steps.live.outputs.skip }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Enable Corepack
-        run: corepack enable
-
       - name: Resolve the version
         id: version
         env:
@@ -52,7 +43,45 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Publishing $VERSION"
+
+      # npm versions are immutable, so a re-run must not try to publish one twice. Half
+      # published is a different thing entirely and needs a person: bump and re-release,
+      # because the missing half can never be filled in under this version.
+      - name: Already on the registry?
+        id: live
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          live=0
+          for pkg in @parity/ppn-network-config @parity/ppn; do
+            if curl -sfo /dev/null "https://registry.npmjs.org/$pkg/$VERSION"; then
+              live=$((live + 1))
+            fi
+          done
+          case "$live" in
+            0) echo "skip=false" >> "$GITHUB_OUTPUT"
+               echo "Publishing $VERSION" ;;
+            2) echo "skip=true" >> "$GITHUB_OUTPUT"
+               echo "Both packages already serve $VERSION. Nothing to publish." ;;
+            *) echo "::error::$live of 2 packages are at $VERSION. Release a new version."
+               exit 1 ;;
+          esac
+
+  publish:
+    needs: check
+    if: ${{ needs.check.outputs.skip != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -69,7 +98,7 @@ jobs:
       - name: Set versions
         run: |
           for pkg in packages/network-config packages/cli; do
-            (cd "$pkg" && npm pkg set version="${{ steps.version.outputs.version }}")
+            (cd "$pkg" && npm pkg set version="$VERSION")
           done
           # The CLI's dependency on the library is `workspace:*`; `pnpm pack` below rewrites it
           # to the concrete version. npm would publish the protocol verbatim and every install
@@ -101,8 +130,6 @@ jobs:
       # repo and never reports back. Without this the job goes green on a publish that never
       # landed, and release.yml gates the GitHub release on that green.
       - name: Wait for the registry to serve it
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           deadline=$((SECONDS + 600))
           for pkg in @parity/ppn-network-config @parity/ppn; do
