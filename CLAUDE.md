@@ -184,7 +184,6 @@ zombienet-configs/
 ├── release.yml               # Stable semver release: dist tarball, changelog, Docker image
 ├── nightly-bites.yml         # Nightly bite → the rolling `bites` pre-release (bundles only)
 ├── bite-network.yml          # Bite one network on demand (artifact, not a release)
-├── npm-release.yml           # Publish the npm packages (called by release.yml)
 └── zombienet-tests.yml       # PR gates: lint, drift, npm smoke, integration, fork-e2e
 ```
 
@@ -241,7 +240,7 @@ cat /tmp/zombie-*/alice-paseo-validator.log    # View specific node logs
 
 - Manual dispatch with a semver `version`, or called by `zombienet-tests.yml` as a PR dry run
 - Packs the deployable dist tarball, builds and pushes `paritytech/previewnet-engine`
-- Publishes the npm packages at the same version, via `npm-release.yml`
+- Publishes `@parity/ppn-network-config` and `@parity/ppn` at the same version
 - Cuts a GitHub release with generated notes as the changelog; stable releases own `latest`
 - All-or-nothing: the release is cut last and only if npm published, so a failed publish
   leaves no tag and the same version can be re-run
@@ -260,13 +259,15 @@ cat /tmp/zombie-*/alice-paseo-validator.log    # View specific node logs
   `integration-tests` (spawns the full network and runs `tests/*.zndsl`), `fork-e2e` for each
   pre-bitten network, plus the release dry run
 
-### npm (`.github/workflows/npm-release.yml`)
+### npm (the `npm-check` and `publish-npm` jobs in `release.yml`)
 
-- Only ever called by `release.yml`. No dispatch and no tag trigger, so `Release` is the one
-  runnable release workflow and there is nothing to pick between
-- Skips publishing when the registry already serves the version, which is what makes re-running
-  `Release` for the same version safe. Half published is a hard error: npm versions are
-  immutable, so the missing half can never be filled in and the fix is a new version
+- Jobs inside the release, not a workflow of their own. `Release` is the only runnable release
+  workflow, so there is nothing to pick between and no way to publish while believing you cut
+  a release
+- `npm-check` skips publishing when the registry already serves the version, which is what
+  makes re-running `Release` for the same version safe. Half published is a hard error: npm
+  versions are immutable, so the missing half can never be filled in and the fix is a new
+  version
 - Packs `@parity/ppn-network-config` and `@parity/ppn` with pnpm (which rewrites
   `workspace:*` to concrete versions), hands them to `npm_publish_automation`, then waits for
   the registry to serve the version. That wait is the only proof of success: the handover is a
