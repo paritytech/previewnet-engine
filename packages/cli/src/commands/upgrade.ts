@@ -14,8 +14,8 @@ import { localWsUrl, UPGRADE_CHAINS } from '../upgrade/chains.js';
 import { resolveSudoUri } from '../upgrade/sudo.js';
 import { signerFromUri } from '../upgrade/signer.js';
 import { wsProvider } from '../upgrade/provider-node.js';
+import { secretsFile } from '../lib/secrets.js';
 
-const SECRETS_FILE = '/etc/ppn/secrets.env';
 
 export interface UpgradeOptions {
   /** WS endpoint; defaults to the chain's local port from config/ports.env. */
@@ -45,7 +45,8 @@ export async function run(args: string[], opts: UpgradeOptions = {}): Promise<vo
 
   // The same secrets channel the services use: zombie-cli does not forward env vars to
   // custom processes, so the deployable profile's key is read from the file.
-  const secretsText = fs.existsSync(SECRETS_FILE) ? fs.readFileSync(SECRETS_FILE, 'utf8') : null;
+  const secretsPath = secretsFile();
+  const secretsText = secretsPath ? fs.readFileSync(secretsPath, 'utf8') : null;
   const sudoUri = resolveSudoUri(process.env.PPN_SUDO_URI, secretsText);
 
   // On a fork of production the relay's sudo account sits at the existential deposit —
