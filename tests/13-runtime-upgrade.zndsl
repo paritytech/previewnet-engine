@@ -1,0 +1,22 @@
+Description: Runtime Upgrade - live authorize/apply upgrade on Asset Hub
+Network: ../zombienet-configs/local-dev.toml
+Creds: config
+
+# ============================================
+# Prerequisites
+# ============================================
+
+# Collator must be up
+asset-hub-collator1: is up
+
+# Parachain must be registered and producing blocks
+alice-paseo-validator: parachain 1500 is registered within 400 seconds
+alice-paseo-validator: parachain 1500 block height is at least 5 within 500 seconds
+
+# ============================================
+# Runtime upgrade (see tests/scripts/test-runtime-upgrade.ts)
+# ============================================
+
+# Each real upgrade leg waits on the relay PVF pre-check and go-ahead, whose
+# duration varies widely — this is the slowest assertion in the suite.
+asset-hub-collator1: js-script ./scripts/dist/test-runtime-upgrade.js return is equal to 1 within 1800 seconds

@@ -1,0 +1,54 @@
+/* Polkadot design system semantic tokens over Tailwind v4.
+   Warm neutral, surfaces over borders, Inter only, dark via prefers-color-scheme.
+   Never use raw palette classes in components — only these tokens. */
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  --color-surface-main: #fafaf9;
+  --color-surface-container: #ffffff;
+  --color-surface-nested: #f5f5f4;
+  --color-selection-hover: #e7e5e4;
+
+  --color-fg-primary: #1c1917;
+  --color-fg-secondary: #57534e;
+  --color-fg-tertiary: #a8a29e;
+  --color-fg-link: #44403c;
+
+  --color-status-ok: #16a34a;
+  --color-status-err: #dc2626;
+  --color-status-warn: #d97706;
+
+  --radius-container: 16px;
+  --radius-nested: 12px;
+  --radius-medium: 10px;
+
+  --shadow-1: 0 1px 3px rgb(0 0 0 / 0.08);
+  --color-divider: rgb(0 0 0 / 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Dark Elevated: surfaces separate through brightness. */
+  :root {
+    --color-surface-main: #131211;
+    --color-surface-container: #1e1c1b;
+    --color-surface-nested: #292524;
+    --color-selection-hover: #33302e;
+    --color-fg-primary: #fafaf9;
+    --color-fg-secondary: #d6d3d1;
+    --color-fg-tertiary: #78716c;
+    --color-fg-link: #e7e5e4;
+    --shadow-1: 0 1px 3px rgb(0 0 0 / 0.4);
+    --color-divider: rgb(255 255 255 / 0.06);
+  }
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-fg-secondary);
+  outline-offset: 2px;
+}
+
+body {
+  background: var(--color-surface-main);
+}

@@ -1,0 +1,94 @@
+name: NPM Release
+
+# Publishing the tool, which is a different thing from publishing a network build.
+#
+# `release.yml` cuts a timestamped release (v20260814.093012) whose artifacts are binaries,
+# runtimes and a fork bundle. Those tags are not semver and must not drive an npm version, so
+# this workflow has its own trigger: a `npm-v*` tag, or a dispatch with an explicit version.
+#
+# The npm token lives in paritytech/npm_publish_automation, not here. This job builds, proves
+# the tarballs are safe to publish, packs them, and hands them over — the same shape as
+# paritytech/host-api-test-sdk.
+
+on:
+  push:
+    tags:
+      - "npm-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.0)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve the version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#npm-v}"
+          fi
+          # Refuse anything npm would reject, or that would publish a nonsense version.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "not a semver version: '$VERSION'" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # The published tarballs must carry no deployment endpoint, and must carry the launchers
+      # zombienet execs by path. Both are asserted by packing for real and reading the result,
+      # so this gate has to pass before anything is handed to the publisher.
+      - name: Verify the publish surface
+        run: pnpm --filter @parity/ppn test
+
+      - name: Set versions
+        run: |
+          for pkg in packages/network-config packages/cli; do
+            (cd "$pkg" && npm pkg set version="${{ steps.version.outputs.version }}")
+          done
+          # The CLI's dependency on the library is `workspace:*`; `pnpm pack` below rewrites it
+          # to the concrete version. npm would publish the protocol verbatim and every install
+          # would fail with EUNSUPPORTEDPROTOCOL — which is why packing uses pnpm, not npm.
+
+      - name: Pack
+        run: |
+          mkdir -p packs
+          for pkg in packages/network-config packages/cli; do
+            (cd "$pkg" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/packs")
+          done
+          ls -ltr packs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ github.sha }}
+          path: packs
+
+      - name: Trigger npm_publish_automation
+        uses: octokit/request-action@dad4362715b7fb2ddedf9772c8670824af564f0d # v2.4.0
+        with:
+          route: POST /repos/paritytech/npm_publish_automation/actions/workflows/publish.yml/dispatches
+          ref: main
+          inputs: '${{ format(''{{ "repo": "{0}", "run_id": "{1}" }}'', github.repository, github.run_id) }}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.NPM_PUBLISH_AUTOMATION_TOKEN }}

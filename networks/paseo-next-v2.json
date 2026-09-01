@@ -1,0 +1,87 @@
+{
+  "name": "paseo-next-v2",
+  "displayName": "Paseo Next v2",
+  "description": "Next runtimes as parachains on the public Paseo relay, on the previewnet para-id band: Asset Hub Next 1500, Bulletin Next 1501, People Next 1502 (chain ids next-*-paseo). Specs from paritytech/chainspecs; RPCs on *-rpc.polkadot.io. Fork-only.",
+  "genesis": false,
+  "sudo": true,
+  "bite": {
+    "prebaked": true,
+    "source": "https://dot.li",
+    "_note": "all rpc/specSource entries are absolute, so source is only provenance + the pin-bulletin-products byte gateway \u2014 confirm dot.li serves /ipfs/<cid> for pnv2 bulletin content",
+    "doppelganger": {
+      "repo": "paritytech/doppelganger-wrapper",
+      "tag": "v0.2.1"
+    },
+    "sharedRelay": true
+  },
+  "releases": {
+    "polkadot-sdk": {
+      "repo": "paritytech/release-automation",
+      "tag": "latest"
+    }
+  },
+  "relay": {
+    "chain": "paseo",
+    "spec": "paseo",
+    "rpc": "wss://paseo-rpc.n.dwellir.com",
+    "rpcAlternates": [
+      "wss://paseo-v2.rpc.turboflakes.io",
+      "wss://rpc-paseo.stakeworld.io"
+    ],
+    "specSource": "https://raw.githubusercontent.com/paseo-network/paseo-chain-specs/main/paseo.raw.json",
+    "validators": 6,
+    "binary": {
+      "name": "polkadot",
+      "release": "polkadot-sdk"
+    }
+  },
+  "parachains": [
+    {
+      "key": "asset-hub",
+      "paraId": 1500,
+      "spec": "asset-hub",
+      "rpc": "wss://paseo-asset-hub-next-rpc.polkadot.io",
+      "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/paseo/parachain/asset-hub-next/raw.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      }
+    },
+    {
+      "key": "people",
+      "paraId": 1502,
+      "spec": "people",
+      "rpc": "wss://paseo-people-next-system-rpc.polkadot.io",
+      "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/paseo/parachain/people-next-system/raw.json",
+      "_note": "people-next-SYSTEM is the 1502 chain; the plain people-next spec in the same repo is para 5140 \u2014 a different deployment",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      }
+    },
+    {
+      "key": "bulletin",
+      "paraId": 1501,
+      "spec": "bulletin",
+      "rpc": "wss://paseo-bulletin-next-rpc.polkadot.io",
+      "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/paseo/parachain/bulletin-next/raw.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      }
+    }
+  ],
+  "services": {
+    "eth-rpc": {
+      "binary": {
+        "name": "eth-rpc",
+        "release": "polkadot-sdk"
+      }
+    }
+  },
+  "dotns": {
+    "_note": "Same DotNS deployment as previewnet — the factory deployer key pins these addresses, so the resolver is at the same address on both. Verified 2026-08-19 by scanning it on paseo-asset-hub-next. The gateway is named explicitly because bite.source (https://dot.li) is the app, not an IPFS gateway.",
+    "resolver": "0x7F74D7CD50f5a834270E2ad395a01b01891AB37d",
+    "gateway": "https://paseo-bulletin-next-ipfs.polkadot.io"
+  }
+}

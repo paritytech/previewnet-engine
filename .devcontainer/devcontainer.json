@@ -1,0 +1,17 @@
+{
+  "name": "PPN Dev Environment",
+  "image": "paritytech/previewnet-engine:latest",
+  "overrideCommand": true,
+  "runArgs": ["--platform=linux/amd64"],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+  "forwardPorts": [10000, 10010, 10020, 10030, 4001, 5001, 8080, 8545],
+  "postStartCommand": "/ppn/scripts/docker-entrypoint.sh &",
+  "postCreateCommand": "echo '✓ PPN network starting in background. Endpoints: ws://localhost:10000 (relay), ws://localhost:10020 (asset-hub), ws://localhost:10010 (people), ws://localhost:10030 (bulletin), http://localhost:8545 (eth-rpc)'"
+}

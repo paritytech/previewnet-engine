@@ -1,0 +1,57 @@
+{
+  "name": "polkadot",
+  "displayName": "Polkadot",
+  "description": "STUB. Fork-only, bitten on the fly (no sudo, so a runtime under test must be injected at bite time rather than upgraded afterwards). Relay + Asset Hub only.",
+  "genesis": false,
+  "sudo": false,
+  "bite": {
+    "prebaked": false,
+    "source": "wss://rpc.polkadot.io",
+    "doppelganger": {
+      "repo": "paritytech/doppelganger-wrapper",
+      "tag": "v0.2.3"
+    },
+    "sharedRelay": true,
+    "_note": "No sudo: a runtime upgrade is authorized at import instead of dispatched. `ppn bite --upgrade asset-hub=<wasm>` seeds System::AuthorizedUpgrade, and `ppn runtime-upgrade` submits the apply half unsigned. Belongs in zombie-bite (paritytech/zombie-bite#127) once PPN calls it instead of driving doppelganger. v0.2.3 is the first doppelganger honouring ZOMBIE_WARP_SKIP_PROOF, without which the state sync stalls partway through and never recovers."
+  },
+  "releases": {
+    "polkadot-sdk": {
+      "repo": "paritytech/release-automation",
+      "tag": "latest"
+    }
+  },
+  "relay": {
+    "chain": "polkadot",
+    "spec": "polkadot",
+    "rpc": "wss://rpc.polkadot.io",
+    "specSource": "builtin",
+    "validators": 6,
+    "binary": {
+      "name": "polkadot",
+      "release": "polkadot-sdk"
+    }
+  },
+  "parachains": [
+    {
+      "key": "asset-hub",
+      "paraId": 1000,
+      "spec": "asset-hub",
+      "rpc": "wss://polkadot-asset-hub-rpc.polkadot.io",
+      "specSource": "builtin:asset-hub-polkadot",
+      "aura": "ed25519",
+      "binary": {
+        "name": "polkadot-parachain",
+        "release": "polkadot-sdk"
+      },
+      "_note": "A public system chain carries its spec inside the parachain binary, so unlike Paseo's Asset Hub it needs no host to publish one. Its Aura keys are ed25519, alone among the system chains: with the sr25519 default the collator matches no slot and authors nothing, without ever reporting an error."
+    }
+  ],
+  "services": {
+    "eth-rpc": {
+      "binary": {
+        "name": "eth-rpc",
+        "release": "polkadot-sdk"
+      }
+    }
+  }
+}

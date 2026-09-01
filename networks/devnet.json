@@ -1,0 +1,113 @@
+{
+  "name": "devnet",
+  "displayName": "Polkadot Products Devnet",
+  "description": "The Polkadot Products Devnet: the community-operated public Paseo relay with the product surface on normal system-chain para ids — Asset Hub 1000, People 1004, Bulletin 1010. Fork-only. Reference: https://docs.polkadotcommunity.foundation/reference/networks/",
+  "genesis": false,
+  "sudo": true,
+  "bite": {
+    "prebaked": false,
+    "_prebaked_note": "false because devnet's bundle is 4.9 GB and its Asset Hub snapshot alone is 3.75 GB, over GitHub's 2 GiB per-asset limit — the upload fails create-release outright, so the whole release is lost, not just this bundle. `ppn start --fork devnet` still bites on the fly. Publishing it needs the asset split into parts, or hosting off GitHub releases.",
+    "source": "https://devnet-ipfs.api.polkadotcommunity.foundation",
+    "doppelganger": {
+      "repo": "paritytech/doppelganger-wrapper",
+      "tag": "v0.2.1"
+    },
+    "sharedRelay": true
+  },
+  "releases": {
+    "polkadot-sdk": {
+      "repo": "paritytech/release-automation",
+      "tag": "latest"
+    }
+  },
+  "relay": {
+    "chain": "paseo",
+    "spec": "paseo",
+    "rpc": "wss://paseo-rpc.n.dwellir.com",
+    "rpcAlternates": [
+      "wss://paseo-v2.rpc.turboflakes.io",
+      "wss://rpc-paseo.stakeworld.io",
+      "wss://rpc.interweb-it.com/paseo"
+    ],
+    "specSource": "https://raw.githubusercontent.com/paseo-network/paseo-chain-specs/main/paseo.raw.json",
+    "validators": 6,
+    "binary": {
+      "name": "polkadot",
+      "release": "polkadot-sdk"
+    }
+  },
+  "parachains": [
+    {
+      "key": "asset-hub",
+      "paraId": 1000,
+      "spec": "asset-hub",
+      "rpc": "wss://asset-hub-paseo-rpc.n.dwellir.com",
+      "rpcAlternates": [
+        "wss://sys.turboflakes.io/asset-hub-paseo"
+      ],
+      "specSource": "https://github.com/paulormart/ahpaseo-specs/raw/main/paseo-asset-hub-2.json.zip",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      },
+      "_note": "The smol (stateRootHash-genesis) spec was rejected by doppelganger; this full raw spec (279 MB, shipped zipped — bite unzips it) replaces it. Bite still unverified end-to-end against live paseo."
+    },
+    {
+      "key": "people",
+      "paraId": 1004,
+      "spec": "people",
+      "rpc": "wss://people-paseo.rotko.net",
+      "rpcAlternates": [
+        "wss://people-paseo.gatotech.network",
+        "wss://rpc.interweb-it.com/people-paseo"
+      ],
+      "specSource": "https://raw.githubusercontent.com/paseo-network/paseo-chain-specs/main/paseo-people.raw.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      }
+    },
+    {
+      "key": "bulletin",
+      "paraId": 1010,
+      "spec": "bulletin",
+      "rpc": "wss://bulletin-paseo.tservices.es:8443",
+      "rpcAlternates": [
+        "wss://bulletin-paseo-02.tservices.es:9443",
+        "wss://bullet.sik.rocks",
+        "wss://bullet.tunastaking.eu"
+      ],
+      "specSource": "https://raw.githubusercontent.com/paseo-network/paseo-chain-specs/main/paseo-bulletin.raw.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      }
+    }
+  ],
+  "services": {
+    "eth-rpc": {
+      "binary": {
+        "name": "eth-rpc",
+        "release": "polkadot-sdk"
+      }
+    }
+  },
+  "dotns": {
+    "resolver": "0x326bdE29315199c814B1c58b431D84D16EA5cE41",
+    "_note": "Snapshot of https://docs.polkadotcommunity.foundation/reference/addresses/ (2026-08-22). Devnet redeploys can move these; the docs page and the dotns-sdk devnet preset are the source of truth.",
+    "addresses": {
+      "DotnsRegistrar": "0x7f0dF075cc8B7FE7218E90fFC5a553450dB120F3",
+      "DotnsRegistrarController": "0x45fDEa4Ad7b8607Fc22DBC3DBE3cD8b350F8bede",
+      "DotnsRegistry": "0x527b08a640b527a3dae0C4BE04D7344E430B6E50",
+      "DotnsResolver": "0xC28796526Bf3E9295f09655a1001F30f77AfCF0D",
+      "DotnsReverseResolver": "0xfd2594FcF920B38A970011C486e1E3041563147F",
+      "DotnsContentResolver": "0x326bdE29315199c814B1c58b431D84D16EA5cE41",
+      "DotnsPopController": "0x1884819F6747576883805Cb2b7BB68d29484d1b0",
+      "DotnsPopResolver": "0x92Fd4195Be40A266d2914FB64C63cC50715dB1D8",
+      "PopRules": "0x2181a14081fF2D4477BAA8FB1aEB4C9c44F5F2b0",
+      "DotnsNameEscrow": "0xfEdBe7a7F32017F6bCAA3109bE2EaC7D59E319E5",
+      "StoreFactory": "0xD81DC23FAa69B311C1FC553Ea63798772e7D253D",
+      "Multicall3": "0x929EdB8d61461c29d07deC834ef747EbFDcf0B74"
+    }
+  }
+}

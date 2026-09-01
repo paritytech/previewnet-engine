@@ -1,0 +1,29 @@
+{
+  "name": "ppn-zombienet-tests",
+  "version": "1.0.0",
+  "description": "Zombienet integration tests for Product Preview Network",
+  "scripts": {
+    "build": "npm run build:bundle",
+    "build:tsc": "tsc",
+    "build:bundle": "esbuild test-*.ts --bundle --platform=node --format=cjs --outdir=dist --external:ws --external:verifiablejs",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist .papi",
+    "papi:add": "papi add bulletin --wasm ../../bin/bulletin_paseo_runtime.wasm --skip-codegen && papi add people --wasm ../../bin/next_people_paseo_runtime.wasm --skip-codegen && papi add assetHub --wasm ../../bin/next_asset_hub_paseo_runtime.wasm --skip-codegen",
+    "papi:generate": "papi generate",
+    "papi": "npm run papi:add && npm run papi:generate",
+    "postinstall": "npm run papi"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.3.0",
+    "@polkadot-api/descriptors": "file:.papi/descriptors",
+    "@polkadot-labs/hdkd": "^0.0.11",
+    "@polkadot-labs/hdkd-helpers": "^0.0.11",
+    "polkadot-api": "^1.23.3",
+    "verifiablejs": "^1.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.27.2",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "name": "previewnet",
+  "displayName": "Previewnet",
+  "description": "Product Preview Network \u2014 the network this repo builds. The only network spawnable from genesis; also forkable.",
+  "genesis": true,
+  "sudo": true,
+  "bite": {
+    "prebaked": true,
+    "source": "https://previewnet.substrate.dev",
+    "doppelganger": {
+      "repo": "paritytech/doppelganger-wrapper",
+      "tag": "v0.2.1"
+    },
+    "_note": "v0.2.1 is the first doppelganger able to bite Asset Hub and People: earlier builds lack the RFC-163 EC and statement-store host functions and panic during the state import."
+  },
+  "releases": {
+    "polkadot-sdk": {
+      "repo": "paritytech/release-automation",
+      "tag": "latest"
+    },
+    "individuality": {
+      "repo": "paritytech/individuality-community",
+      "tag": "latest"
+    },
+    "paseo-runtimes": {
+      "repo": "paseo-network/runtimes",
+      "tag": "v2.4.4"
+    },
+    "bulletin": {
+      "repo": "paritytech/polkadot-bulletin-chain",
+      "tag": "v0.0.23-paseo",
+      "_note": "bulletin tags the paseo build with a -paseo suffix; \"latest\" there can resolve to a release for another network, so pin an explicit tag"
+    },
+    "web3-storage": {
+      "repo": "paritytech/web3-storage",
+      "tag": "latest"
+    }
+  },
+  "genesisConfig": {
+    "chainType": "local",
+    "properties": "tokenSymbol=PAS,tokenDecimals=10",
+    "validatorNameSuffix": "paseo-validator",
+    "networkSuffix": "testnet",
+    "_note": "zombienet derives a node's keys from its name, so the suffix is part of genesis identity; fork mode uses the bare well-known names instead (see docs/FORK.md). networkSuffix is also the DotNS TLD: it picks which dotns-genesis-<tld>.json is fetched, and injection asserts the artifact's own tld stamp against it"
+  },
+  "relay": {
+    "chain": "paseo",
+    "spec": "paseo",
+    "rpc": "relay/alice",
+    "specSource": "chainspecs/paseo-local.json",
+    "validators": 6,
+    "binary": {
+      "name": "polkadot",
+      "release": "polkadot-sdk"
+    },
+    "runtime": {
+      "asset": "paseo_fast_runtime.compressed.wasm",
+      "release": "paseo-runtimes",
+      "file": "paseo_runtime.wasm",
+      "_note": "the _fast build (1-minute epochs) \u2014 on the production relay runtime a parachain's ValidatorGroups do not repopulate until the first session boundary an hour in"
+    },
+    "genesisSpec": {
+      "chainId": "paseo-local",
+      "name": "Paseo Local",
+      "preset": "local_testnet",
+      "file": "relay_paseo.json"
+    }
+  },
+  "parachains": [
+    {
+      "key": "asset-hub",
+      "paraId": 1500,
+      "spec": "asset-hub",
+      "rpc": "asset-hub",
+      "specSource": "chainspecs/asset-hub-local.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      },
+      "runtime": {
+        "asset": "next_asset_hub_paseo_runtime.compact.compressed.wasm",
+        "release": "individuality",
+        "file": "next_asset_hub_paseo_runtime.wasm"
+      },
+      "genesisSpec": {
+        "chainId": "asset-hub-local",
+        "name": "Asset Hub Local",
+        "preset": "development",
+        "file": "asset_hub.json"
+      }
+    },
+    {
+      "key": "people",
+      "paraId": 1502,
+      "spec": "individuality",
+      "rpc": "people",
+      "specSource": "chainspecs/individuality-local.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      },
+      "runtime": {
+        "asset": "next_people_paseo_runtime.compact.compressed.wasm",
+        "release": "individuality",
+        "file": "next_people_paseo_runtime.wasm"
+      },
+      "genesisSpec": {
+        "chainId": "individuality-local",
+        "name": "Individuality Local",
+        "preset": "development",
+        "file": "individuality.json"
+      }
+    },
+    {
+      "key": "bulletin",
+      "paraId": 1501,
+      "spec": "bulletin",
+      "rpc": "bulletin",
+      "specSource": "chainspecs/bulletin-local.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      },
+      "runtime": {
+        "asset": "bulletin_paseo_runtime.compact.compressed.wasm",
+        "release": "bulletin",
+        "file": "bulletin_paseo_runtime.wasm"
+      },
+      "genesisSpec": {
+        "chainId": "bulletin-local",
+        "name": "Bulletin Local",
+        "preset": "development",
+        "file": "bulletin.json"
+      }
+    },
+    {
+      "key": "web3-storage",
+      "paraId": 1600,
+      "spec": "web3-storage",
+      "rpc": "web3-storage",
+      "specSource": "chainspecs/web3-storage-local.json",
+      "binary": {
+        "name": "polkadot-omni-node",
+        "release": "polkadot-sdk"
+      },
+      "runtime": {
+        "asset": "storage_paseo_runtime.compact.compressed.wasm",
+        "release": "web3-storage",
+        "file": "storage_paseo_runtime.wasm"
+      },
+      "genesisSpec": {
+        "chainId": "web3-storage-local",
+        "name": "Web3 Storage Local",
+        "preset": "previewnet",
+        "file": "web3-storage.json",
+        "_note": "the previewnet preset pre-registers the storage provider's public multiaddr in genesis"
+      }
+    }
+  ],
+  "services": {
+    "eth-rpc": {
+      "binary": {
+        "name": "eth-rpc",
+        "release": "polkadot-sdk"
+      }
+    },
+    "storage-provider-node": {
+      "binary": {
+        "name": "storage-provider-node",
+        "release": "web3-storage",
+        "archive": "storage-provider-node-{tag}-{triple}.tar.gz"
+      }
+    }
+  },
+  "tools": {
+    "chain-spec-builder": {
+      "name": "chain-spec-builder",
+      "release": "polkadot-sdk"
+    }
+  },
+  "dotns": {
+    "_note": "Stated here like every other network's, though a genesis network could also derive it: `ppn fetch` writes the same address into bin/dotns-addresses.json from dotns's own manifest, and the import refuses to run if the two disagree. No `gateway` on purpose: unlike paseo-next-v2, whose bite.source is an app rather than a gateway, previewnet's products live wherever it was bitten from — naming production here would make a fork of a staging previewnet fetch from the real one.",
+    "resolver": "0x7F74D7CD50f5a834270E2ad395a01b01891AB37d",
+    "pinProducts": true
+  }
+}

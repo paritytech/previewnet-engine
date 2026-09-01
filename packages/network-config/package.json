@@ -1,0 +1,39 @@
+{
+  "name": "@parity/ppn-network-config",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Network descriptors, zombienet config generation and genesis patching for PPN",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "tsx --test tests/*.test.ts",
+    "prepack": "rm -rf config && mkdir -p config && cp ../../config/ports.env config/ && cp ../../LICENSE LICENSE",
+    "postpack": "rm -rf config && rm -f LICENSE"
+  },
+  "dependencies": {
+    "@polkadot/keyring": "^13.5.9",
+    "@polkadot/types": "^15.10.2",
+    "@polkadot/util": "13.5.9",
+    "@polkadot/util-crypto": "^13.5.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19",
+    "typescript": "^5.7"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paritytech/previewnet-engine.git",
+    "directory": "packages/network-config"
+  },
+  "files": [
+    "dist",
+    "config"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

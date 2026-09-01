@@ -1,0 +1,350 @@
+name: Release
+
+# The stable channel: a deliberate, semver-tagged release carrying the deployable dist
+# tarball, its changelog and the Docker image. These own GitHub `latest`, which is what a
+# deploy installs and what an unpinned `docker run` gets.
+#
+# Fork bundles are NOT here — they live on the rolling `bites` pre-release that
+# nightly-bites.yml refreshes, so bundle churn never moves `latest`.
+#
+# There is no cron: a release is a decision, not a clock. The old timestamped nightly and
+# the mirror-binaries job (verbatim copies of upstream artifacts, for pre-workspace installs
+# that pinned the old repo) both retired with the engine split.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semver tag to release, e.g. v0.4.1
+        type: string
+        required: true
+      publish:
+        description: Push the image and cut the release (uncheck for a dry run)
+        type: boolean
+        default: true
+  # Called by zombienet-tests as a PR gate: the whole thing runs, nothing is published.
+  workflow_call:
+    inputs:
+      version:
+        description: >-
+          Semver tag to release. Omitted by the PR dry run, which needs a tag to build
+          with but publishes nothing.
+        type: string
+        required: false
+      publish:
+        description: >-
+          Push the image and cut the release. False runs the whole thing and publishes
+          nothing — what a PR uses to find out that a release would have worked.
+        type: boolean
+        default: true
+    outputs:
+      tag:
+        description: The tag this release was published under.
+        value: ${{ jobs.prepare.outputs.tag }}
+
+concurrency:
+  # Named for this file, not `github.workflow` — which, in a reusable workflow, is the
+  # *caller's* name, so a caller with the same expression would queue behind the run it is
+  # waiting for and neither would start. `publish` is part of the group so a dry run and a
+  # real release on the same ref do not cancel each other.
+  group: release-${{ github.ref }}-${{ inputs.publish }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ==========================================================================
+  # Prepare: generate the release tag (lightweight, runs first)
+  #
+  # Node binaries and every runtime are pinned in config/versions.env and pulled
+  # from the release of the repo that builds them, so nothing here compiles
+  # them. See `ppn fetch`.
+  # ==========================================================================
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      # 'true' unless a caller asked for a dry run. A string, because job outputs always are:
+      # every consumer compares against 'true' rather than relying on truthiness.
+      publish: ${{ inputs.publish == true && 'true' || 'false' }}
+      pins: ${{ steps.pins.outputs.pins }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate port configuration
+        run: bash scripts/validate-ports.sh
+
+      # The tag is stated, not generated: semver is the contract for the dist channel, and
+      # the changelog below is cut against it. A dry run has no version to state, so it gets
+      # a throwaway that never reaches a release.
+      - name: Resolve release tag
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            if [ "${{ inputs.publish }}" = "true" ]; then
+              echo "::error::version is required to publish a release"
+              exit 1
+            fi
+            echo "tag=v0.0.0-dryrun" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::version '$VERSION' is not vMAJOR.MINOR.PATCH[-prerelease]"
+            exit 1
+          fi
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$VERSION already exists"
+            exit 1
+          fi
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Rendered into the release notes so a release records exactly which upstream
+      # artifacts it was assembled from. Every chain's binary and runtime is pinned
+      # per network in networks/*.json; previewnet is what a release is built for.
+      - name: Collect upstream pins
+        id: pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A `latest` pin is resolved to the tag it means *right now*, and the notes record
+          # that. "individuality: latest" says nothing a week later — these notes are parsed,
+          # and the whole point of the section is which exact artifacts this release was
+          # assembled from. Same fallback as lib/github.ts: a repo publishing only
+          # prereleases has no /releases/latest, so take its newest release.
+          resolve_tag() {
+            if [ "$2" != latest ]; then echo "$2"; return; fi
+            local t
+            if t=$(gh api "repos/$1/releases/latest" --jq .tag_name 2>/dev/null); then
+              echo "$t"
+            else
+              gh api "repos/$1/releases?per_page=1" --jq '.[0].tag_name'
+            fi
+          }
+          {
+            echo 'pins<<PINS_EOF'
+            jq -r '.releases | to_entries | sort_by(.key)[] | "\(.key) \(.value.repo) \(.value.tag)"' networks/previewnet.json \
+              | while read -r key repo tag; do
+                resolved=$(resolve_tag "$repo" "$tag")
+                if [ -z "$resolved" ]; then
+                  echo "::error::could not resolve $key ($repo@$tag)" >&2
+                  exit 1
+                fi
+                suffix=""
+                [ "$tag" = latest ] && suffix=" — resolved from \`latest\` at release time"
+                echo "- $key: [\`$resolved\`](https://github.com/$repo/releases/tag/$resolved)$suffix"
+              done
+            jq -r '"- doppelganger (bite only): `\(.bite.doppelganger.tag)`"' networks/previewnet.json
+            echo
+            echo 'Per-chain bindings: [`networks/previewnet.json`](${{ github.server_url }}/${{ github.repository }}/blob/main/networks/previewnet.json)'
+            echo 'PINS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+
+  # ==========================================================================
+  # Package the deployable build
+  #
+  # The server installs this instead of building whatever is on main, so the code it runs
+  # and the artifacts it fetches are the same version. See docs/ARCHITECTURE.md.
+  # ==========================================================================
+  build-dist:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+
+      - name: Build the workspace
+        run: make build
+
+      - name: Package
+        run: |
+          mkdir -p artifacts
+          node bin/ppn.mjs dist \
+            --version "${{ needs.prepare.outputs.tag }}" \
+            --out "artifacts/ppn-dist-${{ needs.prepare.outputs.tag }}.tar.gz"
+
+      - name: Upload dist
+        # Only create-release consumes this, so a dry run has nothing to hand it.
+        if: ${{ needs.prepare.outputs.publish == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppn-dist
+          path: artifacts/ppn-dist-*.tar.gz
+
+
+  # ==========================================================================
+  # Build DotNS Genesis Contracts (runs in PARALLEL with runtimes/binaries)
+  # ==========================================================================
+  # Build and Push Docker Image
+  # ==========================================================================
+  build-docker:
+    needs: prepare
+    runs-on: parity-large
+    # No environment on a dry run: it exists to carry the registry credentials, and a run
+    # that pushes nothing needs none — which also keeps the build off any approval gate.
+    environment: ${{ needs.prepare.outputs.publish == 'true' && 'docker' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+
+      # `ppn fetch` lives in packages/cli; bin/ppn.mjs refuses to run until it is compiled.
+      - name: Build the workspace
+        run: make build
+
+      # No app token here: every artifact `ppn fetch` pulls lives in a public repo, and the
+      # fork bundles live on this repo's own rolling `bites` release, which the default
+      # GITHUB_TOKEN reads. That is also what lets a fork PR run this job unchanged.
+      - name: Fetch all dependencies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node bin/ppn.mjs fetch
+
+      - name: Make binaries executable
+        run: chmod +x bin/*
+
+      - name: List bin contents
+        run: ls -la bin/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The image is built whatever happens (a Dockerfile that stopped building is exactly
+      # what this job is for); pushing needs credentials, which a fork PR never has and this
+      # repo may not have yet. Missing credentials degrade the job to build-only with a
+      # warning, rather than failing a release whose tarball is fine.
+      - name: Registry credentials present?
+        id: creds
+        run: |
+          if [ -n "${{ secrets.DOCKERHUB_USER }}" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ needs.prepare.outputs.publish }}" = "true" ]; then
+              echo "::warning::DOCKERHUB_USER is not set — building the image without pushing it"
+            fi
+          fi
+
+      - name: Log in to Docker Hub
+        if: ${{ needs.prepare.outputs.publish == 'true' && steps.creds.outputs.have == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      # `:latest` only from main, for the same reason create-release marks a branch build a
+      # prerelease: it is what an unpinned `docker run paritytech/previewnet-engine` gets. Tagging it from any
+      # ref made a test release from a branch the image every consumer pulls — silently, since
+      # the GitHub release beside it was correctly marked prerelease. The timestamped tag is
+      # always pushed, so a branch build is still installable by name.
+      - name: Docker tags
+        id: docker-tags
+        run: |
+          {
+            echo 'tags<<TAGS_EOF'
+            [ "${{ github.ref_name }}" = main ] && echo 'docker.io/paritytech/previewnet-engine:latest'
+            echo 'docker.io/paritytech/previewnet-engine:${{ needs.prepare.outputs.tag }}'
+            echo 'TAGS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      # Built either way — a Dockerfile that no longer builds is exactly what a dry run is
+      # for. Only the push is conditional.
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ needs.prepare.outputs.publish == 'true' && steps.creds.outputs.have == 'true' }}
+          tags: ${{ steps.docker-tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+
+  # ==========================================================================
+  # Create Release
+  # ==========================================================================
+  create-release:
+    needs: [prepare, build-dist, build-docker]
+    if: >-
+      ${{ !cancelled()
+      && needs.prepare.outputs.publish == 'true'
+      && needs.prepare.result == 'success'
+      && needs.build-dist.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # What the server installs. Without it a deploy has nothing to pin to.
+      - name: Download the deployable build
+        uses: actions/download-artifact@v4
+        with:
+          name: ppn-dist
+          path: release/
+
+      - name: List release artifacts
+        run: ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Release ${{ needs.prepare.outputs.tag }}
+          body: |
+            The engine's deployable build.
+
+            Node binaries and every chain runtime are **not** built here — they are
+            pinned in [`config/versions.env`](${{ github.server_url }}/${{ github.repository }}/blob/main/config/versions.env)
+            and downloaded by `ppn fetch` from the release of the repo that
+            builds each one. This release only carries what has no upstream home.
+
+            ## Docker
+
+            ```bash
+            docker run -p 10000-10030:10000-10030 -p 8545:8545 paritytech/previewnet-engine:${{ needs.prepare.outputs.tag }}
+            ```
+
+            ## Upstream Pins
+
+            ${{ needs.prepare.outputs.pins }}
+
+            DotNS is **not** built here either — since dotns v0.5.6-rc1 its release carries
+            the pallet-revive genesis, and `ppn fetch` takes it from the tag
+            `config/versions.env` pins.
+
+            ## Device Uniqueness Backend
+
+            Not built here — `ppn fetch` takes the `dub` binary from
+            [device-uniqueness-backend-community](https://github.com/paritytech/device-uniqueness-backend-community)'s
+            own release at the tag `config/versions.env` pins, and every service is a
+            `--role` of it: `dub-api` (all-in-one), `device-attestation-chain-writer`,
+            `registration-queue` and `invite-tickets-pool`.
+
+            ## Fork bundles
+
+            Not here: they live on the rolling [`bites`](${{ github.server_url }}/${{ github.repository }}/releases/tag/bites)
+            pre-release, refreshed nightly, which is where `ppn fork fetch-bundle` reads them.
+          files: release/*
+          draft: false
+          # The changelog: what merged since the previous stable tag.
+          generate_release_notes: true
+          # A release cut from anywhere but main is a prerelease, so it never becomes `latest`.
+          # `latest` is what every consumer's `ppn fetch` resolves to (config/versions.env) and
+          # what a deploy installs by default — a branch build must be installable by tag
+          # without becoming everybody's default.
+          prerelease: ${{ github.ref_name != 'main' }}

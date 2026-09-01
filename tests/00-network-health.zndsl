@@ -1,0 +1,37 @@
+Description: Network Health Check - All Nodes
+Network: ../zombienet-configs/local-dev.toml
+Creds: config
+
+# ============================================
+# Relay Chain Validators
+# ============================================
+
+# All validators must be up
+alice-paseo-validator: is up
+bob-paseo-validator: is up
+charlie-paseo-validator: is up
+
+# ============================================
+# Parachain Registration
+# ============================================
+
+# Asset Hub (parachain 1500) must be registered and producing blocks
+alice-paseo-validator: parachain 1500 is registered within 400 seconds
+alice-paseo-validator: parachain 1500 block height is at least 1 within 500 seconds
+
+# People Chain (parachain 1502) must be registered and producing blocks
+alice-paseo-validator: parachain 1502 is registered within 400 seconds
+alice-paseo-validator: parachain 1502 block height is at least 1 within 500 seconds
+
+# Bulletin Chain (parachain 1501) must be registered and producing blocks
+alice-paseo-validator: parachain 1501 is registered within 400 seconds
+alice-paseo-validator: parachain 1501 block height is at least 1 within 500 seconds
+
+# ============================================
+# Collator Health
+# ============================================
+
+# All collators must be up
+asset-hub-collator1: is up
+people-collator1: is up
+bulletin-collator1: is up

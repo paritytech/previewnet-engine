@@ -1,0 +1,7 @@
+# Self-hosted runners. actionlint only knows GitHub's own labels, so without this every
+# `runs-on: parity-*` is reported as a typo and the real findings are lost in the noise.
+self-hosted-runner:
+  labels:
+    - parity-default
+    - parity-large
+    - parity-large-persistent

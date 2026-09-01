@@ -1,0 +1,24 @@
+Description: Network Suffix - product contexts derive in this network's namespace
+Network: ../zombienet-configs/local-dev.toml
+Creds: config
+
+# The suffix used to be a runtime constant baked into the WASM; it now lives in a pallet
+# that genesis sets, so `ppn generate` writes the descriptor's value over the `paseo` the
+# presets ship. Both runtimes that carry the pallet are checked.
+
+# ============================================
+# Prerequisites
+# ============================================
+
+people-collator1: is up
+asset-hub-collator1: is up
+
+alice-paseo-validator: parachain 1502 is registered within 400 seconds
+alice-paseo-validator: parachain 1500 is registered within 400 seconds
+
+# ============================================
+# Suffix Tests
+# ============================================
+
+people-collator1: js-script ./scripts/dist/test-network-suffix.js return is equal to 1 within 120 seconds
+asset-hub-collator1: js-script ./scripts/dist/test-network-suffix.js return is equal to 1 within 120 seconds

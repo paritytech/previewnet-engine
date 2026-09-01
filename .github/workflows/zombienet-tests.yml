@@ -1,0 +1,719 @@
+name: Zombienet Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      test_file:
+        description: 'Specific test file to run (e.g., 00-network-health.zndsl), or "all"'
+        required: false
+        default: "all"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZOMBIENET_VERSION: v1.3.138
+  BIN: ${{ github.workspace }}/bin
+  SCRIPTS: ${{ github.workspace }}/scripts
+  ZOMBIE_DIR: /tmp/zombie-test
+
+jobs:
+  # Workflows are only executed by merging them, so a broken one is found in production by
+  # definition. actionlint type-checks them here instead — including across the reusable-
+  # workflow boundary, where a renamed output is otherwise invisible until a deploy fails.
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        env:
+          # shellcheck's info level is advisory (quote-this, prefer-read-loop) and mostly
+          # noise on these scripts; warnings and above still fail.
+          SHELLCHECK_OPTS: -S warning
+        run: |
+          bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  # The release, run for real and published nowhere: the tarball is packed, the networks are
+  # bitten, the DotNS contracts are deployed and the image is built. Only the push and the
+  # release itself are skipped, so a release that would have failed fails here instead —
+  # on the PR, where it is cheap to fix. See release.yml's `publish` input.
+  release-dry-run:
+    # Pull requests only. The point is to catch a release that would have failed *before* it
+    # is merged; after the merge deploy.yml cuts the real one, so running this too is fifteen
+    # minutes of duplicated bites and a second claim on the same live endpoints.
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/release.yml
+    with:
+      publish: false
+    secrets: inherit
+
+  # Verify local-dev.toml matches what the generator produces.
+  # If this fails, run: make generate-toml && git commit
+  toml-drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+
+      - name: Build the workspace and regenerate TOML
+        run: make generate-toml
+
+      - name: Check for drift
+        run: |
+          if ! git diff --exit-code zombienet-configs/local-dev.toml; then
+            echo ""
+            echo "ERROR: local-dev.toml is out of sync with the generator."
+            echo "Run 'make generate-toml' and commit the result."
+            exit 1
+          fi
+          echo "✓ local-dev.toml is up to date"
+
+      # The genesis patcher's rules — profiles, dev-account stripping, storage-provider
+      # protection, u128 precision — are unit-tested in @parity/ppn-network-config. This
+      # used to be a dozen shell steps writing synthetic specs to /tmp and asserting with
+      # jq; the same cases now run in under a second, locally too.
+      - name: Unit tests — genesis patcher, descriptors, config generators
+        run: make test-unit
+
+      - name: Allowance script — deployable without PPN_ALLOWANCE_SS58 hard-fails
+        env:
+          PPN_PROFILE: deployable
+        run: |
+          # Without the guard this silently grants 1000 attestations to Alice,
+          # whom the deployable profile has just stripped from balances.
+          if bash scripts/increase-people-lite-attestation-allowance.sh 2>/dev/null; then
+            echo "expected non-zero exit when PPN_ALLOWANCE_SS58 missing"; exit 1
+          fi
+
+      - name: Allowance script — grants to PPN_ALLOWANCE_SS58, never Alice
+        env:
+          PPN_PROFILE: deployable
+          PPN_ALLOWANCE_SS58: 5ERKU2mm7E9o9mLcMGkPMNSPStFT51U5d1SS4YXCafe6riPA
+          ALLOWANCE_ACCOUNT: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+          WAIT_SECONDS: 0
+        run: |
+          # Stub `dot` so the script runs without a live People chain; assert the
+          # recipient it encodes, including that PPN_ALLOWANCE_SS58 outranks a
+          # stale ALLOWANCE_ACCOUNT in the environment.
+          mkdir -p /tmp/stub
+          printf '#!/usr/bin/env bash\necho "$@" >> /tmp/dot-calls.txt\n' > /tmp/stub/dot
+          chmod +x /tmp/stub/dot
+          PATH=/tmp/stub:$PATH bash scripts/increase-people-lite-attestation-allowance.sh
+          grep -q "increase_attestation_allowance $PPN_ALLOWANCE_SS58 1000" /tmp/dot-calls.txt \
+            || { echo "allowance not granted to PPN_ALLOWANCE_SS58:"; cat /tmp/dot-calls.txt; exit 1; }
+
+  # Smoke test: run the install magic link end-to-end, then start the network
+  # Install the published packages the way a user would, into a workspace that is not a
+  # checkout, and start a network from it.
+  #
+  # Everything else in this workflow runs inside the repo, where config/, scripts/ and bin/ are
+  # all present and executable because git put them there. That hides a whole class of bug —
+  # five shipped at once: a crash on the missing config/ directory, npm stripping the
+  # executable bit off every launcher, an install with no descriptors at all, the workspace
+  # resolving into node_modules once descriptors shipped, and the launchers dying on zombienet's
+  # HOME-less environment. No test running in a checkout could see any of them.
+  npm-install-smoke-test:
+    runs-on: parity-default
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+
+      - name: Build and pack the workspace
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          mkdir -p "$RUNNER_TEMP/packs"
+          # pnpm, not npm: it resolves the workspace: protocol to a real version at pack time.
+          for pkg in packages/network-config packages/cli; do
+            (cd "$pkg" && pnpm pack --pack-destination "$RUNNER_TEMP/packs")
+          done
+          ls -l "$RUNNER_TEMP/packs"
+
+      - name: Install globally
+        run: |
+          # Both at once: the CLI's dependency on the library is not on the registry yet, so
+          # installing it alone resolves to a 404.
+          npm install -g "$RUNNER_TEMP"/packs/*.tgz
+          which ppn
+
+      - name: Resolve a network with no setup at all
+        run: |
+          # The descriptors ship in the package, so a fresh install must answer `ppn show`
+          # from any directory with nothing configured — no PPN_HOME, no ~/.ppn, no checkout.
+          cd "$RUNNER_TEMP"
+          ppn show | head -3
+          ppn show --json | grep -q '"network": "previewnet"' \
+            || { echo "ERROR: previewnet did not resolve from the installed package"; exit 1; }
+
+      - name: Start a network exactly as a user would
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # No mkdir, no descriptor copy: `npm install -g` followed by `ppn start` is the whole
+          # setup. State must land in ~/.ppn (created by the run), never in node_modules and
+          # never in the directory the command was typed in.
+          cd "$RUNNER_TEMP"
+          ppn start > "$RUNNER_TEMP/ppn-start.log" 2>&1 &
+          START_PID=$!
+
+          for i in $(seq 1 90); do
+            if [ -f "$HOME/.ppn/data/zombie.json" ]; then
+              echo "✓ network up after ${i}0s, from a workspace that was never a checkout"
+              break
+            fi
+            if ! kill -0 "$START_PID" 2>/dev/null; then
+              echo "ERROR: ppn start exited early"; tail -40 "$RUNNER_TEMP/ppn-start.log"; exit 1
+            fi
+            sleep 10
+            [ "$i" -eq 90 ] && { echo "ERROR: no network within 15 minutes"; tail -40 "$RUNNER_TEMP/ppn-start.log"; exit 1; }
+          done
+
+          # The things a checkout can never prove.
+          [ -f "$HOME/.ppn/config/ports.local.env" ] \
+            || { echo "ERROR: config/ports.local.env was not created"; exit 1; }
+          echo "✓ config/ was created in a workspace that had none"
+
+          launcher="$(npm root -g)/@parity/ppn/scripts/omni-node.sh"
+          [ -x "$launcher" ] \
+            || { echo "ERROR: $launcher is not executable — zombienet cannot exec it"; exit 1; }
+          echo "✓ launchers are executable in the installed package"
+
+          # State must not leak into the read-only package or the invocation directory.
+          [ ! -d "$(npm root -g)/@parity/ppn/bin/data" ] && [ ! -d "$(npm root -g)/@parity/ppn/data" ] \
+            || { echo "ERROR: chain state was written into node_modules"; exit 1; }
+          [ ! -d "$RUNNER_TEMP/data" ] \
+            || { echo "ERROR: chain state was written into the cwd"; exit 1; }
+          echo "✓ node_modules and the cwd stayed clean"
+
+          # The dashboard spawns with the network and serves the contract, the provenance
+          # stamped at fetch time, and the UI — a checkout run cannot prove any of this
+          # from an install.
+          curl -sf http://127.0.0.1:8090/api/network | grep -q '"name": "previewnet"' \
+            || { echo "ERROR: dashboard /api/network did not answer"; exit 1; }
+          curl -sf http://127.0.0.1:8090/api/provenance | grep -q '"resolved"' \
+            || { echo "ERROR: no provenance stamp behind the dashboard"; exit 1; }
+          curl -sf http://127.0.0.1:8090/ | grep -qi '<!doctype html>' \
+            || { echo "ERROR: dashboard UI did not serve"; exit 1; }
+          echo "✓ dashboard up: contract, provenance, UI"
+
+      # The fork path, from the same install. A full fork spawn would double this job, but the
+      # bug class it has already produced — the generated config naming a launcher or binary at
+      # a path that only exists in a checkout — is visible without spawning anything: generate
+      # the config and stat every path it names. zombie-cli does the same check first thing,
+      # which is exactly where `ppn start --fork` died on a user's machine while this job was
+      # green ("Missing binary ~/.ppn/scripts/omni-node.sh") — the genesis leg never exercises
+      # the fork generator.
+      - name: Generate a fork config and verify every path it names exists
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP"
+          ppn fork fetch-bundle "$HOME/.ppn/fork-bundle"
+          ppn fork toml "$HOME/.ppn/fork-bundle" "$HOME/.ppn/fork-bundle/fork.toml"
+          missing=0
+          # Every command/default_command in the TOML is an absolute path zombienet will exec.
+          for p in $(grep -Eo '^(default_)?command = "[^"]+"' "$HOME/.ppn/fork-bundle/fork.toml" | cut -d'"' -f2); do
+            if [ ! -x "$p" ]; then echo "MISSING OR NOT EXECUTABLE: $p"; missing=$((missing+1)); fi
+          done
+          [ "$missing" -eq 0 ] || { echo "ERROR: $missing path(s) in fork.toml do not exist"; exit 1; }
+          echo "✓ every command in fork.toml exists and is executable"
+
+      - name: Stop the network
+        if: always()
+        run: ppn kill || true
+
+      - name: Upload start and node logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-install-smoke-log
+          # The orchestrator log says a node timed out; the node's own log says why.
+          path: |
+            ${{ runner.temp }}/ppn-start.log
+            ~/.ppn/data/**/*.log
+          if-no-files-found: warn
+
+  integration-tests:
+    runs-on: parity-large-persistent
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install make
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq make
+
+      - name: Install Zombienet (for test runner)
+        run: |
+          echo "Downloading Zombienet ${{ env.ZOMBIENET_VERSION }}..."
+          curl -sSL "https://github.com/paritytech/zombienet/releases/download/${{ env.ZOMBIENET_VERSION }}/zombienet-linux-x64" -o zombienet
+          chmod +x zombienet
+          sudo mv zombienet /usr/local/bin/
+          zombienet version
+
+      - name: Ensure network dependencies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          make ensure-deps
+          dot --version
+
+      - name: Install test dependencies and build
+        run: |
+          # test-runtime-upgrade.ts bundles packages/cli/src/upgrade/, whose imports
+          # resolve through spawner/node_modules.
+          make build-spawner
+          cd tests/scripts
+          npm ci || npm install
+          npm run papi
+          npm run build
+
+      - name: Validate port configuration
+        run: bash scripts/validate-ports.sh
+
+      - name: Start network with zombie-cli
+        run: |
+          # A fresh spawn directory, with the identity databases inside it.
+          #
+          # This runner is persistent, and those databases are a projection of chain state: the
+          # username indexer keeps a checkpoint of how far it has projected. Left in data/ by an
+          # earlier run, that checkpoint starts out past the new genesis chain's head, so the
+          # indexer resyncs an empty range for ever and a registration is accepted with a 202 and
+          # never appears. Nothing errors — it reads as a slow chain, which is what the identity
+          # registration test's budget was raised twice to chase.
+          #
+          # Reaching postgres.sh through ports.local.env because zombie-cli does not forward the
+          # environment into custom_processes; that file exists for exactly this.
+          rm -rf ${{ env.ZOMBIE_DIR }} data/identity-pgdata
+          mkdir -p ${{ env.ZOMBIE_DIR }}
+          echo "DUB_POSTGRES_DATA_DIR=${{ env.ZOMBIE_DIR }}/identity-pgdata" > config/ports.local.env
+          # Spawn network in background, store state in ZOMBIE_DIR
+          BIN="${{ env.BIN }}" SCRIPTS="${{ env.SCRIPTS }}" \
+            ${{ env.BIN }}/zombie-cli spawn -p native -d ${{ env.ZOMBIE_DIR }} \
+            zombienet-configs/local-dev.toml &
+
+          # Wait for network to be ready (check for zombie.json)
+          echo "Waiting for network to start..."
+          for _ in {1..60}; do
+            if [ -f "${{ env.ZOMBIE_DIR }}/zombie.json" ]; then
+              echo "Network started, zombie.json found"
+              break
+            fi
+            sleep 10
+          done
+
+          # Additional wait for nodes to be ready
+          sleep 30
+
+      - name: Verify raw chainspecs have bootNodes
+        run: |
+          echo "Checking raw chainspecs in ${{ env.ZOMBIE_DIR }}..."
+          ERRORS=0
+          for spec in ${{ env.ZOMBIE_DIR }}/*.json; do
+            name=$(basename "$spec")
+            [[ "$name" == "zombie.json" ]] && continue
+            # ppn start's provenance stamp, not a chainspec.
+            [[ "$name" == "spawn.json" ]] && continue
+            [[ "$name" == *-plain.json ]] && continue
+
+            if node -e "
+              const spec = JSON.parse(require('fs').readFileSync('$spec','utf-8'));
+              if (!spec.bootNodes || spec.bootNodes.length === 0) {
+                console.log('FAIL: $name has no bootNodes');
+                process.exit(1);
+              }
+              console.log('OK: $name has ' + spec.bootNodes.length + ' bootNode(s)');
+              spec.bootNodes.forEach(bn => console.log('    ' + bn));
+            "; then
+              :
+            else
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [[ $ERRORS -gt 0 ]]; then
+            echo "ERROR: $ERRORS chainspec(s) missing bootNodes"
+            exit 1
+          fi
+          echo "✓ All raw chainspecs have bootNodes"
+
+      - name: Verify storage-provider-node is healthy
+        run: |
+          set -e
+          source ./config/ports.env
+          echo "Probing storage-provider-node on 127.0.0.1:$WEB3_STORAGE_PROVIDER_PORT..."
+          for _ in $(seq 1 30); do
+            STATUS=$(curl -sf -m 5 "http://127.0.0.1:$WEB3_STORAGE_PROVIDER_PORT/health" | jq -r .status 2>/dev/null || true)
+            if [ "$STATUS" = "healthy" ]; then
+              echo "✓ /health -> healthy (after attempt $i)"
+              curl -s "http://127.0.0.1:$WEB3_STORAGE_PROVIDER_PORT/stats" | jq .
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ERROR: storage-provider-node /health did not return healthy within 150s"
+          exit 1
+
+      - name: Run Network Health Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '00-network-health.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/00-network-health.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run Asset Hub Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '01-asset-hub-revive.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/01-asset-hub-revive.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run Bulletin Chain Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '02-bulletin-storage.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/02-bulletin-storage.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run People Chain Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '03-people-chain.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/03-people-chain.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run XCM channels Test
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '04-xcm-channels.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/04-xcm-channels.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run DotNS Contract Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '05-dotns-contracts.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/05-dotns-contracts.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run EVM Genesis Balances Test
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '06-evm-genesis-balances.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/06-evm-genesis-balances.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run Web3 Storage Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '07-web3-storage.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/07-web3-storage.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run Identity Backend Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '08-dub.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/08-dub.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run Identity Registration Test
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '09-dub-registration.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/09-dub-registration.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run Network Suffix Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '10-network-suffix.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/10-network-suffix.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run Runtime Upgrade Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '13-runtime-upgrade.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/13-runtime-upgrade.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
+      - name: Run web3-storage end-to-end flow (PAPI upload + challenges)
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '' }}
+        # Non-blocking until web3-storage aligns the `previewnet` genesis preset
+        # with this demo. PPN starts the provider node at genesis (zombienet
+        # custom_process), and the node caches its on-chain provider settings
+        # once at startup. The `previewnet` preset registers the provider with
+        # min_duration=100, but full-flow.js hardcodes duration=15 (and its own
+        # update_provider_settings(min_duration=10) is ignored because the node
+        # never re-reads), so /negotiate returns 422 duration_out_of_bounds.
+        # Re-enable (drop continue-on-error) once the previewnet preset's
+        # min_duration is lowered to match the demo (todo).
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 15
+        run: |
+          set -e
+          source ./config/ports.env
+          W3S_TAG=$(curl -sL -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/paritytech/web3-storage/releases/latest" \
+            | jq -r .tag_name)
+          echo "Cloning paritytech/web3-storage @ $W3S_TAG"
+          git clone --depth 1 --branch "$W3S_TAG" \
+            https://github.com/paritytech/web3-storage.git /tmp/w3s
+          cd /tmp/w3s/examples/papi
+          npm ci || npm install
+          # Generate PAPI descriptors against PPN's web3-storage RPC port (not upstream's 2222).
+          npx papi add -w "ws://127.0.0.1:$WEB3_STORAGE_PORT" parachain
+          npx papi
+          node full-flow.js \
+            "ws://127.0.0.1:$WEB3_STORAGE_PORT" \
+            "http://127.0.0.1:$WEB3_STORAGE_PROVIDER_PORT" \
+            "//Alice" "//Bob"
+
+      - name: Stop network
+        if: always()
+        run: |
+          pkill -f "zombie-cli" || true
+          pkill -f "polkadot" || true
+          sleep 5
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zombienet-logs-${{ github.run_id }}
+          path: |
+            ${{ env.ZOMBIE_DIR }}/**/*.log
+            /tmp/zombie-*/**/*.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ==========================================================================
+  # Fork e2e: spawn a real fork from a published bundle and assert it works.
+  #
+  # Nothing else in CI exercises fork mode, and the failures it has are all of the
+  # "spawns fine, is wrong" kind — parachains sharing a chain, blocks produced but never
+  # finalized, a fork that quietly rejoined production, collators dying on pruned state.
+  # A spawn that merely starts proves none of that, so this asserts behaviour instead.
+  # ==========================================================================
+  fork-e2e:
+    # Its own runner, not the persistent one integration-tests uses. Both spawn a network on
+    # the fixed ports in config/ports.env, so sharing a machine means fighting over p2p 30334
+    # ("Can't bind") — and serialising them to avoid that cost ~9min of queueing for a job
+    # that only takes 4.5.
+    runs-on: parity-large
+    timeout-minutes: 45
+    strategy:
+      # Every network CI bites, spawned. Biting and spawning are different things: the nightly
+      # bite-network job proved paseo-next-v2 produced a bundle for weeks while nothing ever
+      # started it, and three separate faults were waiting in there — empty validator groups on a
+      # shared relay, an HRMP head mismatch that stopped block production outright, and a
+      # transaction-storage proof demanding data no bite carries. All three are things the "wait
+      # for every chain to produce and finalize" step below detects in minutes.
+      fail-fast: false
+      matrix:
+        include:
+          - network: previewnet
+            bundle: fork-bundle
+            data: data-fork
+          - network: paseo-next-v2
+            bundle: fork-bundle-paseo-next-v2
+            data: data-fork-paseo-next-v2
+    name: fork-e2e (${{ matrix.network }})
+    env:
+      NETWORK: ${{ matrix.network }}
+      BUNDLE: ${{ matrix.bundle }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install make
+        run: which make || (apt-get update && apt-get install -y make)
+
+      # FORK=1 so this also downloads the bundle. The token is required: design families
+      # come from a private release, and without it `make start` dies in ensure-deps.
+      - name: Ensure dependencies and fetch the fork bundle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          make ensure-deps FORK=1 NETWORK="$NETWORK"
+          jq -r '"bundle bitten \(.bittenAt) against \(.nodeVersion)"' "$BUNDLE/manifest.json"
+
+      # Cheap insurance in case this runner turns out to be shared or reused: a job that
+      # timed out can leave nodes holding the ports this one needs.
+      - name: Reap anything left behind on the runner
+        run: make kill || true
+
+      - name: Start the fork
+        env:
+          # `make start` re-runs ensure-deps, which can reach for a binary from the private
+          # release if anything is absent; the default token cannot read it.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          : > /tmp/fork-spawn.log
+          nohup make start FORK=1 NETWORK="$NETWORK" >> /tmp/fork-spawn.log 2>&1 &
+          pid=$!
+          # Stream the spawn instead of only showing its tail when something breaks. It writes to
+          # a file because it has to outlive this step, and attaching zombienet to the step's own
+          # stdout would hand it a SIGPIPE the moment the step ends; tailing the file shows the
+          # same output while leaving the spawn detached.
+          tail -n +1 -F /tmp/fork-spawn.log 2>/dev/null &
+          tail_pid=$!
+          trap 'kill "$tail_pid" 2>/dev/null || true' EXIT
+          # Poll for the relay, but give up the moment the spawn dies — otherwise a make
+          # failure in the first second still burns the full timeout before reporting.
+          # seq starts at 0: the sleep is the last statement, so the first pass has waited
+          # nothing yet and must report 0s, not 10s.
+          for i in $(seq 0 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::spawn exited after $((i * 10))s"; exit 1
+            fi
+            if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+                 http://127.0.0.1:10000 >/dev/null 2>&1; then
+              echo "relay is up after $((i * 10))s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::relay never came up"; exit 1
+
+      # The relay answers within a minute; the collators are still restoring their DB
+      # snapshots for several more. Sampling before they are up cannot measure production.
+      - name: Wait for every chain to produce and finalize
+        run: node bin/ppn.mjs fork wait "$GITHUB_WORKSPACE/$BUNDLE" 900
+
+      - name: Verify the fork is healthy
+        run: node bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/$BUNDLE" 60
+
+      # The descriptor decides whether a network imports its products, so it decides whether
+      # there is anything to check. Read it rather than restating it here, or the two drift and
+      # this waits forever on an import that was never going to run.
+      - name: Does this network import its products?
+        id: pins
+        run: echo "pin=$(jq -r '.dotns.pinProducts // false' "networks/$NETWORK.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify DotNS product content was imported
+        if: steps.pins.outputs.pin == 'true'
+        run: |
+          # The pin runs as a custom process during spawn; give it time, then check the
+          # gateway serves what the chain says exists. Zero products is a pass — a source
+          # with no registrations is legitimate — but products that fail to serve are not.
+          #
+          # data-fork/, not data/: the Makefile suffixes DATA_DIR under FORK=1 so a fork
+          # never shares a base path with a genesis run.
+          LOG=${{ matrix.data }}/pin-bulletin-products/pin-bulletin-products.log
+          # Match on the counts, not the sentence around them: this check once waited for
+          # "served by the local gateway" while the service had started saying "served
+          # locally", so a run that imported all 116 products failed as "never reported".
+          #
+          # A network with no DotNS deployment is a pass, not a failure: the resolver address comes
+          # from a genesis network's release artifact, so a fork-only network has none and the
+          # service says so and stops. Waiting for a count it will never print just burns 300s and
+          # then reports "never reported", which reads like a broken import.
+          # Import time scales with the source dataset (612 records at last count, 55 when
+          # a fixed 300s window was first sized here), so a fixed budget rots into a
+          # deterministic timeout. Progress in the log resets the clock; only a stall
+          # fails, with a hard ceiling so a pathological log cannot hold the job forever.
+          last=""; quiet=0; elapsed=0
+          while ! grep -qE '[0-9]+/[0-9]+ served|no resolver for' "$LOG" 2>/dev/null; do
+            cur=$(tail -1 "$LOG" 2>/dev/null || true)
+            if [ "$cur" != "$last" ]; then last="$cur"; quiet=0; else quiet=$((quiet+10)); fi
+            if [ "$quiet" -ge 180 ]; then
+              echo "::error::product import stalled: no log progress for ${quiet}s"
+              tail -5 "$LOG" || true
+              exit 1
+            fi
+            if [ "$elapsed" -ge 1800 ]; then
+              echo "::error::product import still running after ${elapsed}s"
+              tail -5 "$LOG" || true
+              exit 1
+            fi
+            sleep 10; elapsed=$((elapsed+10))
+          done
+          tail -5 "$LOG" || true
+          if grep -q 'no resolver for' "$LOG" 2>/dev/null; then
+            echo "no DotNS resolver for $NETWORK — nothing to import"
+            exit 0
+          fi
+          line=$(grep -oE '[0-9]+/[0-9]+ served' "$LOG" | tail -1)
+          [ -n "$line" ] || { echo "::error::product import never reported"; exit 1; }
+          served="${line%%/*}"; total="${line#*/}"; total="${total%% *}"
+          echo "products served: $served/$total"
+          # Everything the fork imported must be served by the fork. A product the *source*
+          # network cannot serve (its own gateway 504s the CID) is counted as failed by the
+          # pinner and named in the log — not the fork's bug, and not this gate's failure.
+          #
+          # `-ge`, not `=`: served counts what the fork's gateway can return, and ipfs-swarm
+          # lets it satisfy a CID from the source on demand — so a product whose CAR import
+          # failed can still be servable, making served legitimately *exceed* imported. As an
+          # equality this gate failed a run that served 604 of 604 products, with the message
+          # "only 604 of 603", because one CAR arrived truncated and was served on demand.
+          imported=$(grep -Eo 'imported [0-9]+, failed' "$LOG" | grep -Eo '[0-9]+' | head -1)
+          [ "$served" -ge "$imported" ] || { echo "::error::only $served of $imported imported products are servable from the fork"; exit 1; }
+          [ "$served" = "$total" ] || echo "::warning::$((total - served)) product(s) unavailable at the source network itself"
+          # The gap the loosened gate above no longer covers: on-demand serving means even a
+          # wholesale import failure can read as a healthy served count, so say so out loud.
+          # A warning rather than an error, because a source-side truncation is not the fork's
+          # bug and the pinner already retries each product once.
+          imports_failed=$(grep -Eo 'failed [0-9]+ —' "$LOG" | grep -Eo '[0-9]+' | head -1)
+          [ "${imports_failed:-0}" = "0" ] \
+            || echo "::warning::${imports_failed} product CAR import(s) failed at the source after a retry; those products are being served on demand"
+
+      - name: Stop the network
+        if: always()
+        run: make kill || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # Per network, or the two matrix legs collide on one artifact name and the upload fails.
+          name: fork-e2e-logs-${{ matrix.network }}
+          path: |
+            /tmp/fork-spawn.log
+            ${{ matrix.data }}/*/*.log
+          retention-days: 5

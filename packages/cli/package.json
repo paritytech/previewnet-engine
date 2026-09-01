@@ -1,0 +1,56 @@
+{
+  "name": "@parity/ppn",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Spin up a local Polkadot ecosystem: fetch, generate, fork and run a network",
+  "bin": {
+    "ppn": "./dist/bin.js"
+  },
+  "exports": {
+    ".": "./dist/cli.js",
+    "./spawn-env": "./dist/lib/spawn-env.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "tsx --test tests/*.test.ts",
+    "prepack": "pnpm --dir ../dashboard-ui build && rm -rf scripts config zombienet-configs networks && cp -R ../../scripts ../../config ../../zombienet-configs ../../networks . && rm -rf scripts/node_modules && find scripts config zombienet-configs -name \"*.test.*\" -delete && rm -f config/ports.local.env scripts/run-tests.sh scripts/validate-ports.sh && cp ../../LICENSE LICENSE",
+    "postpack": "rm -rf scripts config zombienet-configs networks && rm -f LICENSE"
+  },
+  "dependencies": {
+    "@polkadot-labs/hdkd-helpers": "^0.0.11",
+    "@polkadot/api": "^15.8.1",
+    "@polkadot/keyring": "13.5.9",
+    "@polkadot/types": "^15.10.2",
+    "@polkadot/util": "13.5.9",
+    "@polkadot/util-crypto": "^13.5.9",
+    "@parity/ppn-network-config": "workspace:*",
+    "commander": "^15.0.0",
+    "polkadot-api": "^1.23.3",
+    "toml": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19",
+    "typescript": "^5.7"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paritytech/previewnet-engine.git",
+    "directory": "packages/cli"
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "config",
+    "zombienet-configs",
+    "networks",
+    "web"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

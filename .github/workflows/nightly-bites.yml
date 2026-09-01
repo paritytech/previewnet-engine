@@ -1,0 +1,375 @@
+name: Nightly Bites
+
+# The bundle channel. Bites the live networks and republishes ONE rolling pre-release,
+# tagged `bites`, carrying only fork bundles. `ppn fork fetch-bundle` reads that tag
+# (config/versions.env PPN_BITE_TAG), so:
+#
+#   * bundles can be refreshed nightly without touching what a deploy resolves — a
+#     pre-release never becomes GitHub `latest`;
+#   * a stable release carries no bundles and needs no bite to succeed;
+#   * there is no walk-back to older releases. The tag is current, or the night failed and
+#     FRESH_BITE=1 bites the source directly.
+#
+# Schedule and manual dispatch only: these jobs use self-hosted runners and read production
+# endpoints, so they must never be reachable from a pull_request trigger.
+on:
+  schedule:
+    # Daily at 6:30 PM UTC
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-bites
+  cancel-in-progress: false
+
+jobs:
+
+
+  # ==========================================================================
+  # Bite production previewnet into a fork bundle
+  #
+  # Lets `make start FORK=1` bring up a network carrying production state without
+  # anyone having to run a bite themselves — and without needing doppelganger, since
+  # spawning a bundle uses the regular binaries.
+  #
+  # Bites the LIVE production network at https://previewnet.substrate.dev — not a network
+  # spawned here. The state is the whole point, so there is nothing to fork from locally.
+  # If previewnet is mid-redeploy the bundle is absent from this release and
+  # `ppn fork fetch-bundle` falls back to the newest release that has one.
+  # ==========================================================================
+  bite-previewnet:
+    # Only `prepare`, and only to read `publish` — a port check and a tag, seconds. The bite
+    # uses the doppelganger release's binaries, not the ones this workflow builds, so it
+    # still starts immediately instead of waiting on the Rust builds.
+    #
+    # This job is allowed to fail loudly. It reads a live network we do not control, so a
+    # previewnet redeploy can legitimately break it — but marking it continue-on-error would
+    # turn "no bundle has been published for three weeks" into a permanently green tick.
+    # create-release tolerates a failure here explicitly instead, so a red bite still ships
+    # the release; it just does not hide.
+    # Three capped attempts plus setup. The default is six hours, which is how a hung
+    # bite once held a runner for six hours.
+    timeout-minutes: 70
+    runs-on: parity-large
+    outputs:
+      # create-release does not check out the repo, so it cannot read config/versions.env.
+      doppelganger: ${{ steps.doppelganger.outputs.pin }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # `ppn bite` lives in packages/cli, so the workspace has to be built first.
+      - name: Build spawner
+        run: make build-spawner
+
+      - name: Fetch doppelganger binaries
+        id: doppelganger
+        run: |
+          node bin/ppn.mjs fork fetch-doppelganger "$GITHUB_WORKSPACE/bin"
+          pin=$(jq -r '"\(.bite.doppelganger.repo)@\(.bite.doppelganger.tag)"' networks/previewnet.json)
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+
+
+      # A bite is a warp-sync of five live chains, so it is slow when it works (4 minutes) and
+      # unbounded when it does not: one run sat here for six hours and was killed by the
+      # job limit, having produced nothing to explain itself. So each attempt is capped, and
+      # three attempts are made — the usual causes (a peer that will not serve warp proofs, a
+      # redeploy mid-bite) are transient.
+      #
+      # Per-attempt log directories, uploaded whatever happens: the point of the cap is being
+      # able to read why the slow attempt was slow.
+      # devnet's bite died as a bare SIGTERM with no hint why — the runner ran out of disk
+      # mid-warp-sync and took the log with it. Printing the headroom first means the next
+      # one says so instead of leaving it to be inferred.
+      - name: Disk before the bite
+        run: df -h / /home 2>/dev/null | sed 's/^/  /'
+
+      - name: Bite
+        id: bite
+        env:
+          BUNDLE: fork-bundle
+          ATTEMPTS: "3"
+          PER_ATTEMPT_MINUTES: "20"
+        run: |
+          # `set +e` on purpose: the runner's default shell is `bash -eo pipefail`, under which
+          # the first failed attempt would end the step and there would be no retry at all.
+          set +e
+          set -uo pipefail
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "::group::bite attempt $attempt of $ATTEMPTS"
+            export PPN_BITE_LOG_DIR="$GITHUB_WORKSPACE/bite-logs/attempt-$attempt"
+            mkdir -p "$PPN_BITE_LOG_DIR"
+            # SIGTERM first, SIGKILL 30s later: doppelganger flushes its log on term, and the
+            # tail of that log is the whole reason for capping the attempt.
+            timeout --kill-after=30s "${PER_ATTEMPT_MINUTES}m" \
+              node bin/ppn.mjs bite "$GITHUB_WORKSPACE/$BUNDLE" 2>&1 \
+              | tee "$PPN_BITE_LOG_DIR/ppn-bite.log"
+            attempt_status=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            if [ "$attempt_status" -eq 0 ]; then
+              echo "bite succeeded on attempt $attempt"
+              exit 0
+            fi
+            if [ "$attempt_status" -eq 124 ] || [ "$attempt_status" -eq 137 ]; then
+              echo "::warning::attempt $attempt hit the ${PER_ATTEMPT_MINUTES}m cap"
+            else
+              echo "::warning::attempt $attempt failed (exit $attempt_status)"
+            fi
+            # Leftover nodes hold the RPC and prometheus ports the next attempt binds, and a
+            # killed `timeout` does not reap the grandchildren it never spawned directly.
+            pkill -f doppelganger || true
+            sleep 5
+          done
+          echo "::error::bite failed after $ATTEMPTS attempts; see the bite-logs artifact"
+          exit 1
+
+      - name: Upload bite logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bite-logs-previewnet
+          path: bite-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # What the bite actually captured — the reason to run one at all, so it is reported
+      # whether or not anything is published.
+      - name: Report the bite
+        run: node -e "const m=require('./fork-bundle/manifest.json');console.log('bite blocks:',JSON.stringify(m.biteBlocks))"
+
+      - name: Pack bundle
+        run: |
+          mkdir -p artifacts
+          tar -czf artifacts/fork-bundle.tar.gz -C fork-bundle .
+          ls -lh artifacts/
+
+      - name: Upload fork bundle
+        # publish-bundles consumes this and puts it on the rolling tag.
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-bundle
+          path: artifacts/fork-bundle.tar.gz
+
+
+  # ==========================================================================
+  # Bite the other pre-bakeable networks (networks/*.json)
+  #
+  # A network is bitten here when its descriptor opts in with bite.prebaked and
+  # carries no _todo stubs — sudo testnets only; no-sudo networks (kusama,
+  # polkadot) can never be pre-bitten, since a runtime under test has to be
+  # injected at bite time (see networks/README.md). The list is empty until a
+  # descriptor is completed, and picks new networks up with no workflow change.
+  # ==========================================================================
+  list-fork-networks:
+    runs-on: ubuntu-latest
+    outputs:
+      networks: ${{ steps.list.outputs.networks }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: List pre-bakeable networks
+        id: list
+        run: |
+          networks=$(for f in networks/*.json; do
+            jq -r 'select(.name != "previewnet"
+                          and .bite.prebaked == true
+                          and ([.. | objects | select(has("_todo"))] | length) == 0)
+                   | .name' "$f"
+          done | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "networks=$networks" >> "$GITHUB_OUTPUT"
+          echo "pre-bitten networks this release: $networks"
+
+
+  bite-network:
+    # Same tolerance story as bite-previewnet: a red leg costs the release that
+    # network's bundle and nothing else; `ppn fork fetch-bundle` walks back to the newest
+    # release that has one.
+    needs: [list-fork-networks]
+    if: needs.list-fork-networks.outputs.networks != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        network: ${{ fromJSON(needs.list-fork-networks.outputs.networks) }}
+    env:
+      PPN_NETWORK: ${{ matrix.network }}
+    # Three capped attempts plus setup. The default is six hours, which is how a hung
+    # bite once held a runner for six hours.
+    timeout-minutes: 70
+    runs-on: parity-large
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build spawner
+        run: make build-spawner
+
+      - name: Fetch doppelganger binaries
+        run: node bin/ppn.mjs fork fetch-doppelganger "$GITHUB_WORKSPACE/bin"
+
+
+      # A bite is a warp-sync of five live chains, so it is slow when it works (4 minutes) and
+      # unbounded when it does not: one run sat here for six hours and was killed by the
+      # job limit, having produced nothing to explain itself. So each attempt is capped, and
+      # three attempts are made — the usual causes (a peer that will not serve warp proofs, a
+      # redeploy mid-bite) are transient.
+      #
+      # Per-attempt log directories, uploaded whatever happens: the point of the cap is being
+      # able to read why the slow attempt was slow.
+      # devnet's bite died as a bare SIGTERM with no hint why — the runner ran out of disk
+      # mid-warp-sync and took the log with it. Printing the headroom first means the next
+      # one says so instead of leaving it to be inferred.
+      - name: Disk before the bite
+        run: df -h / /home 2>/dev/null | sed 's/^/  /'
+
+      - name: Bite
+        id: bite
+        env:
+          BUNDLE: fork-bundle-${{ matrix.network }}
+          ATTEMPTS: "3"
+          PER_ATTEMPT_MINUTES: "20"
+        run: |
+          # `set +e` on purpose: the runner's default shell is `bash -eo pipefail`, under which
+          # the first failed attempt would end the step and there would be no retry at all.
+          set +e
+          set -uo pipefail
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "::group::bite attempt $attempt of $ATTEMPTS"
+            export PPN_BITE_LOG_DIR="$GITHUB_WORKSPACE/bite-logs/attempt-$attempt"
+            mkdir -p "$PPN_BITE_LOG_DIR"
+            # SIGTERM first, SIGKILL 30s later: doppelganger flushes its log on term, and the
+            # tail of that log is the whole reason for capping the attempt.
+            timeout --kill-after=30s "${PER_ATTEMPT_MINUTES}m" \
+              node bin/ppn.mjs bite "$GITHUB_WORKSPACE/$BUNDLE" 2>&1 \
+              | tee "$PPN_BITE_LOG_DIR/ppn-bite.log"
+            attempt_status=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            if [ "$attempt_status" -eq 0 ]; then
+              echo "bite succeeded on attempt $attempt"
+              exit 0
+            fi
+            if [ "$attempt_status" -eq 124 ] || [ "$attempt_status" -eq 137 ]; then
+              echo "::warning::attempt $attempt hit the ${PER_ATTEMPT_MINUTES}m cap"
+            else
+              echo "::warning::attempt $attempt failed (exit $attempt_status)"
+            fi
+            # Leftover nodes hold the RPC and prometheus ports the next attempt binds, and a
+            # killed `timeout` does not reap the grandchildren it never spawned directly.
+            pkill -f doppelganger || true
+            sleep 5
+          done
+          echo "::error::bite failed after $ATTEMPTS attempts; see the bite-logs artifact"
+          exit 1
+
+      - name: Upload bite logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bite-logs-${{ matrix.network }}
+          path: bite-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # What the bite actually captured — the reason to run one at all, so it is reported
+      # whether or not anything is published.
+      - name: Report the bite
+        run: node -e "const m=require('./fork-bundle-${{ matrix.network }}/manifest.json');console.log('bite blocks:',JSON.stringify(m.biteBlocks))"
+
+      - name: Pack bundle
+        run: |
+          mkdir -p artifacts
+          tar -czf "artifacts/fork-bundle-${{ matrix.network }}.tar.gz" -C "fork-bundle-${{ matrix.network }}" .
+          ls -lh artifacts/
+
+      - name: Upload fork bundle
+        # publish-bundles consumes this and puts it on the rolling tag.
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-bundle-${{ matrix.network }}
+          path: artifacts/fork-bundle-${{ matrix.network }}.tar.gz
+
+  # ==========================================================================
+  # Upsert the rolling pre-release
+  #
+  # One tag, moved to current main each night, carrying whatever this run managed to bite.
+  # Stale assets are deleted first so a bundle that stopped being produced does not linger
+  # as a stale download. Runs even when a bite failed — a partial refresh beats none.
+  # ==========================================================================
+  publish-bundles:
+    needs: [bite-previewnet, bite-network]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download previewnet bundle
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: fork-bundle
+          path: bundles/
+
+      - name: Download per-network bundles
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: fork-bundle-*
+          merge-multiple: true
+          path: bundles/
+
+      - name: Publish onto the rolling tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: bites
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(bundles/fork-bundle*.tar.gz)
+          if [ ${#bundles[@]} -eq 0 ]; then
+            echo "::warning::every bite failed — the rolling release keeps its previous bundles"
+            exit 0
+          fi
+          ls -la bundles/
+
+          {
+            echo "Fork bundles, refreshed nightly. **Not a versioned release** — this tag is"
+            echo "replaced in place, and \`ppn fork fetch-bundle\` reads it directly"
+            echo "(\`PPN_BITE_TAG\` in config/versions.env)."
+            echo
+            echo "Refreshed: $(date -u +'%Y-%m-%d %H:%M UTC') from \`${GITHUB_SHA:0:7}\`"
+            echo
+            echo "| Bundle | Size |"
+            echo "| --- | --- |"
+            for f in "${bundles[@]}"; do
+              echo "| \`$(basename "$f")\` | $(du -h "$f" | cut -f1 | tr -d ' ') |"
+            done
+          } > notes.md
+
+          # Create on first run; afterwards move the tag to this commit and drop the assets
+          # this run replaces, so the tag never mixes bundles from different nights.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --prerelease --notes-file notes.md
+            for f in "${bundles[@]}"; do
+              gh release delete-asset "$TAG" "$(basename "$f")" \
+                --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+            done
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --prerelease \
+              --title "Fork bundles (rolling)" --notes-file notes.md
+          fi
+          gh release upload "$TAG" "${bundles[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Published ${#bundles[@]} bundle(s) onto $TAG."

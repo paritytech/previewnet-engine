@@ -1,0 +1,43 @@
+{
+  "forbidden": [
+    {
+      "name": "no-inward-deps-on-consumers",
+      "comment": "network-config is the shared layer: it must not depend on the CLI. It is also published on its own, so a consumer can take the library without the tool \u2014 see docs/ARCHITECTURE.md.",
+      "severity": "error",
+      "from": {
+        "path": "^packages/network-config"
+      },
+      "to": {
+        "path": "^packages/cli"
+      }
+    },
+    {
+      "name": "no-deep-cross-package-imports",
+      "comment": "Cross-package imports go through the package's public surface, never a deep path. A deep import binds a consumer to internals that move without notice.",
+      "severity": "error",
+      "from": {
+        "pathNot": "^packages/network-config"
+      },
+      "to": {
+        "path": "^packages/network-config/(src|dist)/(?!index)"
+      }
+    },
+    {
+      "name": "no-circular",
+      "severity": "error",
+      "from": {},
+      "to": {
+        "circular": true
+      }
+    }
+  ],
+  "options": {
+    "doNotFollow": {
+      "path": "node_modules"
+    },
+    "tsPreCompilationDeps": true,
+    "tsConfig": {
+      "fileName": "tsconfig.json"
+    }
+  }
+}

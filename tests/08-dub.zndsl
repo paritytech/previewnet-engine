@@ -1,0 +1,28 @@
+Description: Device Uniqueness Backend - Surfaces, Routing and Attester
+Network: ../zombienet-configs/local-dev.toml
+Creds: config
+
+# ============================================
+# Prerequisites
+# ============================================
+
+# The backend connects to People Chain on startup and does not bind its HTTP
+# port until that succeeds, so the parachain has to be producing blocks before
+# any endpoint answers.
+people-collator1: is up
+
+alice-paseo-validator: parachain 1502 is registered within 400 seconds
+alice-paseo-validator: parachain 1502 block height is at least 5 within 500 seconds
+
+# ============================================
+# Identity Backend Tests
+# ============================================
+
+# Exercises the merged origin rather than the services directly: identity-api and
+# username-indexer split /api/v1/usernames between them, so a routing regression
+# is invisible when probing either port on its own.
+#
+# Covers readiness (chain + db), the advertised attester matching the account
+# the allowance script granted to, JWKS, username search reaching the indexer,
+# and unrun services reporting themselves instead of 404ing.
+people-collator1: js-script ./scripts/dist/test-dub.js return is equal to 1 within 600 seconds

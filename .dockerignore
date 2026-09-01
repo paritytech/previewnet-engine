@@ -1,0 +1,16 @@
+.git
+data/
+dist/
+**/dist/
+# tsc -b trusts these: shipped without their dist/ (excluded above), they make the image's
+# `pnpm build` a no-op that emits nothing, and `make generate` then finds no compiled CLI.
+# The runner builds the workspace before `docker build`, so they are always in the context.
+*.tsbuildinfo
+**/*.tsbuildinfo
+node_modules/
+**/node_modules/
+.papi/
+tests/
+docs/
+.github/
+*.md

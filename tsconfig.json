@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/network-config"
+    },
+    {
+      "path": "./packages/cli"
+    }
+  ]
+}

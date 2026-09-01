@@ -1,0 +1,21 @@
+Description: Asset Hub - EVM Dev Account Genesis Balances
+Network: ../zombienet-configs/local-dev.toml
+Creds: config
+
+# ============================================
+# Prerequisites
+# ============================================
+
+# Collator must be up
+asset-hub-collator1: is up
+
+# Parachain must be registered and producing blocks
+alice-paseo-validator: parachain 1500 is registered within 400 seconds
+alice-paseo-validator: parachain 1500 block height is at least 5 within 500 seconds
+
+# ============================================
+# EVM Genesis Balance Tests
+# ============================================
+
+# Verify Alice, Bob, Charlie EVM accounts and Hardhat deployer are funded
+asset-hub-collator1: js-script ./scripts/dist/test-evm-genesis-balances.js return is equal to 1 within 120 seconds

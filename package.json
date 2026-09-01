@@ -1,0 +1,19 @@
+{
+  "name": "ppn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Product Preview Network engine \u2014 see docs/ARCHITECTURE.md",
+  "scripts": {
+    "build": "tsc -b && pnpm --filter @ppn/dashboard-ui build",
+    "test": "pnpm -r test",
+    "lint:boundaries": "depcruise packages --config .dependency-cruiser.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "dependency-cruiser": "^16.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

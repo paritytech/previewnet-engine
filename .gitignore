@@ -1,0 +1,51 @@
+bin/*
+# ...except the launcher. Everything else in bin/ is downloaded, but this file *is* the
+# entry point every workflow and every script invokes, so it has to be in the repo: a
+# fresh clone with no bin/ppn.mjs cannot run anything at all.
+!bin/ppn.mjs
+data/
+# data-fork for previewnet, data-fork-<network> for the rest
+data-fork*/
+design-families/
+config/ports.local.env
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.papi/
+
+# fork-bundle for previewnet, fork-bundle-<network> for the rest
+fork-bundle*/
+# A generated fork config normally lives inside the bundle; a manual
+# `ppn fork toml <bundle> fork.toml` drops one wherever the shell stood.
+fork.toml
+
+# Working notes, kept locally rather than in the repo
+docs/issues-drafts/
+
+# Local environment files, never committed — except the checked-in example.
+.env*
+!.env.example
+
+# Claude Code session data
+.claude/
+
+# Staged into packages/cli by its prepack, removed by postpack — never committed.
+packages/cli/scripts/
+packages/cli/config/
+packages/cli/zombienet-configs/
+packages/cli/LICENSE
+packages/network-config/config/
+packages/network-config/LICENSE
+
+# Deploy keypairs. A private key must never reach the repo, and the pattern is broad on
+# purpose: one `git add -A` is all it takes, and a committed key has to be regenerated.
+ppn-deploy-*
+*.pem
+id_ed25519*
+id_rsa*
+server/nginx/ppn.conf
+
+# The dashboard UI compiles into the CLI package (packages/dashboard-ui -> vite build).
+# Built output ships in the npm tarball via prepack, never in git.
+packages/cli/web/

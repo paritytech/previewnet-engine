@@ -1,0 +1,31 @@
+Description: XCM HRMP Channels - Verify cross-chain messaging channels
+Network: ../zombienet-configs/local-dev.toml
+Creds: config
+
+# ============================================
+# Prerequisites
+# ============================================
+
+# All collators must be up
+asset-hub-collator1: is up
+people-collator1: is up
+bulletin-collator1: is up
+
+# All parachains must be registered and producing blocks
+alice-paseo-validator: parachain 1500 is registered within 400 seconds
+alice-paseo-validator: parachain 1502 is registered within 400 seconds
+alice-paseo-validator: parachain 1501 is registered within 400 seconds
+
+# Wait for parachains to produce some blocks (HRMP channels need time to open)
+alice-paseo-validator: parachain 1500 block height is at least 5 within 500 seconds
+alice-paseo-validator: parachain 1502 block height is at least 5 within 500 seconds
+alice-paseo-validator: parachain 1501 block height is at least 5 within 500 seconds
+
+# ============================================
+# HRMP Channel Verification
+# ============================================
+
+# Verify all XCM channels are open:
+# - People (1502) <-> Bulletin (1501)
+# - People (1502) <-> Asset Hub (1500)
+asset-hub-collator1: js-script ./scripts/dist/test-xcm-channels.js return is equal to 1 within 600 seconds

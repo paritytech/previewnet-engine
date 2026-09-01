@@ -1,0 +1,342 @@
+// Write the doppelganger storage-override files for a previewnet bite.
+//
+// The values themselves are built in ./validators.ts. What happens here is the part that
+// needs a live chain: every value is decode-verified against the LIVE metadata of the chain
+// being bitten before it is written. That is not belt-and-braces — it is what caught a
+// `ParaScheduler::ValidatorGroups` missing its inner compact length, which decoded as
+// `[[], …]` and would have silently mis-assigned cores.
+
+import fs from 'node:fs';
+import type { StorageIndex } from './rpc.js';
+import { rpc, storageIndex } from './rpc.js';
+import { keyOf } from './codec.js';
+import {
+  coreDescriptorsValue,
+  messagingWipes,
+  paraMessagingWipes,
+  planCores,
+  transactionStorageWipes,
+  validatorGroups,
+  type PlannedPara,
+} from './shared-relay.js';
+import {
+  collatorKey,
+  paraCandidates,
+  paraInjects,
+  relayCandidates,
+  relayInjects,
+  sudoEndowInjects,
+  authorizedUpgradeCandidate,
+} from './validators.js';
+import type { AuraScheme } from '@parity/ppn-network-config';
+
+export interface OverrideFile {
+  overrides: Record<string, string>;
+  injects: Record<string, string>;
+}
+
+export interface VerifyResult {
+  kept: Record<string, string>;
+  /** Keys absent from this runtime, or maps rather than plain values. */
+  skipped: string[];
+  failures: string[];
+}
+
+/**
+ * Keep only values that round-trip through their real on-chain type.
+ *
+ * A key the runtime does not have is skipped, not an error: the five chains do not all have
+ * the same pallets. A key that exists but does not round-trip is always an error.
+ */
+export function verify(
+  { reg, byKey }: Pick<StorageIndex, 'reg' | 'byKey'>,
+  candidates: Record<string, string>
+): VerifyResult {
+  const kept: Record<string, string> = {};
+  const skipped: string[] = [];
+  const failures: string[] = [];
+
+  for (const [key, value] of Object.entries(candidates)) {
+    const info = byKey.get(key);
+    if (!info) {
+      skipped.push(`${key.slice(0, 12)}… (absent from this runtime)`);
+      continue;
+    }
+    if (info.plain === null) {
+      skipped.push(`${info.label} (map, not a plain value)`);
+      continue;
+    }
+    try {
+      const decoded = reg.createType(reg.createLookupType(info.plain), '0x' + value);
+      if (decoded.toHex().slice(2) !== value) throw new Error('round-trip mismatch');
+      kept[key] = value;
+    } catch (e) {
+      failures.push(`${info.label}: ${(e as Error).message}`);
+    }
+  }
+  return { kept, skipped, failures };
+}
+
+function report(label: string, result: VerifyResult, candidates: Record<string, string>): Record<string, string> {
+  for (const s of result.skipped) console.log(`  skip  ${s}`);
+  for (const k of Object.keys(result.kept)) console.log(`  ok    ${k.slice(0, 12)}…`);
+  if (result.failures.length) {
+    throw new Error(`${label} failed verification:\n    ${result.failures.join('\n    ')}`);
+  }
+  if (Object.keys(result.kept).length === 0) {
+    throw new Error(`${label}: nothing verified out of ${Object.keys(candidates).length} candidates`);
+  }
+  return result.kept;
+}
+
+/**
+ * Check every inject against the value type of the map it is written into.
+ *
+ * Injects are the one class of write a bite makes with nothing checking the shape: `verify()`
+ * skips them, because a map has no single plain value to decode against. But the values are
+ * hand-assembled — an AccountInfo built field by field, a DMQ head assumed to be one 32-byte
+ * hash — and if the runtime disagrees about a width, the bite writes a malformed value, the
+ * bundle carries it, and the fork fails later with nothing pointing back here.
+ *
+ * The key is `<map prefix><hashed key>`, so the entry is found by prefix: the prefix is the
+ * first 32 hex characters, exactly as `keyOf` produces it.
+ */
+export function verifyInjects(
+  { reg, byKey }: Pick<StorageIndex, 'reg' | 'byKey'>,
+  injects: Record<string, string>
+): VerifyResult {
+  const kept: Record<string, string> = {};
+  const skipped: string[] = [];
+  const failures: string[] = [];
+
+  for (const [key, value] of Object.entries(injects)) {
+    const info = byKey.get(key.slice(0, 32));
+    if (!info) {
+      skipped.push(`${key.slice(0, 12)}… (no such map in this runtime)`);
+      continue;
+    }
+    if (info.mapValue === null) {
+      skipped.push(`${info.label} (not a map here)`);
+      continue;
+    }
+    try {
+      const decoded = reg.createType(reg.createLookupType(info.mapValue), '0x' + value);
+      if (decoded.toHex().slice(2) !== value) throw new Error('round-trip mismatch');
+      kept[key] = value;
+    } catch (e) {
+      failures.push(`${info.label}: ${(e as Error).message}`);
+    }
+  }
+  return { kept, skipped, failures };
+}
+
+function write(outFile: string, file: OverrideFile, index?: StorageIndex): void {
+  const { overrides, injects } = file;
+  // Injects go through the same round-trip as overrides, against the map's value type. Checked
+  // here rather than at each call site so no future caller can add a map write that nothing
+  // decodes. A failure is fatal for the same reason a bad override is: the alternative is a
+  // bundle that looks fine and produces a chain that will not run.
+  if (index) {
+    const result = verifyInjects(index, injects);
+    for (const s of result.skipped) console.log(`  skipped inject ${s}`);
+    if (result.failures.length) {
+      throw new Error(
+        `${outFile.split('/').pop()}: ${result.failures.length} inject(s) do not match this ` +
+          `runtime's storage:\n       ${result.failures.join('\n       ')}`
+      );
+    }
+  }
+  fs.writeFileSync(outFile, JSON.stringify(file, null, 2) + '\n');
+  console.log(
+    `  -> ${outFile.split('/').pop()} (${Object.keys(overrides).length} overrides, ` +
+      `${Object.keys(injects).length} injects)\n`
+  );
+}
+
+/**
+ * Encode a value through the chain's own metadata.
+ *
+ * For anything whose shape is more than a list of integers. `verify()` decodes every override
+ * afterwards, so a value built this way is checked both ways by construction.
+ */
+function encode(index: StorageIndex, pallet: string, item: string, value: unknown): string {
+  const entry = index.byKey.get(keyOf(pallet, item));
+  if (!entry?.plain) throw new Error(`${pallet}::${item} is not a plain storage value here`);
+  const type = index.reg.createLookupType(entry.plain);
+  return index.reg.createType(type, value).toHex().slice(2);
+}
+
+/**
+ * Set `scheduler_params.num_cores` in production's own HostConfiguration.
+ *
+ * Rebuilt from the decoded value's own fields — Codec instances, not JSON. Going through
+ * `toJSON()` and back produces bytes that mean the same thing but are not the ones the chain
+ * wrote, and `verify()` rightly refuses them: it requires a value to survive decode → encode
+ * unchanged. Passing the untouched fields through as codecs keeps them byte-for-byte, so the
+ * only bytes that move are the ones for the number being changed.
+ *
+ * That matters beyond tidiness. This struct also carries `executor_params`, whose
+ * `EnabledHostFunction(EccRfc163)` the relay's validators need to accept People's PVFs, plus
+ * the async-backing values production tuned. Replacing the whole value would cost all of it to
+ * fix one number, which is why the bite leaves this key alone on previewnet entirely.
+ */
+function patchNumCores(
+  index: StorageIndex,
+  liveHex: string,
+  numCores: number
+): { value: string; before: number } {
+  const entry = index.byKey.get(keyOf('Configuration', 'ActiveConfig'));
+  if (!entry?.plain) throw new Error('Configuration::ActiveConfig is not a plain value here');
+  const type = index.reg.createLookupType(entry.plain);
+
+  const decoded = index.reg.createType(type, liveHex) as any;
+  const fields = Object.fromEntries([...decoded.entries()]);
+  const params = fields.schedulerParams;
+  if (!params?.entries) {
+    throw new Error('HostConfiguration has no schedulerParams — this relay runtime is not what the bite expects');
+  }
+  const paramFields = Object.fromEntries([...params.entries()]);
+  const before = Number(paramFields.numCores?.toString());
+  if (!Number.isFinite(before)) {
+    throw new Error('schedulerParams has no numCores — this relay runtime is not what the bite expects');
+  }
+
+  const patchedParams = new (params.constructor as any)(index.reg, {
+    ...paramFields,
+    numCores: index.reg.createType('u32', numCores),
+  });
+  const value = index.reg
+    .createType(type, { ...fields, schedulerParams: patchedParams })
+    .toHex()
+    .slice(2);
+
+  // Guards, because this rebuilds a struct whose layout is the runtime's, not ours: the result
+  // must differ from production only inside that one u32, and must read back as asked.
+  const bytes = (hex: string) => hex.match(/../g) ?? [];
+  const changed = bytes(value).filter((b, i) => b !== bytes(liveHex.slice(2))[i]).length;
+  if (changed === 0 || changed > 4) {
+    throw new Error(`patching num_cores changed ${changed} bytes of HostConfiguration; expected 1-4`);
+  }
+  const readBack = (index.reg.createType(type, '0x' + value).toJSON() as any).schedulerParams?.numCores;
+  if (readBack !== numCores) {
+    throw new Error(`num_cores read back as ${readBack}, not ${numCores}`);
+  }
+  return { value, before };
+}
+
+/**
+ * The extra overrides a shared relay needs: our parachains registered alone, laid out on cores
+ * from 0 with validator groups to match, `num_cores` cut to fit, and the inherited messaging
+ * state cleared. See ./shared-relay.ts for why each one is here.
+ */
+async function sharedRelayCandidates(
+  index: StorageIndex,
+  relayUrl: string,
+  paras: PlannedPara[],
+  validators: number
+): Promise<{ overrides: Record<string, string>; injects: Record<string, string> }> {
+  const plan = planCores(paras);
+  const paraIds = paras.map((p) => p.paraId);
+
+  // Read production's own HostConfiguration and change exactly one field in it.
+  const liveConfig = await rpc<`0x${string}` | null>(relayUrl, 'state_getStorage', [
+    '0x' + keyOf('Configuration', 'ActiveConfig'),
+  ]);
+  if (!liveConfig) throw new Error('the relay has no Configuration::ActiveConfig to patch');
+  const config = patchNumCores(index, liveConfig, plan.length);
+
+  console.log(
+    `  shared relay: ${paraIds.join(', ')} on cores 0-${plan.length - 1}, ` +
+      `num_cores ${config.before} -> ${plan.length}`
+  );
+
+  return {
+    overrides: {
+      [keyOf('ParaScheduler', 'ValidatorGroups')]: validatorGroups(plan.length, validators),
+      [keyOf('ParaScheduler', 'CoreDescriptors')]: encode(
+        index,
+        'ParaScheduler',
+        'CoreDescriptors',
+        coreDescriptorsValue(plan)
+      ),
+      [keyOf('Configuration', 'ActiveConfig')]: config.value,
+    },
+    // Storage map entries, so injects: one per parachain.
+    injects: messagingWipes(paraIds),
+  };
+}
+
+/** A runtime to authorize at import, for a fork that has no sudo to authorize one later. */
+export interface SeededUpgrade {
+  /** blake2-256 of the wasm, as the runtime stores it. */
+  codeHash: string;
+  /** false applies a blob whose spec_version is not bumped. */
+  checkVersion: boolean;
+}
+
+export async function relayOverrides(
+  relayUrl: string,
+  outFile: string,
+  shared?: { paras: PlannedPara[]; validators: number },
+  upgrade?: SeededUpgrade
+): Promise<void> {
+  const index = await storageIndex(relayUrl);
+  console.log('relay:');
+
+  // Order matters: the shared-relay values replace the ones relayCandidates() sets for a relay
+  // that is ours (ValidatorGroups above all), so they come second.
+  const extra = shared
+    ? await sharedRelayCandidates(index, relayUrl, shared.paras, shared.validators)
+    : { overrides: {}, injects: {} };
+  const candidates = {
+    ...relayCandidates(),
+    ...extra.overrides,
+    ...(upgrade ? authorizedUpgradeCandidate(upgrade.codeHash, upgrade.checkVersion) : {}),
+  };
+
+  const overrides = report('relay overrides', verify(index, candidates), candidates);
+  write(outFile, {
+    overrides,
+    // On a shared relay the dev accounts hold nothing — endow sudo at import so its
+    // first transaction (a runtime upgrade's fees) is payable.
+    injects: { ...relayInjects(), ...(shared ? sudoEndowInjects() : {}), ...extra.injects },
+  }, index);
+}
+
+export async function paraOverrides(
+  paraId: number,
+  paraUrl: string,
+  outFile: string,
+  sharedRelay = false,
+  upgrade?: SeededUpgrade,
+  scheme: AuraScheme = 'sr25519'
+): Promise<void> {
+  const index = await storageIndex(paraUrl);
+  const collator = await collatorKey(paraId, scheme);
+  // On a shared relay the inherited messaging state is cleared on both sides at once — see
+  // ./shared-relay.ts. On our own relay it is preserved on both sides, which is what keeps
+  // previewnet's HRMP channels and its XCM tests working.
+  // The transaction-storage wipe applies on EVERY bite of a chain with that pallet, not
+  // just shared relays: no bite carries the stored data blocks, so once the source chain
+  // has an active proof schedule (previewnet's bulletin since v0.0.24), the fork's next
+  // proof check panics "Storage proof must be checked once in the block" and the chain
+  // wedges one block in — reproduced on the published previewnet bundle 2026-08-19.
+  const candidates = {
+    ...paraCandidates(collator),
+    ...(sharedRelay ? paraMessagingWipes() : {}),
+    ...(index.pallets.has('TransactionStorage') ? transactionStorageWipes() : {}),
+    ...(upgrade ? authorizedUpgradeCandidate(upgrade.codeHash, upgrade.checkVersion) : {}),
+  };
+
+  console.log(`para ${paraId} (collator //Collator-${paraId} ${scheme} = ${collator.slice(0, 16)}…):`);
+  const overrides = report(`para ${paraId} overrides`, verify(index, candidates), candidates);
+
+  // A parachain without a Session pallet manages authorities through Aura alone.
+  const injects = {
+    ...(index.pallets.has('Session') ? paraInjects(collator) : {}),
+    // Parachains of a shared relay are live public chains: no dev account holds
+    // funds there, so sudo is endowed at import (see sudoEndowInjects).
+    ...(sharedRelay ? sudoEndowInjects() : {}),
+  };
+  write(outFile, { overrides, injects }, index);
+}

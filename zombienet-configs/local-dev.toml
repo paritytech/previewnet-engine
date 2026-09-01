@@ -1,0 +1,253 @@
+# DO NOT EDIT — regenerate with: make generate-toml
+# Source: packages/network-config/src/toml-generator.ts
+
+[settings]
+timeout = 600
+node_spawn_timeout = 240
+
+# Elastic scaling: 2 extra cores for Asset Hub 2-second blocks
+[relaychain.genesis.configuration.config.scheduler_params]
+num_cores = 2
+max_validators_per_core = 1
+
+[relaychain]
+chain = "paseo-local"
+chain_spec_path = "{{BIN}}/relay_paseo.json"
+default_command = "{{BIN}}/polkadot"
+default_args = ["-lruntime=debug,xcm=trace", "--network-backend=libp2p", "--unsafe-rpc-external", "--rpc-max-response-size=50"]
+
+[[relaychain.nodes]]
+name = "alice-paseo-validator"
+validator = true
+rpc_port = 10000
+p2p_port = 30334
+balance = 1000000000000000
+
+[[relaychain.nodes]]
+name = "bob-paseo-validator"
+validator = true
+rpc_port = 10001
+balance = 1000000000000000
+
+[[relaychain.nodes]]
+name = "charlie-paseo-validator"
+validator = true
+rpc_port = 10002
+balance = 1000000000000000
+
+[[relaychain.nodes]]
+name = "dave-paseo-validator"
+validator = true
+rpc_port = 10003
+balance = 1000000000000000
+
+[[relaychain.nodes]]
+name = "eve-paseo-validator"
+validator = true
+rpc_port = 10004
+balance = 1000000000000000
+
+[[relaychain.nodes]]
+name = "ferdie-paseo-validator"
+validator = true
+rpc_port = 10005
+balance = 1000000000000000
+
+## Asset Hub Paseo Next (Parachain 1500) - Elastic Scaling with 2-second blocks
+[[parachains]]
+id = 1500
+cumulus_based = true
+chain = "asset-hub-local"
+chain_spec_path = "{{BIN}}/asset_hub.json"
+
+[[parachains.collators]]
+name = "asset-hub-collator1"
+rpc_port = 10020
+p2p_port = 30335
+command = "{{SCRIPTS}}/omni-node.sh"
+args = ["-lxcm=trace", "--rpc-max-connections=500", "--force-authoring", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--experimental-webrtc", "--listen-addr=/ip4/127.0.0.1/udp/30335/webrtc-direct"]
+
+## People Chain (Parachain 1502)
+[[parachains]]
+id = 1502
+cumulus_based = true
+chain = "individuality-local"
+chain_spec_path = "{{BIN}}/individuality.json"
+
+[[parachains.collators]]
+name = "people-collator1"
+rpc_port = 10010
+p2p_port = 30336
+command = "{{SCRIPTS}}/omni-node.sh"
+args = ["-lparachain=debug,xcm=trace", "--rpc-max-connections=500", "--force-authoring", "--enable-statement-store", "--network-backend=libp2p", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50"]
+
+## Bulletin Chain (Parachain 1501)
+[[parachains]]
+id = 1501
+cumulus_based = true
+chain = "bulletin-local"
+chain_spec_path = "{{BIN}}/bulletin.json"
+
+[[parachains.collators]]
+name = "bulletin-collator1"
+rpc_port = 10030
+p2p_port = 30333
+command = "{{SCRIPTS}}/omni-node.sh"
+args = ["-lparachain=debug,xcm=trace", "--rpc-max-connections=500", "--force-authoring", "--ipfs-server", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--experimental-webrtc", "--listen-addr=/ip4/127.0.0.1/udp/30333/webrtc-direct", "--enable-hop", "--hop-retention-secs=3600", "--hop-check-interval=60"]
+
+## Web3 Storage Chain (Parachain 1600)
+[[parachains]]
+id = 1600
+cumulus_based = true
+chain = "web3-storage-local"
+chain_spec_path = "{{BIN}}/web3-storage.json"
+
+[[parachains.collators]]
+name = "web3-storage-collator1"
+rpc_port = 10040
+p2p_port = 30337
+command = "{{SCRIPTS}}/omni-node.sh"
+args = ["-lruntime=info", "--collator", "--rpc-max-connections=500", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--experimental-webrtc", "--listen-addr=/ip4/127.0.0.1/udp/30337/webrtc-direct"]
+
+[[hrmp_channels]]
+sender = 1502
+recipient = 1501
+max_capacity = 8
+max_message_size = 1048576
+
+[[hrmp_channels]]
+sender = 1501
+recipient = 1502
+max_capacity = 8
+max_message_size = 1048576
+
+[[hrmp_channels]]
+sender = 1502
+recipient = 1500
+max_capacity = 8
+max_message_size = 1048576
+
+[[hrmp_channels]]
+sender = 1500
+recipient = 1502
+max_capacity = 8
+max_message_size = 1048576
+
+[[custom_processes]]
+name = "eth-rpc"
+command = "{{SCRIPTS}}/eth-rpc.sh"
+
+[[custom_processes]]
+name = "dashboard"
+command = "{{SCRIPTS}}/dashboard.sh"
+
+[[custom_processes]]
+name = "ipfs-daemon"
+command = "{{SCRIPTS}}/ipfs-daemon.sh"
+
+[[custom_processes]]
+name = "ipfs-swarm"
+command = "{{SCRIPTS}}/ipfs-swarm.sh"
+
+[[custom_processes]]
+name = "storage-provider-node"
+command = "{{SCRIPTS}}/storage-provider-node.sh"
+
+[[custom_processes]]
+name = "force-open-hrmp"
+command = "{{SCRIPTS}}/force-open-hrmp.sh"
+
+[[custom_processes]]
+name = "increase-people-lite-attestation-allowance"
+command = "{{SCRIPTS}}/increase-people-lite-attestation-allowance.sh"
+
+[[custom_processes]]
+name = "grant-invites"
+command = "{{SCRIPTS}}/grant-invites.sh"
+
+[[custom_processes]]
+name = "dub-postgres"
+command = "{{SCRIPTS}}/dub/postgres.sh"
+
+[[custom_processes]]
+name = "dub-api"
+command = "{{SCRIPTS}}/dub/service.sh"
+args = ["--role=all-in-one", "--wait-for=127.0.0.1:5433"]
+env = [
+  { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
+  { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
+  { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "METRICS_ENABLED", value = "false" },
+  { name = "RUST_LOG", value = "info" },
+  { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
+  { name = "PEOPLE_NETWORK", value = "paseo" },
+  { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
+  { name = "BIND_ADDR", value = "127.0.0.1:8092" },
+  { name = "ASSET_HUB_RPC_URL", value = "ws://127.0.0.1:10020" },
+  { name = "TURN_REALM", value = "previewnet.local" },
+]
+
+[[custom_processes]]
+name = "device-attestation-chain-writer"
+command = "{{SCRIPTS}}/dub/service.sh"
+args = ["--role=device-attestation-chain-writer", "--wait-for=127.0.0.1:5433"]
+env = [
+  { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
+  { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
+  { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "METRICS_ENABLED", value = "false" },
+  { name = "RUST_LOG", value = "info" },
+  { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
+  { name = "PEOPLE_NETWORK", value = "paseo" },
+  { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
+]
+
+[[custom_processes]]
+name = "registration-queue"
+command = "{{SCRIPTS}}/dub/service.sh"
+args = ["--role=registration-queue", "--wait-for=127.0.0.1:5433"]
+env = [
+  { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
+  { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
+  { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "METRICS_ENABLED", value = "false" },
+  { name = "RUST_LOG", value = "info" },
+  { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
+  { name = "PEOPLE_NETWORK", value = "paseo" },
+  { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
+]
+
+[[custom_processes]]
+name = "invite-tickets-pool"
+command = "{{SCRIPTS}}/dub/service.sh"
+args = ["--role=invite-tickets-pool", "--wait-for=127.0.0.1:5433"]
+env = [
+  { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
+  { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
+  { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "METRICS_ENABLED", value = "false" },
+  { name = "RUST_LOG", value = "info" },
+  { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
+  { name = "PEOPLE_NETWORK", value = "paseo" },
+  { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
+]
+
+[[custom_processes]]
+name = "patch-bootnodes"
+command = "{{SCRIPTS}}/patch-bootnodes.sh"
+
+[[custom_processes]]
+name = "pin-design-families"
+command = "{{SCRIPTS}}/pin-design-families.sh"
+
+[[custom_processes]]
+name = "assign-cores"
+command = "{{SCRIPTS}}/assign-cores.sh"
+
+[[custom_processes]]
+name = "set-dispatcher-address"
+command = "{{SCRIPTS}}/set-dispatcher-address.sh"

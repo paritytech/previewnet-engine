@@ -1,0 +1,196 @@
+name: Bite a network on demand
+
+# Kusama and Polkadot are never pre-baked: a bundle of a public chain is stale by the time
+# anyone uses one, and biting them nightly is load on production nobody asked for. So they are
+# bitten when someone wants one — which needs a machine, because a laptop cannot: a real run
+# stalled at 37% of Asset Hub's state with peers decaying to zero at 31 KiB/s, because state
+# sync targets a block that ages out faster than a slow link can fetch it.
+#
+# The bundle is uploaded as an artifact rather than published: it belongs to whoever asked for
+# it, not to a release. `ppn start --fork` reads a directory, so unzip it and point at that.
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Network to bite (a networks/<name>.json)'
+        required: true
+        default: kusama
+        type: choice
+        options: [kusama, polkadot, devnet, paseo-next-v2, previewnet]
+      upgrade:
+        description: 'Authorize a runtime at import: <chain>=<url to wasm>, comma-separated'
+        required: false
+        type: string
+      upgrade_same_spec:
+        description: 'Authorize even when spec_version is not bumped'
+        required: false
+        default: false
+        type: boolean
+      keep_bundle:
+        description: 'Upload the bundle (gigabytes) as well as the logs'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  # One bite per network at a time: two would fight over the same live endpoints for no gain.
+  group: bite-${{ inputs.network }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bite:
+    runs-on: parity-large
+    # A public chain's state is much larger than previewnet's, and the relay follows the
+    # parachains — so this is generous where release.yml's per-attempt cap is tight.
+    timeout-minutes: 180
+    name: bite (${{ inputs.network }})
+    env:
+      PPN_NETWORK: ${{ inputs.network }}
+      BUNDLE: fork-bundle-${{ inputs.network }}
+      DATA: data-fork-${{ inputs.network }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build spawner
+        run: make build-spawner
+
+      - name: Fetch doppelganger binaries
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node bin/ppn.mjs fork fetch-doppelganger "$GITHUB_WORKSPACE/bin"
+
+      # Named by chain, so the flags read the same as they do locally. A URL rather than a
+      # path because a dispatch has no files: the usual source is the live chain's own :code,
+      # which is what replaying production's runtime against production's state means.
+      - name: Download the runtimes to authorize
+        id: upgrades
+        if: inputs.upgrade != ''
+        run: |
+          set -euo pipefail
+          mkdir -p upgrade-blobs
+          args=()
+          IFS=',' read -ra specs <<< "${{ inputs.upgrade }}"
+          for spec in "${specs[@]}"; do
+            chain="${spec%%=*}"
+            url="${spec#*=}"
+            [ "$chain" != "$spec" ] || { echo "::error::--upgrade wants <chain>=<url>, got '$spec'"; exit 1; }
+            dest="upgrade-blobs/$chain.wasm"
+            curl -sSL --fail --retry 3 --retry-delay 5 -o "$dest" "$url"
+            echo "  $chain: $(du -h "$dest" | cut -f1) from $url"
+            args+=("--upgrade" "$chain=$GITHUB_WORKSPACE/$dest")
+          done
+          printf '%s\n' "${args[@]}" > upgrade-args.txt
+
+      - name: Disk before the bite
+        run: df -h / /home 2>/dev/null | sed 's/^/  /'
+
+      - name: Bite
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PPN_BITE_LOG_DIR: ${{ github.workspace }}/bite-logs
+        run: |
+          set -euo pipefail
+          mkdir -p "$PPN_BITE_LOG_DIR"
+          args=()
+          if [ -f upgrade-args.txt ]; then
+            while IFS= read -r line; do args+=("$line"); done < upgrade-args.txt
+          fi
+          if [ "${{ inputs.upgrade_same_spec }}" = "true" ]; then args+=("--upgrade-same-spec"); fi
+          node bin/ppn.mjs bite "$GITHUB_WORKSPACE/$BUNDLE" "${args[@]+"${args[@]}"}"
+
+      - name: What the bite captured
+        if: always()
+        run: |
+          m="$GITHUB_WORKSPACE/$BUNDLE/manifest.json"
+          [ -f "$m" ] || { echo "  no manifest — the bite did not finish"; exit 0; }
+          node -e '
+            const m = require(process.argv[1]);
+            console.log("  bitten at:", m.bittenAt, "from", m.source);
+            console.log("  bite blocks:", JSON.stringify(m.biteBlocks));
+            console.log("  seeded upgrades:", JSON.stringify(m.seededUpgrades ?? {}));
+          ' "$m"
+          du -sh "$GITHUB_WORKSPACE/$BUNDLE"
+
+      # A bundle that cannot be spawned is not a good bundle, and biting is the only half
+      # of fork mode a bite proves. The bundle is already on disk here, so `start --fork`
+      # reuses it instead of reaching for a published one.
+      - name: Reap anything left behind on the runner
+        run: make kill || true
+
+      - name: Start the fork
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          : > /tmp/fork-spawn.log
+          nohup make start FORK=1 NETWORK="$PPN_NETWORK" >> /tmp/fork-spawn.log 2>&1 &
+          pid=$!
+          # Stream the spawn instead of only showing its tail when something breaks. It writes to
+          # a file because it has to outlive this step, and attaching zombienet to the step's own
+          # stdout would hand it a SIGPIPE the moment the step ends; tailing the file shows the
+          # same output while leaving the spawn detached.
+          tail -n +1 -F /tmp/fork-spawn.log 2>/dev/null &
+          tail_pid=$!
+          trap 'kill "$tail_pid" 2>/dev/null || true' EXIT
+          # Give up the moment the spawn dies, rather than burning the timeout on a make
+          # failure in the first second.
+          for i in $(seq 0 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::spawn exited after $((i * 10))s"; exit 1
+            fi
+            if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+                 http://127.0.0.1:10000 >/dev/null 2>&1; then
+              echo "relay is up after $((i * 10))s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::relay never came up"; exit 1
+
+      # The relay answers within a minute; the collator is still restoring its snapshot for
+      # several more. Sampling before it is up cannot measure production.
+      - name: Wait for every chain to produce and finalize
+        run: node bin/ppn.mjs fork wait "$GITHUB_WORKSPACE/$BUNDLE" 900
+
+      - name: Verify the fork is healthy
+        run: node bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/$BUNDLE" 60
+
+      - name: Stop the network
+        if: always()
+        run: make kill || true
+
+      - name: Upload spawn logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-spawn-logs-${{ inputs.network }}
+          path: |
+            /tmp/fork-spawn.log
+            ${{ env.DATA }}/*/*.log
+          retention-days: 5
+          if-no-files-found: warn
+
+      - name: Upload bite logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bite-logs-${{ inputs.network }}
+          path: bite-logs/
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Off by default: a public chain's bundle runs to gigabytes, and the artifact store is
+      # metered where a release's assets are not.
+      - name: Upload the bundle
+        if: ${{ inputs.keep_bundle && success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BUNDLE }}
+          path: ${{ env.BUNDLE }}
+          retention-days: 3
+          if-no-files-found: error

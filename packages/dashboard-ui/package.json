@@ -1,0 +1,23 @@
+{
+  "name": "@ppn/dashboard-ui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run --passWithNoTests",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tailwindcss/vite": "^4.0.0",
+    "svelte": "^5.19.0",
+    "svelte-check": "^4.1.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7",
+    "vite": "^6.0.11",
+    "vitest": "^3.0.4"
+  }
+}
