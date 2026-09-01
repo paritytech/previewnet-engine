@@ -81,13 +81,12 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
     ctx.ports.PPN_DATA_DIR ||
     path.join(path.dirname(ctx.sharedBinDir), 'data');
 
-  // Actions are sudo: a runtime upgrade is a root call. What may run one is decided by who
-  // can reach this socket, not by a profile — PPN_PROFILE does not survive zombienet, which
-  // strips the environment of custom processes, so reading it here resolves to the local
-  // default on a deployed host and opens sudo to the network.
+  // Actions are sudo: a runtime upgrade is a root call. What may run one is decided by who can
+  // reach this socket, because the bind is the one input that cannot be silently absent — an
+  // environment variable can be, since zombienet hands custom processes none.
   //
-  // Bound to loopback: open, because the only callers are on this machine. Bound anywhere
-  // else: a bearer token the operator set, or the dashboard is read-only.
+  // Loopback: open, the only callers are on this machine. Anything wider: a bearer token the
+  // operator set, or the dashboard is read-only.
   const host = process.env.DASHBOARD_HOST || ctx.ports.DASHBOARD_HOST || '127.0.0.1';
   const loopbackOnly = host === '127.0.0.1' || host === '::1' || host === 'localhost';
   const actionsToken = process.env.DASHBOARD_ACTIONS_TOKEN || null;

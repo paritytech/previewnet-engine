@@ -86,11 +86,10 @@ calls, so what may run one is decided by **who can reach the socket**:
 | anything wider | unset | off, 403 |
 | anything wider | set | the exact bearer only, else 401 |
 
-Reachability and not a profile, because a profile cannot get here. This gate used to read
-`PPN_PROFILE` and default to `local`, and zombienet strips the environment of custom
-processes (see below), so on a deployed host it always read `local` and every caller was
-authorized for sudo. Binding is the one input that cannot be silently absent: the socket is
-either reachable or it is not.
+Reachability rather than a profile, because the bind is the one input that cannot be silently
+absent: the socket is either reachable or it is not. An environment variable can be absent
+without anyone noticing, and zombienet hands custom processes no environment at all (see
+below), so a gate keyed on one is a gate that quietly opens.
 
 ### Environments
 
