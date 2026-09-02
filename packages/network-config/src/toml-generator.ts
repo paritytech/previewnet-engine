@@ -129,6 +129,11 @@ const P2P_PORTS: Record<ChainKey, number> = {
   bulletin: requiredPort('BULLETIN_P2P_PORT'),
   'web3-storage': requiredPort('WEB3_STORAGE_P2P_PORT'),
 };
+// The interface the webrtc-direct collators bind. Loopback on a laptop; a server sets its
+// public IP so browser peers can reach the collators at all — webrtc-direct advertises what
+// it is bound to, so a 127.0.0.1 listener is unreachable from anywhere else. The environment
+// wins over ports.env so a one-off `P2P_LISTEN_IP=… make start` needs no file edit.
+const P2P_LISTEN_IP = process.env.P2P_LISTEN_IP || portsEnv().P2P_LISTEN_IP || '127.0.0.1';
 // Per-chain required args (always included) and default log targets
 const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
   relay: {
@@ -147,7 +152,7 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
        '--unsafe-rpc-external',
        '--rpc-max-response-size=50',
        '--experimental-webrtc',
-       `--listen-addr=/ip4/127.0.0.1/udp/${P2P_PORTS['asset-hub']}/webrtc-direct`,
+       `--listen-addr=/ip4/${P2P_LISTEN_IP}/udp/${P2P_PORTS['asset-hub']}/webrtc-direct`,
      ],
     defaultLogs: { xcm: 'trace' },
   },
@@ -171,7 +176,7 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
       '--unsafe-rpc-external',
       '--rpc-max-response-size=50',
       '--experimental-webrtc',
-      `--listen-addr=/ip4/127.0.0.1/udp/${P2P_PORTS['bulletin']}/webrtc-direct`,
+      `--listen-addr=/ip4/${P2P_LISTEN_IP}/udp/${P2P_PORTS['bulletin']}/webrtc-direct`,
     ],
     defaultLogs: { parachain: 'debug', xcm: 'trace' },
   },
@@ -182,7 +187,7 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
       '--unsafe-rpc-external',
       '--rpc-max-response-size=50',
       '--experimental-webrtc',
-      `--listen-addr=/ip4/127.0.0.1/udp/${P2P_PORTS['web3-storage']}/webrtc-direct`,
+      `--listen-addr=/ip4/${P2P_LISTEN_IP}/udp/${P2P_PORTS['web3-storage']}/webrtc-direct`,
       ],
     defaultLogs: { runtime: 'info' },
   },
