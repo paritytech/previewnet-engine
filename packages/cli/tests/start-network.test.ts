@@ -7,8 +7,9 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { dataDirFor, binDirFor, forkDirFor, checkPorts } from '../src/commands/start.js';
+import { dataDirFor, binDirFor, forkDirFor, checkPorts, forkDataVerdict } from '../src/commands/start.js';
 import { forkBundleName, forkBundleAsset } from '../src/lib/fork-bundle-name.js';
+import { writeSpawnStamp, SPAWN_FILE } from '../src/lib/spawn-stamp.js';
 
 // `ppn start <network>` must become $PPN_NETWORK before anything downstream runs: fetch,
 // fork fetch-bundle and every service resolve the network from the environment, not from an
@@ -104,5 +105,64 @@ describe('checkPorts', () => {
     } finally {
       await new Promise((r) => held.close(r));
     }
+  });
+});
+
+// A fork start used to wipe its data every time, so a stopped fork came back at the bite
+// block and an enacted upgrade had to be re-applied. Now it resumes — but only when the
+// spawn stamp says the databases came from the very bundle being spawned. Resuming on
+// anything else is the "healthy for a hundred blocks, then Trie lookup error" failure.
+describe('forkDataVerdict', () => {
+  const BITTEN = '2026-09-01T18:30:00.000Z';
+  const setup = (bittenAt = BITTEN) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-verdict-'));
+    const dataDir = path.join(root, 'data-fork-polkadot');
+    const manifest = path.join(root, 'manifest.json');
+    fs.writeFileSync(manifest, JSON.stringify({ bittenAt, source: 'wss://rpc.polkadot.io', biteBlocks: { relay: 123 } }));
+    return { root, dataDir, manifest };
+  };
+  const spawned = (dataDir: string, manifest: string, network = 'polkadot', mode: 'fork' | 'genesis' = 'fork') => {
+    writeSpawnStamp(dataDir, { network, mode, forkManifest: manifest, repoRoot: '/nowhere' });
+    fs.mkdirSync(path.join(dataDir, 'alice', 'db'), { recursive: true });
+  };
+
+  it('is fresh when there is no chain data yet', () => {
+    const { dataDir, manifest } = setup();
+    assert.equal(forkDataVerdict(dataDir, 'polkadot', manifest).action, 'fresh');
+    // A stamp alone is not data.
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dataDir, SPAWN_FILE), '{}');
+    assert.equal(forkDataVerdict(dataDir, 'polkadot', manifest).action, 'fresh');
+  });
+
+  it('resumes when the data was spawned from this very bite', () => {
+    const { dataDir, manifest } = setup();
+    spawned(dataDir, manifest);
+    const v = forkDataVerdict(dataDir, 'polkadot', manifest);
+    assert.equal(v.action, 'resume');
+    assert.match(v.reason, new RegExp(BITTEN));
+  });
+
+  it('wipes when the bundle has been re-bitten since', () => {
+    const { dataDir, manifest } = setup();
+    spawned(dataDir, manifest);
+    fs.writeFileSync(manifest, JSON.stringify({ bittenAt: '2026-09-02T18:30:00.000Z' }));
+    const v = forkDataVerdict(dataDir, 'polkadot', manifest);
+    assert.equal(v.action, 'wipe');
+    assert.match(v.reason, /2026-09-02T18:30:00.000Z/);
+  });
+
+  it('wipes data from a genesis run, another network, or with no stamp', () => {
+    const genesis = setup();
+    spawned(genesis.dataDir, genesis.manifest, 'polkadot', 'genesis');
+    assert.equal(forkDataVerdict(genesis.dataDir, 'polkadot', genesis.manifest).action, 'wipe');
+
+    const other = setup();
+    spawned(other.dataDir, other.manifest, 'kusama');
+    assert.equal(forkDataVerdict(other.dataDir, 'polkadot', other.manifest).action, 'wipe');
+
+    const unstamped = setup();
+    fs.mkdirSync(path.join(unstamped.dataDir, 'alice', 'db'), { recursive: true });
+    assert.equal(forkDataVerdict(unstamped.dataDir, 'polkadot', unstamped.manifest).action, 'wipe');
   });
 });

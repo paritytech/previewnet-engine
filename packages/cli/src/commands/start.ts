@@ -20,7 +20,7 @@ import {
   workspaceRoot,
   type NetworkDef,
 } from '@parity/ppn-network-config';
-import { writeSpawnStamp } from '../lib/spawn-stamp.js';
+import { readSpawnStamp, writeSpawnStamp, SPAWN_FILE } from '../lib/spawn-stamp.js';
 import { localEnvContent, childEnv } from '../lib/spawn-env.js';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
 
@@ -264,6 +264,42 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
   return opts.toml ?? forkToml;
 }
 
+export type ForkDataVerdict =
+  | { action: 'fresh'; reason: string }
+  | { action: 'resume'; reason: string }
+  | { action: 'wipe'; reason: string };
+
+/**
+ * What to do with a fork's data directory before spawning.
+ *
+ * `resume` when the databases there were spawned from exactly this bundle — the spawn stamp
+ * names the bite they came from, and a bundle is identified by when it was bitten. Anything
+ * else is wiped: a different bite, a genesis run that shared the directory, or state with no
+ * stamp to vouch for it. Resuming on the wrong database is the failure FORK.md describes —
+ * healthy for a hundred blocks, then `Trie lookup error` — so the default is only ever taken
+ * when the stamp matches.
+ */
+export function forkDataVerdict(dataDir: string, network: string, manifestPath: string): ForkDataVerdict {
+  const populated = fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((f) => f !== SPAWN_FILE);
+  if (!populated) return { action: 'fresh', reason: 'no chain data yet' };
+
+  const stamp = readSpawnStamp(dataDir);
+  if (!stamp) return { action: 'wipe', reason: 'chain data present but no spawn stamp says which bite it came from' };
+  if (stamp.mode !== 'fork') return { action: 'wipe', reason: `it holds a ${stamp.mode} run, not a fork` };
+  if (stamp.network !== network) return { action: 'wipe', reason: `it holds a fork of ${stamp.network}` };
+
+  let bittenAt: string | undefined;
+  try {
+    bittenAt = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')).bittenAt;
+  } catch {
+    return { action: 'wipe', reason: 'the bundle has no readable manifest to compare against' };
+  }
+  if (!stamp.bite?.at || stamp.bite.at !== bittenAt) {
+    return { action: 'wipe', reason: `it continues a bite from ${stamp.bite?.at ?? 'unknown'}, the bundle is from ${bittenAt}` };
+  }
+  return { action: 'resume', reason: `continuing the fork spawned ${stamp.spawnedAt} from the bite of ${bittenAt}` };
+}
+
 /**
  * Is there a bundle here worth spawning from — and if not, clear what is.
  *
@@ -348,12 +384,6 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   if (opts.clean) {
     console.log(`cleaning ${dataDir}`);
     fs.rmSync(dataDir, { recursive: true, force: true });
-  } else if (opts.fork) {
-    // zombienet restores a bundle's snapshot only into an empty base path; if a database is
-    // already there it runs on that instead, which is how a fork ends up on another chain's
-    // state. See docs/FORK.md.
-    console.log(`fork mode: wiping ${dataDir} so the bundle's snapshot is restored`);
-    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 
   if (opts.regenerate) {
@@ -365,6 +395,20 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
 
   const tomlFile = await ensureDeps(netDef, opts, binDir);
   if (!fs.existsSync(tomlFile)) throw new Error(`no zombienet config at ${tomlFile}`);
+
+  // Decided after ensureDeps, which is where a --fresh-bite produces the bundle the data is
+  // compared against. zombienet restores a bundle's snapshot only into an empty base path;
+  // a database already there is run on as-is — which is right when it is this bundle's own
+  // fork continuing from where it stopped, and wrong for anything else. See docs/FORK.md.
+  if (opts.fork && !opts.ephemeral) {
+    const verdict = forkDataVerdict(dataDir, name, path.join(forkDirFor(name), 'manifest.json'));
+    if (verdict.action === 'wipe') {
+      console.log(`fork mode: wiping ${dataDir} — ${verdict.reason}`);
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    } else if (verdict.action === 'resume') {
+      console.log(`fork mode: resuming ${dataDir} — ${verdict.reason} (--clean restarts from the bite block)`);
+    }
+  }
   if (!opts.ephemeral) fs.mkdirSync(dataDir, { recursive: true });
 
   // When and from what this network was spawned — a fact of this run, recorded beside its

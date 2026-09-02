@@ -90,3 +90,15 @@ export function writeSpawnStamp(dataDir: string, input: StampSpawnInput): SpawnS
   fs.writeFileSync(path.join(dataDir, SPAWN_FILE), JSON.stringify(stamp, null, 2) + '\n');
   return stamp;
 }
+
+/** The stamp of the last spawn on `dataDir`, or null when there is none worth trusting. */
+export function readSpawnStamp(dataDir: string): SpawnStamp | null {
+  const file = path.join(dataDir, SPAWN_FILE);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const stamp = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return stamp && typeof stamp === 'object' && typeof stamp.mode === 'string' ? (stamp as SpawnStamp) : null;
+  } catch {
+    return null;
+  }
+}
