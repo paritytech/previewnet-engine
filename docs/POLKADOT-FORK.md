@@ -34,36 +34,32 @@ make fetch-doppelganger NETWORK=polkadot # the bite tool, into bin/polkadot/dg/
 
 ## Get the runtimes
 
-Once 2.5 is a release:
+2.5 is not a release yet; it is the open release PR
+([polkadot-fellows/runtimes#1265](https://github.com/polkadot-fellows/runtimes/pull/1265)),
+whose build workflow uploads one artifact per runtime on every push. Fetch straight from those:
+
+```bash
+make fetch-runtimes NETWORK=polkadot RUNTIMES=pr-1265
+```
+
+That resolves the PR's current head commit, takes each chain's runtime from the newest build
+run that produced it, and puts `<chain>.wasm` under `bin/polkadot/runtimes/pr-1265/`. Re-run
+it after the PR is pushed to and the blobs follow. Artifacts expire after 90 days, and the
+directory is what you keep.
+
+Once 2.5 is cut, the same command takes the tag and reads the release assets instead:
 
 ```bash
 make fetch-runtimes NETWORK=polkadot RUNTIMES=v2.5.0
 ```
 
-That reads the `upgrades` table in `networks/polkadot.json` and puts one `<chain>.wasm` per
-chain under `bin/polkadot/runtimes/v2.5.0/`.
-
-Before it is a release, the runtimes are build artifacts on the release PR
-([polkadot-fellows/runtimes#1265](https://github.com/polkadot-fellows/runtimes/pull/1265)).
-Download the ones you want and put them under the same directory, named by chain key:
-
-```bash
-RUN=33612846819   # the build-runtimes run on the PR's head commit; `gh pr checks 1265` lists it
-mkdir -p bin/polkadot/runtimes/pr-1265
-for c in asset-hub-polkadot people-polkadot; do
-  gh run download $RUN --repo polkadot-fellows/runtimes -n $c -D /tmp/rt-$c
-done
-cp /tmp/rt-asset-hub-polkadot/*.compact.compressed.wasm bin/polkadot/runtimes/pr-1265/asset-hub.wasm
-cp /tmp/rt-people-polkadot/*.compact.compressed.wasm    bin/polkadot/runtimes/pr-1265/people.wasm
-```
-
-`RUNTIMES=pr-1265` then works exactly like a release tag. Artifacts expire (this run's on
-2026-12-01), so keep the blobs.
+Either way the `upgrades` table in `networks/polkadot.json` says which repo and what each
+chain's runtime is called there.
 
 ## Bite and start
 
 ```bash
-make bite NETWORK=polkadot RUNTIMES=v2.5.0    # ~20 min: warp-syncs all four chains, authorizes the blobs
+make bite NETWORK=polkadot RUNTIMES=pr-1265   # ~20 min: warp-syncs all four chains, authorizes the blobs
 make start FORK=1 NETWORK=polkadot            # spawns from fork-bundle-polkadot/
 ```
 
@@ -92,7 +88,8 @@ make bite NETWORK=polkadot UPGRADES="asset-hub=/path/to/ah.wasm people=/path/to/
 | Stop | `make kill` |
 | Start again where it stopped, upgrades still enacted | `make start FORK=1 NETWORK=polkadot` |
 | Back to the bite block, upgrades authorized but not enacted | `make start FORK=1 NETWORK=polkadot CLEAN=1` |
-| Fresh state from live Polkadot, same runtimes | `make bite NETWORK=polkadot RUNTIMES=v2.5.0` then start |
+| Fresh state from live Polkadot, same runtimes | `make bite NETWORK=polkadot RUNTIMES=pr-1265` then start |
+| The PR was pushed to, pick up its new build | `make fetch-runtimes NETWORK=polkadot RUNTIMES=pr-1265`, then a new bite |
 | Different runtimes | a new bite with a different `RUNTIMES=` or `UPGRADES=` — the authorization is state inside the bundle |
 | Throw the bundle away | `make clean-fork NETWORK=polkadot` |
 

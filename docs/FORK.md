@@ -58,8 +58,10 @@ make runtime-upgrade NETWORK=polkadot CHAIN=people
 
 `fetch-runtimes` reads the descriptor's `upgrades` table — which repo publishes the runtimes and
 what each chain's is called there — and puts `<chain>.wasm` under `bin/<network>/runtimes/<tag>/`.
-`RUNTIMES=<tag>` on a bite authorizes all of them; `UPGRADES="<chain>=<wasm> ..."` names blobs
-one by one, which is how a runtime from a PR's build artifacts (before it is a release) gets in.
+`RUNTIMES=` takes a release tag (`v2.5.0`) or a pull request (`pr-1265`): for a PR the
+runtimes come from the build artifacts on its head commit, which is how a release that is not
+cut yet gets onto a fork. `RUNTIMES=<ref>` on a bite authorizes all of them;
+`UPGRADES="<chain>=<wasm> ..."` names blobs one by one for anything built elsewhere.
 Both also work on `make start FORK=1 FRESH_BITE=1`, since that bites too.
 
 Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
