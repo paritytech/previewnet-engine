@@ -666,43 +666,117 @@ export async function fetchBundle(args: string[]): Promise<void> {
 /**
  * Download the runtimes a fork of this network can be upgraded to.
  *
- * `ppn fork fetch-runtimes <tag> [outDir]`: one `<chain>.wasm` per chain in the descriptor's
- * `upgrades.runtimes` table, from the release `upgrades.repo` publishes under that tag. The
- * fellowship names its assets `<runtime>_runtime-v<spec>.compact.compressed.wasm`; the spec
- * number is not known in advance, so the asset is matched on stem and suffix. Files land
- * under `bin/<network>/runtimes/<tag>/`, which is what `make bite RUNTIMES=<tag>` stages.
+ * `ppn fork fetch-runtimes <ref> [outDir]`: one `<chain>.wasm` per chain in the descriptor's
+ * `upgrades.runtimes` table, from `upgrades.repo`. `<ref>` is either a release tag (`v2.5.0`),
+ * whose assets the fellowship names `<runtime>_runtime-v<spec>.compact.compressed.wasm`, or
+ * `pr-<number>` for a release that is not cut yet: the build workflow on the PR's head commit
+ * uploads one artifact per runtime, named after it, each a zip holding the wasm. Files land
+ * under `bin/<network>/runtimes/<ref>/`, which is what `make bite RUNTIMES=<ref>` stages.
  */
 export async function fetchRuntimes(args: string[]): Promise<void> {
   const net = loadCurrentNetwork();
-  const [tag, outArg] = args;
-  if (!tag) throw new Error('fetch-runtimes needs a release tag, e.g. v2.5.0');
+  const [ref, outArg] = args;
+  if (!ref) throw new Error('fetch-runtimes needs a release tag (v2.5.0) or a pull request (pr-1265)');
   if (!net.upgrades) {
     throw new Error(`networks/${net.name}.json declares no \`upgrades\` table — nothing says where its runtimes are published`);
   }
-  const out = path.resolve(outArg || path.join(WS, 'bin', net.name === 'previewnet' ? '' : net.name, 'runtimes', tag));
+  const out = path.resolve(outArg || path.join(WS, 'bin', net.name === 'previewnet' ? '' : net.name, 'runtimes', ref));
   const { repo, runtimes } = net.upgrades;
   const token = githubToken();
+  fs.mkdirSync(out, { recursive: true });
+
+  const pr = ref.match(/^pr-(\d+)$/);
+  const fetched = pr
+    ? await runtimesFromPr(repo, Number(pr[1]), runtimes, out, token)
+    : await runtimesFromRelease(repo, ref, runtimes, out, token);
+
+  for (const [chain, from] of Object.entries(fetched)) {
+    const code = fs.readFileSync(path.join(out, `${chain}.wasm`));
+    console.log(`  ${chain}: ${from} (${(code.length / 1024).toFixed(0)} KiB, blake2 ${blake2AsHex(code, 256).slice(2, 18)}…)`);
+  }
+  console.log(`✓ ${Object.keys(fetched).length} runtime(s) ready: make bite NETWORK=${net.name} RUNTIMES=${ref}`);
+}
+
+const WASM_SUFFIX = '.compact.compressed.wasm';
+
+/** Release assets, matched on `<runtime>_runtime-v` + the suffix since the spec number is not known. */
+async function runtimesFromRelease(
+  repo: string,
+  tag: string,
+  runtimes: Record<string, string>,
+  out: string,
+  token: string
+): Promise<Record<string, string>> {
   const { fetchRelease, downloadAsset } = await import('../lib/github.js');
   const release = await fetchRelease(repo, tag, token);
-
-  fs.mkdirSync(out, { recursive: true });
   console.log(`Fetching runtimes from ${repo}@${tag} into ${out}`);
+  const from: Record<string, string> = {};
   for (const [chain, runtime] of Object.entries(runtimes)) {
-    const matches = release.assets.filter(
-      (a) => a.name.startsWith(`${runtime}_runtime-v`) && a.name.endsWith('.compact.compressed.wasm')
-    );
+    const matches = release.assets.filter((a) => a.name.startsWith(`${runtime}_runtime-v`) && a.name.endsWith(WASM_SUFFIX));
     if (matches.length !== 1) {
       throw new Error(
-        `${repo}@${tag} has ${matches.length} asset(s) matching ${runtime}_runtime-v*.compact.compressed.wasm ` +
-          `(wanted exactly one for ${chain})`
+        `${repo}@${tag} has ${matches.length} asset(s) matching ${runtime}_runtime-v*${WASM_SUFFIX} (wanted exactly one for ${chain})`
       );
     }
-    const dest = path.join(out, `${chain}.wasm`);
-    if (!(await downloadAsset(release, matches[0].name, dest, token))) {
+    if (!(await downloadAsset(release, matches[0].name, path.join(out, `${chain}.wasm`), token))) {
       throw new Error(`download of ${matches[0].name} failed`);
     }
-    const code = fs.readFileSync(dest);
-    console.log(`  ${chain}: ${matches[0].name} (${(code.length / 1024).toFixed(0)} KiB, blake2 ${blake2AsHex(code, 256).slice(2, 18)}…)`);
+    from[chain] = matches[0].name;
   }
-  console.log(`✓ ${Object.keys(runtimes).length} runtime(s) ready: make bite NETWORK=${net.name} RUNTIMES=${tag}`);
+  return from;
+}
+
+/**
+ * Build artifacts of the PR's head commit. Several runs can exist for one commit (the build
+ * workflow is triggered more than once); artifacts are taken from the newest run that has one
+ * of the wanted name, so a re-run supersedes an older build. A chain whose runtime the PR did
+ * not build is an error, not a silent gap: the bite would then authorize nothing for it.
+ */
+async function runtimesFromPr(
+  repo: string,
+  number: number,
+  runtimes: Record<string, string>,
+  out: string,
+  token: string
+): Promise<Record<string, string>> {
+  const { githubApi, downloadArtifact } = await import('../lib/github.js');
+  const pull = await githubApi<{ head: { sha: string }; title: string; state: string }>(`repos/${repo}/pulls/${number}`, token);
+  console.log(`Fetching runtimes built for ${repo}#${number} "${pull.title}" (${pull.head.sha.slice(0, 10)}) into ${out}`);
+
+  const runs = await githubApi<{ workflow_runs: { id: number; created_at: string }[] }>(
+    `repos/${repo}/actions/runs?head_sha=${pull.head.sha}&per_page=100`,
+    token
+  );
+  type Artifact = { id: number; name: string; expired: boolean; expires_at: string; created_at: string };
+  const artifacts: Artifact[] = [];
+  for (const run of runs.workflow_runs) {
+    const page = await githubApi<{ artifacts: Artifact[] }>(`repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`, token);
+    artifacts.push(...page.artifacts.filter((a) => !a.expired));
+  }
+  artifacts.sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+  const from: Record<string, string> = {};
+  for (const [chain, runtime] of Object.entries(runtimes)) {
+    const artifact = artifacts.find((a) => a.name === runtime);
+    if (!artifact) {
+      throw new Error(
+        `no artifact named "${runtime}" on ${repo}#${number}'s head commit — the PR's build did not produce ${chain}'s runtime ` +
+          `(have: ${[...new Set(artifacts.map((a) => a.name))].sort().join(', ') || 'none'})`
+      );
+    }
+    const zip = path.join(out, `${chain}.zip`);
+    if (!(await downloadArtifact(repo, artifact.id, zip, token))) throw new Error(`download of artifact ${artifact.name} failed`);
+    const unpacked = path.join(out, `.${chain}-unpacked`);
+    fs.rmSync(unpacked, { recursive: true, force: true });
+    extractZip(zip, unpacked);
+    const wasms = fs.readdirSync(unpacked, { recursive: true }).map(String).filter((f) => f.endsWith(WASM_SUFFIX));
+    if (wasms.length !== 1) {
+      throw new Error(`artifact ${artifact.name} holds ${wasms.length} *${WASM_SUFFIX} file(s), wanted exactly one`);
+    }
+    fs.copyFileSync(path.join(unpacked, wasms[0]), path.join(out, `${chain}.wasm`));
+    fs.rmSync(unpacked, { recursive: true, force: true });
+    fs.rmSync(zip);
+    from[chain] = `${path.basename(wasms[0])} (artifact ${artifact.name}, expires ${artifact.expires_at.slice(0, 10)})`;
+  }
+  return from;
 }

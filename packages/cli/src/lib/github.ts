@@ -232,6 +232,30 @@ export async function downloadUrl(url: string, dest: string): Promise<boolean> {
   });
 }
 
+/** One authenticated GET against the REST API, e.g. `githubApi('repos/o/r/pulls/1', token)`. */
+export async function githubApi<T = any>(apiPath: string, token: string): Promise<T> {
+  const res = await fetch(`https://api.github.com/${apiPath}`, { headers: api(token) });
+  if (!res.ok) throw new Error(`GET ${apiPath}: ${res.status} ${res.statusText}`);
+  return (await res.json()) as T;
+}
+
+/**
+ * Download a workflow-run artifact as a zip. The API answers with a redirect to blob storage,
+ * which fetch follows — dropping the Authorization header across origins, as the storage URL
+ * is pre-signed and rejects a token.
+ */
+export async function downloadArtifact(repo: string, artifactId: number, dest: string, token: string): Promise<boolean> {
+  return withRetry(`download of artifact ${artifactId}`, async () => {
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/artifacts/${artifactId}/zip`, {
+      headers: api(token),
+      redirect: 'follow',
+    });
+    if (!res.ok) return false;
+    await writeStream(res, dest);
+    return true;
+  });
+}
+
 export function makeExecutable(file: string): void {
   fs.chmodSync(file, 0o755);
 }
