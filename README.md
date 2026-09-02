@@ -1,5 +1,11 @@
 # Product Preview Network (PPN)
 
+> [!WARNING]
+> The following is a prototype, reference implementation, and proof-of-concept. This open source
+> code is provided for research, experimentation, and developer education only. This code has not
+> been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete
+> features. Use at your own risk.
+
 A complete Polkadot ecosystem on your machine, in one command: a Paseo relay chain with six
 validators, plus Asset Hub (2-second blocks via elastic scaling), People, Bulletin and Web3
 Storage, plus the Ethereum RPC, IPFS, identity backend and storage provider those chains
@@ -84,6 +90,7 @@ DOCKER=1 make start
 
 Linux only. p2p networking fails on Apple Silicon under x86_64 emulation, so use `make start`.
 
+
 ## Using it against your own network
 
 The `ppn` CLI is [published separately](https://www.npmjs.com/package/@parity/ppn) and is not
@@ -114,10 +121,22 @@ See [`packages/cli/README.md`](packages/cli/README.md) for that path, and
 
 ## Security
 
-This is development and preview-network tooling. It has **not** been audited, and the default
-profile deliberately runs well-known development keys (`//Alice` and friends) as funded sudo
-accounts. Do not point it at anything holding real value, and read
+> [!WARNING]
+> The following is a prototype, reference implementation, and proof-of-concept. This open source
+> code is provided for research, experimentation, and developer education only. This code has not
+> been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete
+> features. Use at your own risk.
+
+Concretely: the default profile deliberately runs well-known development keys (`//Alice` and
+friends) as funded sudo accounts, so do not point it at anything holding real value. Read
 [PROFILES.md](docs/PROFILES.md) before running it anywhere long-lived or reachable by others.
+
+Before deploying this for real use cases, you are responsible for:
+
+- Reviewing the code yourself. We publish a reference, not a hardened production build.
+- Checking that the dependencies are up to date and free of known vulnerabilities.
+- Securing your own deployment environment: keys, secrets, network configuration.
+- Tracking the latest tagged release for security fixes. Older releases are not backported.
 
 To report a vulnerability, follow the
 [Parity security policy](https://github.com/paritytech/.github/blob/main/SECURITY.md).
