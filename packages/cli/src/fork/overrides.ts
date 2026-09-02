@@ -99,7 +99,7 @@ function report(label: string, result: VerifyResult, candidates: Record<string, 
  * bundle carries it, and the fork fails later with nothing pointing back here.
  *
  * The key is `<map prefix><hashed key>`, so the entry is found by prefix: the prefix is the
- * first 32 hex characters, exactly as `keyOf` produces it.
+ * first 64 hex characters (two twox128 hashes), exactly as `keyOf` produces it.
  */
 export function verifyInjects(
   { reg, byKey }: Pick<StorageIndex, 'reg' | 'byKey'>,
@@ -110,7 +110,7 @@ export function verifyInjects(
   const failures: string[] = [];
 
   for (const [key, value] of Object.entries(injects)) {
-    const info = byKey.get(key.slice(0, 32));
+    const info = byKey.get(key.slice(0, 64));
     if (!info) {
       skipped.push(`${key.slice(0, 12)}… (no such map in this runtime)`);
       continue;

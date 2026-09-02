@@ -216,20 +216,33 @@ describe('verifyInjects', () => {
     }),
   } as never;
 
-  // An inject's key is the map prefix (32 hex chars) followed by the hashed key.
-  const PREFIX = 'a'.repeat(32);
+  // An inject's key is the map prefix — twox128(pallet) ++ twox128(item), 64 hex chars, as
+  // keyOf() builds it and as the storage index is keyed — followed by the hashed key.
+  const PREFIX = keyOf('System', 'Account');
   const index = (entries: [string, { label: string; mapValue: number | null }][]) => ({
     reg: registry,
     byKey: new Map(entries),
   });
 
   it('checks an inject against the value type of the map it writes into', () => {
+    assert.equal(PREFIX.length, 64);
     const r = verifyInjects(
       index([[PREFIX, { label: 'System::Account', mapValue: MAPVAL }]]) as never,
       { [PREFIX + 'deadbeef']: 'aabb' }
     );
     assert.deepEqual(r.kept, { [PREFIX + 'deadbeef']: 'aabb' });
     assert.deepEqual(r.failures, []);
+  });
+
+  // The lookup once took the first 32 hex chars — the pallet hash alone — which matches no
+  // index entry, so every inject was reported "no such map" and written unchecked.
+  it('looks the map up by its full two-hash prefix, not the pallet hash alone', () => {
+    const r = verifyInjects(
+      index([[PREFIX.slice(0, 32), { label: 'System', mapValue: MAPVAL }]]) as never,
+      { [PREFIX + 'deadbeef']: 'aabb' }
+    );
+    assert.deepEqual(r.kept, {});
+    assert.equal(r.skipped.length, 1);
   });
 
   it('fails an inject the runtime decodes to something else', () => {
