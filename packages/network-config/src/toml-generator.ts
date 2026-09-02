@@ -168,7 +168,6 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
       "--rpc-max-connections=500",
       '--force-authoring',
       '--ipfs-server',
-      '--authoring=slot-based',
       '--unsafe-rpc-external',
       '--rpc-max-response-size=50',
       '--experimental-webrtc',
@@ -218,8 +217,15 @@ function buildArgs(chainKey: ChainKey, logTargets?: Record<string, LogLevel>, en
   }
 
   args.push(...def.required);
-  // ~1h HOP promotion; the default retention is 24h, too long to exercise in tests.
-  if (enableHop) args.push('--enable-hop', '--hop-retention-secs=3600', '--hop-check-interval=60');
+  // HOP promotion tuned for tests: 1h retention, promotion window opens at half the retention
+  // (buffer = retention / 2 = 1800s), so an unacked entry is promoted ~30min after submit.
+  if (enableHop)
+    args.push(
+      '--enable-hop',
+      '--hop-retention-secs=3600',
+      '--hop-promotion-buffer-secs=1800',
+      '--hop-check-interval=60'
+    );
   return args;
 }
 
