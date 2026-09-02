@@ -38,7 +38,8 @@ make kill               # Stop running network
 make pin-design-families # Pin design families to IPFS (also runs automatically via zombienet)
 make test               # Run integration tests (spawns a network)
 make test-unit          # Run workspace unit tests (config generators, fork/bite)
-make bite               # Bite production previewnet into a fork bundle (no start)
+make bite               # Bite the live network into a fork bundle (no start)
+make fetch-runtimes     # Download runtimes to authorize on a no-sudo fork: NETWORK=polkadot RUNTIMES=v2.5.0
 make runtime-upgrade    # Upgrade a running chain: CHAIN=<chain> WASM=<path> (see docs/RUNTIME-UPGRADE.md)
 make doctor             # Check prerequisites
 make clean              # Remove bin/, data/, and design-families/
@@ -62,14 +63,19 @@ DATA_DIR=<path> make start    # Custom data directory (default: ./data)
 make start FORK=1             # Start from production previewnet state, not genesis
 make start FORK=1 NETWORK=devnet  # Fork a different network (networks/*.json)
 make start FORK=1 FRESH_BITE=1  # Fork, biting production now instead of using a bundle
+make start FORK=1 CLEAN=1       # Fork, back at its bite block (a stopped fork otherwise resumes)
+make bite NETWORK=polkadot RUNTIMES=v2.5.0  # Bite with fetched runtimes authorized (no-sudo networks)
 ```
 
 Fork mode continues from a real block rather than resetting to genesis, so contracts,
-registrations and balances are already present. See `docs/FORK.md`.
+registrations and balances are already present. A fork that is started again resumes where it
+stopped, as long as the data came from the bundle being spawned. See `docs/FORK.md`.
 
-Only previewnet can start from genesis. Every other network (paseo-next-v2, devnet,
-kusama/polkadot stubs) is fork-only, defined by a descriptor in `networks/<name>.json` —
-see `networks/README.md` for the schema and per-network status.
+Only previewnet can start from genesis. Every other network (paseo-next-v2, devnet, kusama,
+polkadot) is fork-only, defined by a descriptor in `networks/<name>.json` —
+see `networks/README.md` for the schema and per-network status. Polkadot forks relay, Asset Hub,
+People and Bulletin with the fellowship's runtimes authorized at bite time; `docs/POLKADOT-FORK.md`
+is the runbook for a dedicated machine.
 
 A descriptor states, explicitly, which binary each chain runs and from which release,
 which runtime it starts from (genesis networks), its services, tools and bite tool.
@@ -109,8 +115,8 @@ networks/                     # Network descriptors (see networks/README.md)
 ├── previewnet.json           # The default; the only genesis-spawnable network
 ├── paseo-next-v2.json        # Fork-only: paseo relay, previewnet para-id band
 ├── devnet.json               # Fork-only: paseo relay, system-chain para ids (1000+)
-├── kusama.json               # Stub: fork-only, no sudo, on-the-fly bite
-└── polkadot.json             # Stub: fork-only, no sudo, on-the-fly bite
+├── kusama.json               # Fork-only, no sudo, on-the-fly bite: relay + Asset Hub
+└── polkadot.json             # Fork-only, no sudo, on-the-fly bite: relay + Asset Hub + People + Bulletin
 
 config/
 ├── ports.env                 # Port configuration for all services
@@ -122,6 +128,7 @@ docs/
 ├── DEPLOYING-YOUR-OWN.md     # Run your own deployment
 ├── DEVICE-UNIQUENESS-BACKEND.md # dub roles, env, endpoints
 ├── FORK.md                   # Fork mode: spawn from production state
+├── POLKADOT-FORK.md          # Runbook: fork Polkadot with the fellowship runtimes on a dedicated machine
 ├── PROFILES.md               # dev/prod profiles: funded accounts, sudo, signing keys
 └── RUNTIME-UPGRADE.md        # Upgrade the runtime of a running chain
 

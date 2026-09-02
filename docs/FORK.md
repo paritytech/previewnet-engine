@@ -25,10 +25,16 @@ bundle, not the environment.
 
 Networks without sudo (Kusama, Polkadot) are not pre-bitten by CI — their bundles would be
 stale by the time anyone used one, and biting a public chain nightly is load nobody asked for.
-They are bitten on demand instead, and their Asset Hub spec comes from the parachain binary
-(`builtin:asset-hub-kusama`), so nothing has to publish one. Non-previewnet networks keep their
-own binaries (`bin/<network>/`, release pinned by the descriptor's `releases` table), fork
-bundle (`fork-bundle-<network>/`) and data directory (`data-fork-<network>/`).
+They are bitten on demand instead, and their system-chain specs come from the parachain binary
+(`builtin:asset-hub-kusama`, `builtin:people-polkadot`), so nothing has to publish one — except
+Polkadot's Bulletin, which is not built in and runs from the spec Parity's own RPC nodes use.
+Non-previewnet networks keep their own binaries (`bin/<network>/`, release pinned by the
+descriptor's `releases` table), fork bundle (`fork-bundle-<network>/`) and data directory
+(`data-fork-<network>/`).
+
+Polkadot forks as relay + Asset Hub 1000 + People 1004 + Bulletin 1010: the three system chains
+the fellowship's Individuality release (runtimes 2.5) lands on. See `docs/POLKADOT-FORK.md` for
+running that fork on a dedicated machine.
 
 ## Upgrading a fork that has no sudo
 
@@ -43,15 +49,25 @@ So the authorization is written into state during the bite, which is the state t
 would have produced:
 
 ```bash
-PPN_NETWORK=kusama ppn bite --upgrade asset-hub=./ah-kusama-runtime.wasm
-PPN_NETWORK=kusama ppn start --fork
-PPN_NETWORK=kusama ppn runtime-upgrade asset-hub    # submits the apply half, unsigned
+make fetch-runtimes NETWORK=polkadot RUNTIMES=v2.5.0   # the fellowship's wasms, one per chain
+make bite NETWORK=polkadot RUNTIMES=v2.5.0             # bite with every one of them authorized
+make start FORK=1 NETWORK=polkadot
+make runtime-upgrade NETWORK=polkadot CHAIN=asset-hub  # submits the apply half, unsigned
+make runtime-upgrade NETWORK=polkadot CHAIN=people
 ```
 
-`--upgrade` takes one `<chain>=<wasm>` per chain and stages the blob into the bundle under
+`fetch-runtimes` reads the descriptor's `upgrades` table — which repo publishes the runtimes and
+what each chain's is called there — and puts `<chain>.wasm` under `bin/<network>/runtimes/<tag>/`.
+`RUNTIMES=<tag>` on a bite authorizes all of them; `UPGRADES="<chain>=<wasm> ..."` names blobs
+one by one, which is how a runtime from a PR's build artifacts (before it is a release) gets in.
+Both also work on `make start FORK=1 FRESH_BITE=1`, since that bites too.
+
+Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
 `upgrades/<chain>.wasm`, recording it in `manifest.json` as `seededUpgrades`. Add
 `--upgrade-same-spec` to authorize a runtime whose `spec_version` is not bumped — what
-replaying production's own runtime against a fork of production's state needs.
+replaying production's own runtime against a fork of production's state needs. The
+authorization is state inside the snapshot, so a different blob means a new bite; a start that
+reuses a bundle prints what it has authorized and refuses `--upgrade`.
 
 What this skips is only the governance dispatch. The blob is still hashed and checked against
 the authorization, and on a parachain the upgrade still goes through the relay's PVF pre-check
@@ -107,17 +123,27 @@ and per-chain flags with the genesis generator — see below.
 
 Each of these was a real failure during development; none of them announces itself clearly.
 
-**A fork cannot resume — every start wipes `DATA_DIR`.** zombienet restores the bundle's snapshot
-only into an empty base path, so a start that finds a database already there silently runs on it
-instead. What that cost us once: a genesis run and a fork sharing `./data`, so the fork came up on a
+**A fork resumes only on its own database.** zombienet restores the bundle's snapshot only into
+an empty base path, so a start that finds a database already there silently runs on it instead.
+What that cost us once: a genesis run and a fork sharing `./data`, so the fork came up on a
 database belonging to a different chain. It looked healthy for a hundred blocks, then three of six
 validators panicked with `Trie lookup error: Database missing expected key` ~110 blocks past the
 bite point while the other three carried on.
 
-Fork mode now gets its own `data-fork` directory (`DATA_DIR` is suffixed under `FORK=1`), so that
-particular collision can no longer happen. `make start FORK=1` still wipes, because resuming a
-fork's *own* database is untested and `--state-pruning=256` leaves little margin for it; genesis
-mode resumes normally.
+Three things are in place for that. Fork mode has its own `data-fork-<network>` directory, so it
+never meets genesis data. The spawn stamp (`spawn.json`, written beside the chain state) records
+which bite the databases came from, and `ppn start --fork` compares it with the bundle's
+`bittenAt` before deciding: a match resumes where the fork stopped, with any runtime upgrade it
+enacted still in force; anything else — a re-bitten bundle, another network's data, no stamp —
+is wiped and the snapshot restored. `CLEAN=1` wipes regardless, which is how a fork is put back
+at its bite block.
+
+```bash
+make start FORK=1 NETWORK=polkadot          # first start: restore the snapshot, block 123
+make kill && make start FORK=1 NETWORK=polkadot   # resumes at wherever it stopped
+make start FORK=1 NETWORK=polkadot CLEAN=1  # back to block 123
+make start FORK=1 NETWORK=polkadot FRESH_BITE=1   # new bite; the old data is wiped by the stamp rule
+```
 
 **`chain` is mandatory alongside `chain_spec_path`.** Without it zombienet applies one spec to every
 parachain, last one wins, and all collators silently run the same chain. The symptom is parachains
@@ -253,7 +279,9 @@ because production's values are the ones we want:
   gives Asset Hub its 2-second blocks. Its `executor_params` holds
   `EnabledHostFunction(EccRfc163)`, without which the relay's validators reject People's PVFs.
   One key, two things depending on it, which is why overriding it wholesale costs both.
-- `Hrmp::*` / `Dmp::*` — keeps the four HRMP channels (relay pallets)
+- `Hrmp::*` / `Dmp::*` — keeps the four HRMP channels (relay pallets). On a *shared* relay the
+  channels are kept too, but their queues are reset on both sides — see "Forking a shared relay"
+  in `networks/README.md`
 - `Paras::Parachains` — keeps all four parachains registered (relay pallet)
 
 Every override value is SCALE-decoded against the live metadata of the chain being bitten before it
