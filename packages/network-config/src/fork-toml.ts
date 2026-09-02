@@ -92,6 +92,11 @@ const PROCESS_GATES: Record<string, Parachain | null> = {
   'grant-invites': 'people',
 };
 
+// Processes whose only move is a sudo call. A fork of a network without sudo (kusama,
+// polkadot) cannot dispatch root, so these would only fail there; what they grant has to
+// come from the source chain's own state.
+const SUDO_PROCESSES = new Set(['increase-people-lite-attestation-allowance', 'grant-invites']);
+
 const FORK_PROCESSES = Object.keys(PROCESS_GATES);
 
 // A warp-synced node keeps only recent state, and skipping the hardware benchmark keeps
@@ -270,6 +275,7 @@ function customProcesses(scriptsDir: string, net: NetworkDef, present: Set<Parac
     const gate = PROCESS_GATES[name];
     if (gate !== null && !present.has(gate)) return false;
     if (name === 'pin-bulletin-products' && !pinsProducts(net)) return false;
+    if (SUDO_PROCESSES.has(name) && !net.sudo) return false;
     return net.services[name] !== false;
   })
     .map(

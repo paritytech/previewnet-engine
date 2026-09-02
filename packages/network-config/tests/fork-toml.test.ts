@@ -411,18 +411,38 @@ describe('generateForkToml — non-previewnet bundles', () => {
     assert.ok(toml.includes('omni-node.sh'), 'the wrapper (with its libp2p fix) still runs it');
   });
 
-  it('tells the wrapper when a chain signs Aura with ed25519', () => {
-    const toml = generateForkToml({
+  const polkadotToml = () =>
+    generateForkToml({
       repoDir: REPO,
       bundleDir: makeNetBundle('polkadot', {
         relay: { paraId: null, spec: 'polkadot', specId: 'polkadot' },
         'asset-hub': { paraId: 1000, spec: 'asset-hub', specId: 'asset-hub-polkadot' },
+        people: { paraId: 1004, spec: 'people', specId: 'people-polkadot' },
+        bulletin: { paraId: 1010, spec: 'bulletin', specId: 'bulletin-polkadot' },
       }),
     });
-    assert.ok(
-      toml.includes('{ name = "PPN_COLLATOR_AURA", value = "ed25519" }'),
-      'polkadot asset-hub declares aura: ed25519'
+
+  it('tells the wrapper when a chain signs Aura with ed25519', () => {
+    const toml = polkadotToml();
+    assert.equal(
+      toml.split('{ name = "PPN_COLLATOR_AURA", value = "ed25519" }').length - 1,
+      1,
+      'polkadot asset-hub declares aura: ed25519; people and bulletin do not'
     );
+  });
+
+  // Polkadot has no sudo, so a process whose only move is a root call cannot run there. The
+  // ones that only need the chain to exist (dub, ipfs, eth-rpc, the product import) still do.
+  it('leaves the sudo-dispatching services out of a fork without sudo', () => {
+    const toml = polkadotToml();
+    for (const name of ['increase-people-lite-attestation-allowance', 'grant-invites']) {
+      assert.ok(!toml.includes(`name = "${name}"`), `${name} needs sudo`);
+    }
+    for (const name of ['eth-rpc', 'ipfs-daemon', 'dub-api', 'pin-design-families']) {
+      assert.ok(toml.includes(`name = "${name}"`), `${name} should still run`);
+    }
+    // devnet has sudo, so there the grants run.
+    assert.ok(devnetToml().includes('name = "grant-invites"'));
   });
 
   it('says nothing about Aura for the sr25519 chains', () => {
