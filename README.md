@@ -90,6 +90,9 @@ DOCKER=1 make start
 
 Linux only. p2p networking fails on Apple Silicon under x86_64 emulation, so use `make start`.
 
+Every endpoint in the table above is published to the host. The dashboard is read-only here,
+because a published port is reachable from your network and the sudo actions only stay open on
+a loopback bind. Set `DASHBOARD_ACTIONS_TOKEN` if you want them.
 
 ## Using it against your own network
 
