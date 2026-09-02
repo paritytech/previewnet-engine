@@ -91,6 +91,113 @@ the old data goes. A start that reuses a bundle prints what that bundle has auth
 
 Node logs are under `/tmp/zombie-*/`; the bite's own logs under `fork-bundle-polkadot-logs/`.
 
+## Exposing it: nginx, TLS, systemd
+
+The engine ships no server tooling; Parity's previewnet boxes get theirs from preview-net-v1's
+`server/` directory and its deploy workflow, which today only know how to spawn previewnet from
+genesis. Until that grows a fork target, this is the same setup done by hand, once. Ubuntu
+assumed; `DOMAIN` is the name the box answers on.
+
+**DNS and packages.** Add an A record for `DOMAIN` pointing at the box (Parity's zones live in
+the `dns` repo). Then:
+
+```bash
+sudo apt-get install -y nginx certbot gettext-base jq lsof
+```
+
+**Certificate.** Before nginx holds port 80, issue it standalone. certbot installs a renewal
+timer; the deploy hook makes nginx pick the renewed files up.
+
+```bash
+sudo systemctl stop nginx
+sudo certbot certonly --standalone -d "$DOMAIN" --deploy-hook 'systemctl reload nginx'
+```
+
+**Tell the network its public name.** The dashboard and the bootnode addresses the chain specs
+advertise come from `config/ports.env`, and zombienet hands its custom processes no
+environment, so this is a file edit rather than an export (it is a tracked file; a later `git
+pull` may want it stashed):
+
+```bash
+sed -i "s|^BOOTNODE_HOSTNAME=.*|BOOTNODE_HOSTNAME=$DOMAIN|; s|^PPN_PUBLIC_URL=.*|PPN_PUBLIC_URL=https://$DOMAIN|" config/ports.env
+```
+
+**nginx.** The template and the websocket snippet are preview-net-v1's, `server/nginx/`;
+copy the two files onto the box. `ppn nginx-conf` fills the chain routes in from the network
+descriptor — with `PPN_NETWORK=polkadot` that is Asset Hub, People and Bulletin, and nothing for
+Web3 Storage — and `envsubst` fills the rest from `ports.env`. The variable list is explicit so
+nginx's own `$host` and friends survive.
+
+```bash
+export PPN_NETWORK=polkadot PPN_DOMAIN="$DOMAIN" PPN_TLS_DIR="/etc/letsencrypt/live/$DOMAIN"
+export LOG_DIR=/var/log/ppn DATA_DIR="$PWD/data-fork-polkadot"
+set -a; source config/ports.env; set +a
+node bin/ppn.mjs nginx-conf server/nginx/ppn.conf.template /tmp/ppn.conf.routed
+envsubst '$PPN_DOMAIN $PPN_TLS_DIR $DATA_DIR $LOG_DIR
+  $RELAY_ALICE_PORT $RELAY_BOB_PORT $RELAY_CHARLIE_PORT $RELAY_DAVE_PORT $RELAY_EVE_PORT $RELAY_FERDIE_PORT
+  $PEOPLE_PORT $ASSET_HUB_PORT $BULLETIN_PORT $WEB3_STORAGE_PORT
+  $ETH_RPC_PORT $WEB3_STORAGE_PROVIDER_PORT $IPFS_GATEWAY_PORT $DUB_PORT $DASHBOARD_PORT
+  $RELAY_ALICE_P2P_PORT $ASSET_HUB_P2P_PORT $PEOPLE_P2P_PORT $BULLETIN_P2P_PORT $WEB3_STORAGE_P2P_PORT
+  $RELAY_ALICE_P2P_WSS_PORT $ASSET_HUB_P2P_WSS_PORT $PEOPLE_P2P_WSS_PORT $BULLETIN_P2P_WSS_PORT $WEB3_STORAGE_P2P_WSS_PORT' \
+  < /tmp/ppn.conf.routed > /tmp/ppn.conf
+grep -oE '\$\{[A-Za-z_]+\}' /tmp/ppn.conf || echo "all variables substituted"
+sudo install -m 0644 /tmp/ppn.conf /etc/nginx/sites-available/ppn.conf
+sudo install -m 0644 server/nginx/websocket-proxy.conf /etc/nginx/snippets/
+sudo ln -sf /etc/nginx/sites-available/ppn.conf /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+Open 80, 443 and the p2p wss ports (`*_P2P_WSS_PORT` in `ports.env`, 31333-31337 by default)
+in whatever firewall sits in front. The template's upstream for Web3 Storage points at a port
+nothing listens on here, which is harmless.
+
+**systemd.** One unit runs the fork through `ppn start`, so the bundle check, the resume
+decision and the spawn stamp all apply on a restart. `DASHBOARD_PROXY=0` because nginx does
+the proxying. Replace `ubuntu` and the paths with yours.
+
+```ini
+# /etc/systemd/system/ppn-polkadot.service
+[Unit]
+Description=PPN fork of Polkadot
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/previewnet-engine
+Environment="PPN_NETWORK=polkadot"
+Environment="DASHBOARD_PROXY=0"
+Environment="RUST_LOG=info"
+Environment="PATH=/home/ubuntu/previewnet-engine/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/node bin/ppn.mjs start polkadot --fork
+ExecStop=/usr/bin/node bin/ppn.mjs kill
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=30
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now ppn-polkadot.service
+journalctl -u ppn-polkadot -f
+```
+
+Run the bite (`make bite ... UPGRADES=...` above) before the first `systemctl start`; the unit
+only spawns what is already bitten, and a restart resumes it. `make kill` and `systemctl stop`
+are the same thing; use the latter so systemd does not restart what you stopped.
+
+Two limits of the hand-rolled version, both fixed once preview-net-v1 grows a fork target:
+`fork.toml` is regenerated on every start with webrtc-direct listening on `127.0.0.1`, so
+browser peers over webrtc do not reach the collators (wss through nginx does); and nothing
+collects node logs out of `/tmp/zombie-*/` the way v1's log collector does.
+
 ## Services on this fork
 
 Asset Hub's eth-rpc, Bulletin's IPFS daemon, the dashboard and the identity backend (dub)
