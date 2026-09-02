@@ -308,10 +308,15 @@ export function buildProgram(): Command {
           '--fork, which continues from a bitten bundle.'
       )
       .option('--fork', 'continue from a bundle of the live network instead of genesis')
-      .option('--clean', 'wipe the data directory first')
+      .option('--clean', 'wipe the data directory first (a fork restarts from its bite block)')
       .option('--ephemeral', 'no persistence — state lives in zombienet\'s temp dir')
       .option('--regenerate', 'rebuild the genesis chain specs before starting')
       .option('--fresh-bite', 'with --fork, bite the source network now instead of using a published bundle')
+      .option(
+        '--upgrade <chain=wasm...>',
+        'with a bite: authorize a runtime at import, for a fork without sudo (see `ppn bite`)'
+      )
+      .option('--upgrade-same-spec', 'with --upgrade: authorize a runtime whose spec_version is not bumped')
       .option('--data-dir <path>', 'where chain state goes; default data/ (suffixed per network and mode)')
       .option('--toml <path>', 'use this zombienet config instead of the generated one')
       // Tri-state on purpose: unset leaves the decision to the descriptor's dotns.pinProducts,
@@ -337,6 +342,8 @@ export function buildProgram(): Command {
         ephemeral: Boolean(opts.ephemeral),
         regenerate: Boolean(opts.regenerate),
         freshBite: Boolean(opts.freshBite),
+        upgrades: opts.upgrade as string[] | undefined,
+        upgradeSameSpec: Boolean(opts.upgradeSameSpec),
         dataDir: opts.dataDir as string | undefined,
         toml: opts.toml as string | undefined,
       });
@@ -552,6 +559,12 @@ export function buildProgram(): Command {
       const { ensureDoppelganger } = await import('./commands/bite.js');
       const d = net();
       await ensureDoppelganger(d, binDir ?? `bin${d.name === 'previewnet' ? '' : '/' + d.name}`);
+    });
+
+  forkCmd('fetch-runtimes <tag> [outDir]', 'download the runtimes a fork of this network can be upgraded to')
+    .action(async (tag: string, outDir?: string) => {
+      const { fetchRuntimes } = await import('./commands/bite.js');
+      await fetchRuntimes(outDir ? [tag, outDir] : [tag]);
     });
 
   forkCmd('manifest <baseUrl> <outFile>', 'record what is about to be bitten')

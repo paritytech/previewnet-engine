@@ -69,6 +69,10 @@ export interface StartOptions {
   regenerate?: boolean;
   /** Bite the source network now rather than using a published bundle. */
   freshBite?: boolean;
+  /** With a bite: `<chain>=<wasm>` runtimes to authorize at import. See `ppn bite --upgrade`. */
+  upgrades?: string[];
+  /** With a bite: authorize a runtime whose spec_version is not bumped. */
+  upgradeSameSpec?: boolean;
   /** Override the data directory. */
   dataDir?: string;
   /** Override the zombienet config, bypassing the generated one. */
@@ -207,14 +211,26 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
 
   const forkDir = forkDirFor(netDef.name);
   const forkToml = path.join(forkDir, 'fork.toml');
+  const biteOpts = { upgrades: opts.upgrades, upgradeCheckVersion: !opts.upgradeSameSpec };
   if (opts.freshBite) {
     console.log('biting the source network now (--fresh-bite)');
     const { run: bite } = await import('./bite.js');
-    await bite([forkDir], {});
+    await bite([forkDir], biteOpts);
   } else if (usableBundle(forkDir)) {
     const m = JSON.parse(fs.readFileSync(path.join(forkDir, 'manifest.json'), 'utf-8'));
     const packed = fs.readdirSync(path.join(forkDir, 'snapshots')).filter((f) => f.endsWith('.tgz'));
     console.log(`✓ fork bundle present (bitten ${m.bittenAt}, ${packed.length} snapshots)`);
+    // The authorization is state inside the snapshot, so the blob staged for it is fixed at
+    // bite time: a different --upgrade needs a new bite, not a new start.
+    for (const [chain, u] of Object.entries(m.seededUpgrades ?? {}) as [string, { codeHash: string }][]) {
+      console.log(`  ${chain}: runtime ${u.codeHash.slice(0, 16)}… authorized — \`ppn upgrade ${chain}\` enacts it`);
+    }
+    if (opts.upgrades?.length) {
+      throw new Error(
+        `--upgrade changes what the bite authorizes, and this bundle is already bitten.\n` +
+          `       Re-bite with it: ppn start ${netDef.name} --fork --fresh-bite ${opts.upgrades.map((u) => `--upgrade ${u}`).join(' ')}`
+      );
+    }
   } else {
     // No published bundle for this network is the normal case for one CI has never
     // pre-baked, and the old failure spent its last line telling the user to run a bite —
@@ -240,7 +256,7 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
       console.log('this warp-syncs the live network and takes several minutes. Ctrl-C to stop.');
       console.log('');
       const { run: bite } = await import('./bite.js');
-      await bite([forkDir], {});
+      await bite([forkDir], biteOpts);
     }
   }
   run(nodeBin, [ppn, 'fork', 'toml', forkDir, forkToml]);

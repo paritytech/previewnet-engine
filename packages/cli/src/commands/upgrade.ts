@@ -15,6 +15,25 @@ import { resolveSudoUri } from '../upgrade/sudo.js';
 import { signerFromUri } from '../upgrade/signer.js';
 import { wsProvider } from '../upgrade/provider-node.js';
 import { secretsFile } from '../lib/secrets.js';
+import { forkBundleName } from '../lib/fork-bundle-name.js';
+import path from 'node:path';
+import { loadCurrentNetwork, workspaceRoot } from '@parity/ppn-network-config';
+
+/**
+ * The blob `ppn bite --upgrade` staged for this chain, when the bundle has one.
+ *
+ * A fork without sudo has its authorization written at bite time, and the blob travels in the
+ * bundle under `upgrades/<chain>.wasm` — so `ppn upgrade <chain>` with no path enacts exactly
+ * what the bite authorized, and nothing else can pass a different blob by accident.
+ */
+function seededWasm(chain: string): string | null {
+  const net = loadCurrentNetwork();
+  const bundle = path.join(workspaceRoot(), forkBundleName(net.name));
+  const manifestPath = path.join(bundle, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) return null;
+  const seeded = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).seededUpgrades?.[chain];
+  return seeded?.file ? path.join(bundle, seeded.file) : null;
+}
 
 
 export interface UpgradeOptions {
@@ -31,9 +50,16 @@ export function upgradeChains(): string[] {
 }
 
 export async function run(args: string[], opts: UpgradeOptions = {}): Promise<void> {
-  const [chain, wasmPath] = args;
+  const [chain, wasmArg] = args;
   if (!chain) throw new Error(`missing chain (one of: ${UPGRADE_CHAINS.join(', ')})`);
-  if (!wasmPath) throw new Error('missing path to the runtime blob');
+  const wasmPath = wasmArg || seededWasm(chain);
+  if (!wasmPath) {
+    throw new Error(
+      'missing path to the runtime blob\n' +
+        `       (none was authorized for ${chain} at bite time either — see \`ppn bite --upgrade\`)`
+    );
+  }
+  if (!wasmArg) console.log(`using the blob the bite authorized for ${chain}: ${wasmPath}`);
 
   const wsUrl = opts.ws || localWsUrl(chain);
   let wasm: Buffer;

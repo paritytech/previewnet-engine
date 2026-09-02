@@ -662,3 +662,47 @@ export async function fetchBundle(args: string[]): Promise<void> {
   }
   console.log(`✓ Fork bundle ready: ${out}`);
 }
+
+/**
+ * Download the runtimes a fork of this network can be upgraded to.
+ *
+ * `ppn fork fetch-runtimes <tag> [outDir]`: one `<chain>.wasm` per chain in the descriptor's
+ * `upgrades.runtimes` table, from the release `upgrades.repo` publishes under that tag. The
+ * fellowship names its assets `<runtime>_runtime-v<spec>.compact.compressed.wasm`; the spec
+ * number is not known in advance, so the asset is matched on stem and suffix. Files land
+ * under `bin/<network>/runtimes/<tag>/`, which is what `make bite RUNTIMES=<tag>` stages.
+ */
+export async function fetchRuntimes(args: string[]): Promise<void> {
+  const net = loadCurrentNetwork();
+  const [tag, outArg] = args;
+  if (!tag) throw new Error('fetch-runtimes needs a release tag, e.g. v2.5.0');
+  if (!net.upgrades) {
+    throw new Error(`networks/${net.name}.json declares no \`upgrades\` table — nothing says where its runtimes are published`);
+  }
+  const out = path.resolve(outArg || path.join(WS, 'bin', net.name === 'previewnet' ? '' : net.name, 'runtimes', tag));
+  const { repo, runtimes } = net.upgrades;
+  const token = githubToken();
+  const { fetchRelease, downloadAsset } = await import('../lib/github.js');
+  const release = await fetchRelease(repo, tag, token);
+
+  fs.mkdirSync(out, { recursive: true });
+  console.log(`Fetching runtimes from ${repo}@${tag} into ${out}`);
+  for (const [chain, runtime] of Object.entries(runtimes)) {
+    const matches = release.assets.filter(
+      (a) => a.name.startsWith(`${runtime}_runtime-v`) && a.name.endsWith('.compact.compressed.wasm')
+    );
+    if (matches.length !== 1) {
+      throw new Error(
+        `${repo}@${tag} has ${matches.length} asset(s) matching ${runtime}_runtime-v*.compact.compressed.wasm ` +
+          `(wanted exactly one for ${chain})`
+      );
+    }
+    const dest = path.join(out, `${chain}.wasm`);
+    if (!(await downloadAsset(release, matches[0].name, dest, token))) {
+      throw new Error(`download of ${matches[0].name} failed`);
+    }
+    const code = fs.readFileSync(dest);
+    console.log(`  ${chain}: ${matches[0].name} (${(code.length / 1024).toFixed(0)} KiB, blake2 ${blake2AsHex(code, 256).slice(2, 18)}…)`);
+  }
+  console.log(`✓ ${Object.keys(runtimes).length} runtime(s) ready: make bite NETWORK=${net.name} RUNTIMES=${tag}`);
+}
