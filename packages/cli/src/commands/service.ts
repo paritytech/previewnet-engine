@@ -279,7 +279,8 @@ function dotSudoAccount(): string {
         '       Use a BIP39 mnemonic or a 0x-prefixed 32-byte hex seed.'
     );
   }
-  const dot = (args: string[]) => execFileSync('dot', args, { stdio: ['pipe', 'pipe', 'ignore'] });
+  const dot = (args: string[]) =>
+    execFileSync('dot', args, { stdio: ['pipe', 'pipe', 'ignore'], env: dotEnv() });
   try {
     dot(['account', 'remove', 'ppn-sudo']);
   } catch {
@@ -289,8 +290,23 @@ function dotSudoAccount(): string {
   return 'ppn-sudo';
 }
 
+/**
+ * A config root of this process's own. Three services run as concurrent custom processes and
+ * each calls `dot chain add`, while `dot` rewrites its config whole with no locking: on a
+ * shared root that loses writes or tears the file, and the sudo call then never lands.
+ */
+let dotHome: string | null = null;
+function dotEnv(): NodeJS.ProcessEnv {
+  dotHome ??= fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-dot-'));
+  return { ...process.env, DOT_HOME: dotHome };
+}
+
 const dotRun = (args: string[]) =>
-  execFileSync('dot', args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'inherit'] }).trim();
+  execFileSync('dot', args, {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'inherit'],
+    env: dotEnv(),
+  }).trim();
 
 async function chainReachable(httpUrl: string, attempts: number, gapSeconds: number): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
