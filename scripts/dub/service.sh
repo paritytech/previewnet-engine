@@ -51,6 +51,17 @@ fi
 #    generated TOML on purpose: the deployable profile holds private keys at runtime only
 #    (see docs/PROFILES.md). No default path — that would be a guess about someone's host,
 #    and guessing wrong looks exactly like "no secrets", which is the dev keys.
+#
+#    Read from ports.env when the environment does not carry it, because zombienet hands this
+#    process no environment: an env-only lookup is empty on exactly the deployed servers that
+#    need the keys. Same resolution as lib/secrets.ts, local override first.
+if [[ -z "${PPN_SECRETS_FILE:-}" ]]; then
+    for f in "$PPN_WS/config/ports.local.env" "$PROJECT_DIR/config/ports.env"; do
+        [[ -f "$f" ]] || continue
+        v=$(grep -m1 '^PPN_SECRETS_FILE=' "$f" | cut -d= -f2- | tr -d '"'"'"'')
+        [[ -n "$v" ]] && { PPN_SECRETS_FILE="$v"; break; }
+    done
+fi
 if [[ -n "${PPN_SECRETS_FILE:-}" ]]; then
     if [[ ! -f "$PPN_SECRETS_FILE" ]]; then
         echo "[$ROLE] PPN_SECRETS_FILE points at $PPN_SECRETS_FILE, which does not exist." >&2
