@@ -21,6 +21,11 @@ path: a path baked in here would be a guess about your host, and a wrong guess l
 like "no secrets", which is `local` and the dev keys. Unset it and you get `local`; point it
 at a file that is not there and PPN refuses to start rather than quietly downgrading.
 
+**Set it in `config/ports.env`, not only in the environment.** Every consumer below runs as a
+zombienet custom process, and zombienet hands those no environment at all, so an
+environment-only value is missing on exactly the servers that need the keys. `ports.env` is
+the channel those facts already travel on, and the environment still wins where it exists.
+
 Four independent consumers read it directly:
 
 ```
