@@ -82,15 +82,18 @@ RUN npm install -g polkadot-cli@1.1.1
 # Generate chain specs from the pre-built runtimes
 RUN make generate
 
-# Expose ports
+# Expose ports. Keep in step with the `-p` list in the Makefile's docker target: published but
+# not listed here is undocumented, listed but not published is unreachable.
 # Relay chain validators
 EXPOSE 10000 10001 10002 10003 10004 10005
-# Parachains
-EXPOSE 10010 10020 10030
+# Parachains: people, asset-hub, bulletin, web3-storage
+EXPOSE 10010 10020 10030 10040
 # Eth RPC
 EXPOSE 8545
 # IPFS
 EXPOSE 4001 5001 8080
+# Dashboard, identity backend, storage provider
+EXPOSE 8090 8092 3333
 
 # Healthcheck - check if relay node responds
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
