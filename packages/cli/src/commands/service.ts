@@ -291,11 +291,9 @@ function dotSudoAccount(): string {
 }
 
 /**
- * A config root of this process's own. `dot` keeps chains and accounts as JSON files and
- * rewrites them whole, and three services run as concurrent custom processes, each adding a
- * chain and the same `ppn-sudo` account. Sharing one root lets two writers interleave in one
- * file: `dot` then fails parsing its own config, the sudo call never lands, and the symptom
- * surfaces minutes later as an attestation allowance of 0.
+ * A config root of this process's own. Three services run as concurrent custom processes and
+ * each calls `dot chain add`, while `dot` rewrites its config whole with no locking: on a
+ * shared root that loses writes or tears the file, and the sudo call then never lands.
  */
 let dotHome: string | null = null;
 function dotEnv(): NodeJS.ProcessEnv {
