@@ -13,26 +13,26 @@ expect, already wired together.
 
 ## Start it
 
-Needs **Node.js 22+** and GitHub auth, because the binaries and runtimes come from GitHub
-releases and some are private: `gh auth login`, or set `GITHUB_TOKEN`. On Apple Silicon,
-disable IPv6 first ([polkadot-sdk#8918](https://github.com/paritytech/polkadot-sdk/issues/8918)):
-`sudo networksetup -setv6off Wi-Fi`.
-
 ```bash
-git clone https://github.com/paritytech/previewnet-engine.git
-cd previewnet-engine
-make start
+npm install -g @parity/ppn
+ppn start
 ```
 
-First run downloads ~500 MB of binaries and runtimes, then spawns. When it is up, the
-dashboard at <http://127.0.0.1:8090> shows every chain, service and endpoint. If it does not
-come up, `make doctor` checks the requirements above.
+Needs **Node.js 22+**. No clone: the CLI ships the network definitions, so `ppn start` downloads
+what it is missing and spawns. The first run pulls ~500 MB of binaries and runtimes into
+`~/.ppn` and later runs reuse them. `ppn kill` stops everything.
 
-> **`make` or `ppn`?** `make` exists only inside a clone, as a front door for the common
-> things; every target delegates to `ppn`, which is the same CLI npm installs. Anything
-> `make` does, `ppn` does with flags: `make start FORK=1 NETWORK=devnet` is
-> `ppn start --fork devnet`. The examples below use `ppn`, so they work either way.
-> `make help` lists the targets; `ppn <command> --help` lists the flags.
+When it is up, the dashboard at <http://127.0.0.1:8090> lists every chain, service and endpoint.
+`ppn show` prints the same as text, and `ppn networks` lists what else this install can run.
+
+Two things worth doing before the first start:
+
+- **Set a GitHub token.** Everything comes from public releases, so this is not about access:
+  it is that a fetch pulls a lot of assets and GitHub throttles anonymous requests hard. Run
+  `gh auth login`, or set `GITHUB_TOKEN`.
+- **On Apple Silicon, disable IPv6**, per
+  [polkadot-sdk#8918](https://github.com/paritytech/polkadot-sdk/issues/8918):
+  `sudo networksetup -setv6off Wi-Fi` (undo with `-setv6automatic`).
 
 ## What you would use it for
 
@@ -94,21 +94,36 @@ Every endpoint in the table above is published to the host. The dashboard is rea
 because a published port is reachable from your network and the sudo actions only stay open on
 a loopback bind. Set `DASHBOARD_ACTIONS_TOKEN` if you want them.
 
-## Using it against your own network
+## Running a network of your own
 
-The `ppn` CLI is [published separately](https://www.npmjs.com/package/@parity/ppn) and is not
-tied to the networks defined here. It reads *descriptors*: `networks/<name>.json`, naming the
-binary, release and runtime for every chain, so you can point it at your own instead of
-cloning this repo.
+The networks above are descriptors, not code: `networks/<name>.json` naming the binary, release
+and runtime for every chain. Point `ppn` at your own set and it runs those instead.
 
 ```bash
-npm install -g @parity/ppn
 export PPN_HOME=~/my-network     # holds networks/my-net.json
-ppn show                         # what resolves: binaries, runtimes, releases, services
+ppn networks                     # what it can see
+ppn show my-net                  # what that resolves to
 ```
 
-See [`packages/cli/README.md`](packages/cli/README.md) for that path, and
-[`networks/README.md`](networks/README.md) for the descriptor schema.
+`$PPN_HOME` is also where state lives: `bin/` for downloaded binaries, `data/` for chain state.
+Without it, `ppn` walks up from the working directory looking for a `networks/` folder, then
+falls back to `~/.ppn`. See [`networks/README.md`](networks/README.md) for the schema.
+
+## Working on PPN itself
+
+```bash
+git clone https://github.com/paritytech/previewnet-engine.git
+cd previewnet-engine
+make start
+```
+
+A clone is a workspace like any other, so the walk-up above finds its `networks/`. What a clone
+adds is `make`, a front door for the common things: every target delegates to `ppn`, so
+`make start FORK=1 NETWORK=devnet` is `ppn start --fork devnet`. `make help` lists the targets,
+`make doctor` checks your machine, and `ppn <command> --help` lists the flags.
+
+`make test` runs the integration suite, which spawns a real network; `make test-unit` is the fast
+one. [ARCHITECTURE.md](docs/ARCHITECTURE.md) is the map.
 
 ## Docs
 
