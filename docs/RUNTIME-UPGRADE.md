@@ -76,7 +76,7 @@ skipped when the file is absent or byte-identical.
 `//Alice` is sudo on the relay and all four parachains, in genesis mode and on a fork
 (the bite overrides `Sudo::Key`), so locally everything just works. On a
 deployable-profile network (see `docs/PROFILES.md`) Alice is stripped: set `PPN_SUDO_URI`
-in the environment, or let the script read it from `/etc/ppn/secrets.env` like the other
+in the environment, or let the script read it from `the file named by PPN_SECRETS_FILE` like the other
 sudo-signing scripts. The script verifies the signer against the on-chain `sudo.key()`
 before submitting anything.
 

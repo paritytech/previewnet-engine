@@ -10,16 +10,21 @@ PPN's chain specs and operational scripts run under one of two profiles, selecte
 `local` is the default and is bit-for-bit identical to pre-profile behavior: `make start` on a developer laptop or in `zombienet-tests.yml` CI keeps Alice as a fully-funded sudo. Switch to `deployable` only on long-lived networks where having `//Alice` as a powerful key with on-chain funds is unacceptable.
 
 **Which profile a host runs is a property of that host**, not a per-run choice: it comes
-from `PPN_PROFILE` in the environment (or `/etc/ppn/secrets.env`, below), so it cannot flip
+from `PPN_PROFILE` in the environment or from the secrets file below, so it cannot flip
 with whoever triggered a deploy. How your deployment sets it is up to you — see
 [DEPLOYING-YOUR-OWN.md](DEPLOYING-YOUR-OWN.md).
 
 ## How the switch is plumbed
 
-The profile is sourced from a single file, `/etc/ppn/secrets.env`, on the host running PPN. Four independent consumers read it directly:
+The profile is sourced from one file, named by **`PPN_SECRETS_FILE`**. There is no default
+path: a path baked in here would be a guess about your host, and a wrong guess looks exactly
+like "no secrets", which is `local` and the dev keys. Unset it and you get `local`; point it
+at a file that is not there and PPN refuses to start rather than quietly downgrading.
+
+Four independent consumers read it directly:
 
 ```
-                  /etc/ppn/secrets.env
+                  $PPN_SECRETS_FILE
                   ├─ PPN_PROFILE=deployable
                   ├─ PPN_SUDO_SS58=5...
                   ├─ PPN_FAUCET_SS58=5...
@@ -35,15 +40,15 @@ The profile is sourced from a single file, `/etc/ppn/secrets.env`, on the host r
                                        (sources directly)
 ```
 
-The reason every consumer reads the file directly is that `zombie-cli` does not forward env vars from its parent to `custom_process` children. So loading the file into `ppn.service`'s env via `EnvironmentFile=` covers `make generate` but does *not* reach the operational scripts that run during network boot — they have to read the file themselves.
+The reason every consumer reads the file directly is that `zombie-cli` does not forward env vars from its parent to `custom_process` children. So loading the file into the supervisor's environment covers `make generate` but does *not* reach the operational scripts that run during network boot — they have to read the file themselves.
 
-If `/etc/ppn/secrets.env` is absent, every consumer falls back to `local` profile silently. This is the developer ergonomic.
+With `PPN_SECRETS_FILE` unset, every consumer runs `local`. That is the developer ergonomic, and it is safe precisely because it is the *stated* absence of a deployment rather than a failed lookup. Anything that must not be guessed is gated on this instead of on a filesystem probe: the dashboard's sudo actions key off what the socket is bound to (see [DASHBOARD.md](DASHBOARD.md)), and the identity backend refuses to start on the public dev JWT seed once a secrets file is named.
 
 ## What deployable mode does NOT change
 
 - The names of nodes (`alice-paseo-validator`, `bob-paseo-validator`, ...) are zombienet identifiers, unrelated to the sudo/dev account names. They keep their session keys and validate normally on the relay.
-- Tests under `tests/` and `tests/scripts/` always run against `local` profile. There is no test-suite coverage of deployable behavior beyond the `patch-genesis-smoke` CI job, which runs `lib/genesis-patch.mjs` against small JSON fixtures rather than real chain specs, and checks that the attestation-allowance script refuses to fall back to Alice. The `integration-tests` job does generate the chain specs and boot a network, but always in local profile, since no runner has `/etc/ppn/secrets.env`.
-- Spawner-launched VMs (`spawner/cloud-init.sh.template`) deliberately stay on `local` profile — they exist for `__TTL_MINUTES__` minutes at a time, and Alice-as-sudo on a sandbox you can throw away is fine. If a specific spawner use-case needs deployable mode, the cloud-init template can be extended to write `/etc/ppn/secrets.env` before the VM's first boot.
+- Tests under `tests/` and `tests/scripts/` always run against `local` profile. There is no test-suite coverage of deployable behavior beyond the unit tests over the genesis patcher and the checks that the attestation-allowance script refuses to fall back to Alice. The `integration-tests` job does generate the chain specs and boot a network, but always in local profile, since no runner sets `PPN_SECRETS_FILE`.
+- Short-lived sandbox VMs are reasonably left on `local`: Alice-as-sudo on something you throw away in an hour is fine. Anything long-lived, or reachable by someone else, is not.
 
 ## Reading the diff between profiles
 

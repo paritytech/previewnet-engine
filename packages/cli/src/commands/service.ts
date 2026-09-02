@@ -18,20 +18,18 @@ import { loadCurrentNetwork, readEnvFile, hrmpChannels, type NetworkDef, repoRoo
   BOB_SS58,
 } from '@parity/ppn-network-config';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
+import { loadSecrets } from '../lib/secrets.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
 const WS = workspaceRoot();
-const SECRETS_FILE = '/etc/ppn/secrets.env';
 
 export type { ServiceContext } from './service-context.js';
 
 
 function loadContext(): ServiceContext {
-  // The deployable profile's keys; server/redeploy.sh exports them, a local run does not.
-  if (fs.existsSync(SECRETS_FILE)) {
-    for (const [k, v] of Object.entries(readEnvFile(SECRETS_FILE))) process.env[k] ??= v;
-  }
+  // The deployable profile's keys, if the operator named a secrets file. See lib/secrets.ts.
+  loadSecrets();
   const ports = readEnvFile(path.join(REPO, 'config', 'ports.env'));
   const localOverride = path.join(WS, 'config', 'ports.local.env');
   if (fs.existsSync(localOverride)) {
@@ -397,7 +395,7 @@ async function increaseAttestationAllowance(ctx: ServiceContext, _deps: ServiceD
   if (profile === 'deployable' && !process.env.PPN_ALLOWANCE_SS58) {
     throw new Error(
       'the deployable profile requires PPN_ALLOWANCE_SS58 (the attestation allowance\n' +
-        '       recipient) in /etc/ppn/secrets.env'
+        '       recipient) in the file named by PPN_SECRETS_FILE'
     );
   }
   const account =

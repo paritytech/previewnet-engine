@@ -2,7 +2,7 @@
 // Run with: tsx --test tests/spawn-stamp.test.ts
 //
 // One writer, two callers: `ppn start` and `ppn stamp-spawn` (which is how a server gets the
-// stamp, since ppn.service spawns zombienet directly). The point of sharing it is that a field
+// stamp, since a deployment spawns zombienet directly). The point of sharing it is that a field
 // cannot reach one path and silently miss the other — so what is asserted here is the shape
 // every caller produces, and that a half-written bundle cannot take a spawn down with it.
 

@@ -47,19 +47,24 @@ if [[ ! -x "$BIN_DIR/$BINARY" ]]; then
     exit 1
 fi
 
-# 1. Secrets. Kept out of the generated TOML on purpose — the deployable profile
-#    keeps private keys at runtime only and never writes them to a generated
-#    file (see docs/PROFILES.md). Absent file means local profile, and the dev
-#    defaults below apply. Exported unconditionally; services that do not read
-#    a given variable simply ignore it.
-[[ -f /etc/ppn/secrets.env ]] && set -a && source /etc/ppn/secrets.env && set +a
+# 1. Secrets, from the file the operator named in PPN_SECRETS_FILE. Kept out of the
+#    generated TOML on purpose: the deployable profile holds private keys at runtime only
+#    (see docs/PROFILES.md). No default path — that would be a guess about someone's host,
+#    and guessing wrong looks exactly like "no secrets", which is the dev keys.
+if [[ -n "${PPN_SECRETS_FILE:-}" ]]; then
+    if [[ ! -f "$PPN_SECRETS_FILE" ]]; then
+        echo "[$ROLE] PPN_SECRETS_FILE points at $PPN_SECRETS_FILE, which does not exist." >&2
+        exit 1
+    fi
+    set -a && source "$PPN_SECRETS_FILE" && set +a
+fi
 
 # The attester, under the deployable profile.
 #
 # increase-people-lite-attestation-allowance.sh grants the allowance to
 # PPN_ALLOWANCE_SS58, so the writer has to attest as that same account — the
 # generated TOML carries Alice, who holds no allowance on a deployed server.
-# Overridden here rather than at generate time because redeploy.sh does not
+# Overridden here rather than at generate time because a deployment may not
 # regenerate the TOML; it deploys the committed one.
 #
 # Refuse to start when the key for that account is missing, rather than falling
@@ -71,7 +76,7 @@ if [[ -n "${PPN_ALLOWANCE_SS58:-}" ]]; then
         echo "Error: PPN_ALLOWANCE_SS58 is set but no attester key is set." >&2
         echo "       The attestation allowance is granted to $PPN_ALLOWANCE_SS58, so the" >&2
         echo "       chain writer must hold that account's key. Add it to" >&2
-        echo "       /etc/ppn/secrets.env — see docs/DEVICE-UNIQUENESS-BACKEND.md." >&2
+        echo "       the file named by PPN_SECRETS_FILE — see docs/DEVICE-UNIQUENESS-BACKEND.md." >&2
         exit 1
     fi
     export ATTESTER_ACCOUNT="$PPN_ALLOWANCE_SS58"
@@ -105,7 +110,14 @@ export TURN_SECRET="${TURN_SECRET:-AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=}
 # the pinned tag. Set here and not in the TOML because it is a path on this machine.
 export GATEWAY_DOCS_ROOT="${GATEWAY_DOCS_ROOT:-$BIN_DIR/identity-docs}"
 
-# Dev-only JWT signing seed. A deployed server must override it.
+# The JWT signing seed. The default below is a public constant, so anything holding it can
+# mint tokens this backend accepts: fine on a laptop, fatal anywhere reachable. A deployment
+# is any run that named a secrets file, and it has to state its own.
+if [[ -n "${PPN_SECRETS_FILE:-}" && -z "${JWT_ED25519_SECRET:-}" ]]; then
+    echo "[$ROLE] JWT_ED25519_SECRET is not set in $PPN_SECRETS_FILE." >&2
+    echo "       The dev default is public; a deployment must supply its own seed." >&2
+    exit 1
+fi
 export JWT_ED25519_SECRET="${JWT_ED25519_SECRET:-0x0101010101010101010101010101010101010101010101010101010101010101}"
 
 # device-attestation mints JWTs with the secret above; the ticket APIs verify them, and v0.2.0 requires

@@ -102,7 +102,7 @@ export async function run(_args: string[], opts: DistOptions = {}): Promise<void
 
   const mb = (fs.statSync(outFile).size / 1024 / 1024).toFixed(1);
   console.log(`\n${path.basename(outFile)} (${mb} MB) — version ${version}, commit ${manifest.commit}`);
-  console.log('  unpack it, `pnpm install --prod --frozen-lockfile`, then the deploy overlay runs server/redeploy.sh');
+  console.log('  unpack it, `pnpm install --prod --frozen-lockfile`, then the deploy overlay runs the deploy overlay');
 }
 
 /**

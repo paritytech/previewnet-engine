@@ -22,7 +22,7 @@
 // as custom_process `env`, so the values a service runs with are visible in a
 // diff of zombienet-configs/local-dev.toml rather than buried in a shell
 // default. Secrets deliberately do NOT appear here — scripts/dub/service.sh
-// reads those from /etc/ppn/secrets.env at exec time, matching the boundary the
+// reads those from the secrets file at exec time, matching the boundary the
 // deployable profile already draws: public identifiers at generate time,
 // private keys at runtime only.
 

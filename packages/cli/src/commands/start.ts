@@ -355,7 +355,7 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   // state. The dashboard reads it; re-deriving later would resolve moving pins differently.
   // Ephemeral runs write none: the state they describe is gone at the next start.
   //
-  // The writer is shared with `ppn stamp-spawn`, which is how a server (where ppn.service
+  // The writer is shared with `ppn stamp-spawn`, which is how a deployment (where the supervisor
   // spawns zombie-cli itself and this code never runs) gets the same stamp.
   if (!opts.ephemeral) {
     writeSpawnStamp(dataDir, {

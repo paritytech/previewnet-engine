@@ -218,16 +218,15 @@ produces a network that comes up subtly wrong rather than an error.
 
 ## Deployment
 
-The server installs a **pinned build**, not a branch. `release.yml` packages one with
-`ppn dist` — the compiled packages, the launchers, and the configuration, with a manifest
-recording the version and commit — and attaches it to the release. A deploy unpacks it to
-`/opt/ppn/releases/<tag>`, installs production dependencies from the committed lockfile,
-and repoints `/opt/ppn/current` at it. Every systemd unit path goes through `current`, so
-**a rollback is repointing that symlink** rather than reverting commits and redeploying.
+What this repo owns is the **artifact**, not how anyone installs it. `release.yml` packages a
+pinned build with `ppn dist` — the compiled packages, the launchers, and the configuration,
+with a manifest recording the version and commit — and attaches it to the release.
 
-Before this, the server ran `git reset --hard origin/main` for its *code* while taking its
-*artifacts* from a pinned release tag — so a deploy could pair one version's code with
-another's binaries, and nothing recorded the combination.
+What a deployment does with it is its own business, and this repo should not know. The
+contract it depends on is small and stated elsewhere: the tarball layout, the key names in
+`config/ports.env`, and the spawn environment exported as `@parity/ppn/spawn-env`. Install a
+release rather than a branch, and rollback is reinstalling the previous tag; see
+`docs/DEPLOYING-YOUR-OWN.md`.
 
 Each release fetches its own artifacts into its own `bin/`. Sharing one across releases
 would be faster, but a release that bumps a binary pin could then keep running the previous

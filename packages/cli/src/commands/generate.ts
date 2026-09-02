@@ -20,26 +20,15 @@ import { loadCurrentNetwork, networkChains, repoRoot,
   workspaceRoot} from '@parity/ppn-network-config';
 import { patchSpec, applyProfile, enableEccRfc163, injectDotns, readSpec,
   setNetworkSuffix, createPeopleCollections } from '@parity/ppn-network-config';
+import { loadSecrets } from '../lib/secrets.js';
 
 // Roots come from repoRoot()/workspaceRoot(), never from counting directory levels.
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
 const WS = workspaceRoot();
-const SECRETS_FILE = '/etc/ppn/secrets.env';
-
-/**
- * Deployable-profile secrets. server/redeploy.sh exports them before calling us; a direct
- * `make generate` does not, so read the file when it is there.
- */
-function loadSecrets() {
-  if (!fs.existsSync(SECRETS_FILE)) return;
-  for (const line of fs.readFileSync(SECRETS_FILE, 'utf8').split('\n')) {
-    const m = line.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$/);
-    if (!m) continue;
-    const value = m[2].trim().replace(/^["']|["']$/g, '');
-    process.env[m[1]] ??= value;
-  }
-  console.log(`Loaded ${SECRETS_FILE} (PPN_PROFILE=${process.env.PPN_PROFILE ?? 'unset'})`);
+function loadSecretsForGenerate() {
+  const file = loadSecrets();
+  if (file) console.log(`Loaded ${file} (PPN_PROFILE=${process.env.PPN_PROFILE ?? 'unset'})`);
 }
 
 /**
@@ -103,7 +92,7 @@ export async function run(args: string[], opts: GenerateOptions = {}): Promise<v
     return;
   }
 
-  loadSecrets();
+  loadSecretsForGenerate();
   const profile = process.env.PPN_PROFILE || 'local';
   if (profile === 'deployable') checkDeployableSudo();
 

@@ -75,10 +75,11 @@ const get = async (p: string) => {
 };
 
 describe('dashboard actions gate', () => {
-  // The plane is fail-closed: `local` profile opens it (your machine, your Alice);
-  // `deployable` without a token refuses — 403, not 401, because no credential exists
-  // that would have worked. With a token, only the exact bearer passes.
-  it('is open on the local profile', async () => {
+  // Who may run a sudo action is decided by who can reach the socket. Bound to loopback it
+  // is open (only this machine can call it); bound wider it refuses without a token — 403,
+  // not 401, because no credential exists that would have worked. With a token, only the
+  // exact bearer passes.
+  it('is open when bound to loopback', async () => {
     const { body } = await get('/api/actions');
     assert.equal(body.enabled, true);
   });
@@ -88,11 +89,11 @@ describe('dashboard actions gate', () => {
     assert.equal(res.status, 400);
   });
 
-  it('is closed on the deployable profile with no token', async () => {
+  it('is closed when bound beyond loopback with no token', async () => {
     const PORT2 = PORT + 1;
     const child2 = spawn(process.execPath, [path.join(REPO, 'bin', 'ppn.mjs'), 'service', 'dashboard'], {
       env: { ...process.env, PPN_HOME: tmp, BIN: path.join(tmp, 'bin'), DATA_DIR: path.join(tmp, 'data'),
-             DASHBOARD_PORT: String(PORT2), PPN_PROFILE: 'deployable' },
+             DASHBOARD_PORT: String(PORT2), DASHBOARD_HOST: '0.0.0.0' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     try {
@@ -115,7 +116,7 @@ describe('dashboard actions gate', () => {
     const PORT3 = PORT + 2;
     const child3 = spawn(process.execPath, [path.join(REPO, 'bin', 'ppn.mjs'), 'service', 'dashboard'], {
       env: { ...process.env, PPN_HOME: tmp, BIN: path.join(tmp, 'bin'), DATA_DIR: path.join(tmp, 'data'),
-             DASHBOARD_PORT: String(PORT3), PPN_PROFILE: 'deployable', DASHBOARD_ACTIONS_TOKEN: 's3cret' },
+             DASHBOARD_PORT: String(PORT3), DASHBOARD_HOST: '0.0.0.0', DASHBOARD_ACTIONS_TOKEN: 's3cret' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     try {
