@@ -1,7 +1,10 @@
 # Self-hosted runners. actionlint only knows GitHub's own labels, so without this every
 # `runs-on: parity-*` is reported as a typo and the real findings are lost in the noise.
+# Pools live in paritytech/devops-cloud-infra: parity-large is 32 vCPU / 64 GB,
+# parity-ubuntu 8 vCPU / 32 GB, both in runner group 1.
 self-hosted-runner:
   labels:
     - parity-default
     - parity-large
     - parity-large-persistent
+    - parity-ubuntu
