@@ -496,24 +496,38 @@ async function grantInvites(ctx: ServiceContext, _deps: ServiceDeps = {}): Promi
 // set-dispatcher-address
 // ---------------------------------------------------------------------------
 
-/** Point DotnsGateway at the RootGatewayDispatcher this release deployed. */
+/**
+ * Point DotnsGateway at whichever contract fronts the PoP controller in this release.
+ *
+ * A release either carries a `RootGatewayDispatcher`, whose job is to prove the substrate
+ * Root origin before forwarding, or it does not, because the controller checks Root itself.
+ * The two travel together: a release drops the dispatcher in the same change that stops the
+ * controller authorising on the caller address. So the dispatcher's presence in the manifest
+ * decides where the pallet must point, and pointing at the controller while a release still
+ * ships a dispatcher would leave gateway calls failing its caller check.
+ */
 async function setDispatcherAddress(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
   const addrFile = path.join(ctx.binDir, 'dotns-addresses.json');
   if (!fs.existsSync(addrFile)) {
     console.log(`set-dispatcher-address: no ${addrFile} — skipping (release predates the manifest)`);
     return;
   }
-  const dispatcher = JSON.parse(fs.readFileSync(addrFile, 'utf-8')).RootGatewayDispatcher;
-  if (!dispatcher) {
-    console.log(`set-dispatcher-address: no RootGatewayDispatcher in ${addrFile} — skipping`);
-    return;
+  const addresses = JSON.parse(fs.readFileSync(addrFile, 'utf-8'));
+  const target = addresses.RootGatewayDispatcher ?? addresses.DotnsPopController;
+  if (!target) {
+    throw new Error(
+      `set-dispatcher-address: ${addrFile} names neither RootGatewayDispatcher nor ` +
+        'DotnsPopController, so DotnsGateway would be left unset and every gateway call ' +
+        'would fail with DispatcherAddressNotSet',
+    );
   }
+  const via = addresses.RootGatewayDispatcher ? 'RootGatewayDispatcher' : 'DotnsPopController';
 
   await waitSeconds('Asset Hub', 20);
   dotRun(['chain', 'add', 'AssetHub', '--rpc', `ws://127.0.0.1:${ctx.ports.ASSET_HUB_PORT}`]);
   const from = dotSudoAccount();
-  console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${dispatcher}`);
-  const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', dispatcher, '--encode']);
+  console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${target} (${via})`);
+  const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', target, '--encode']);
   dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
 }
 
