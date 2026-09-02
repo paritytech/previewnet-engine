@@ -20,7 +20,7 @@ import {
   workspaceRoot,
   type NetworkDef,
 } from '@parity/ppn-network-config';
-import { writeSpawnStamp } from '../lib/spawn-stamp.js';
+import { readSpawnStamp, writeSpawnStamp, SPAWN_FILE } from '../lib/spawn-stamp.js';
 import { localEnvContent, childEnv } from '../lib/spawn-env.js';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
 
@@ -69,6 +69,10 @@ export interface StartOptions {
   regenerate?: boolean;
   /** Bite the source network now rather than using a published bundle. */
   freshBite?: boolean;
+  /** With a bite: `<chain>=<wasm>` runtimes to authorize at import. See `ppn bite --upgrade`. */
+  upgrades?: string[];
+  /** With a bite: authorize a runtime whose spec_version is not bumped. */
+  upgradeSameSpec?: boolean;
   /** Override the data directory. */
   dataDir?: string;
   /** Override the zombienet config, bypassing the generated one. */
@@ -207,14 +211,26 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
 
   const forkDir = forkDirFor(netDef.name);
   const forkToml = path.join(forkDir, 'fork.toml');
+  const biteOpts = { upgrades: opts.upgrades, upgradeCheckVersion: !opts.upgradeSameSpec };
   if (opts.freshBite) {
     console.log('biting the source network now (--fresh-bite)');
     const { run: bite } = await import('./bite.js');
-    await bite([forkDir], {});
+    await bite([forkDir], biteOpts);
   } else if (usableBundle(forkDir)) {
     const m = JSON.parse(fs.readFileSync(path.join(forkDir, 'manifest.json'), 'utf-8'));
     const packed = fs.readdirSync(path.join(forkDir, 'snapshots')).filter((f) => f.endsWith('.tgz'));
     console.log(`✓ fork bundle present (bitten ${m.bittenAt}, ${packed.length} snapshots)`);
+    // The authorization is state inside the snapshot, so the blob staged for it is fixed at
+    // bite time: a different --upgrade needs a new bite, not a new start.
+    for (const [chain, u] of Object.entries(m.seededUpgrades ?? {}) as [string, { codeHash: string }][]) {
+      console.log(`  ${chain}: runtime ${u.codeHash.slice(0, 16)}… authorized — \`ppn upgrade ${chain}\` enacts it`);
+    }
+    if (opts.upgrades?.length) {
+      throw new Error(
+        `--upgrade changes what the bite authorizes, and this bundle is already bitten.\n` +
+          `       Re-bite with it: ppn start ${netDef.name} --fork --fresh-bite ${opts.upgrades.map((u) => `--upgrade ${u}`).join(' ')}`
+      );
+    }
   } else {
     // No published bundle for this network is the normal case for one CI has never
     // pre-baked, and the old failure spent its last line telling the user to run a bite —
@@ -240,12 +256,48 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
       console.log('this warp-syncs the live network and takes several minutes. Ctrl-C to stop.');
       console.log('');
       const { run: bite } = await import('./bite.js');
-      await bite([forkDir], {});
+      await bite([forkDir], biteOpts);
     }
   }
   run(nodeBin, [ppn, 'fork', 'toml', forkDir, forkToml]);
   console.log(`✓ fork config: ${forkToml}`);
   return opts.toml ?? forkToml;
+}
+
+export type ForkDataVerdict =
+  | { action: 'fresh'; reason: string }
+  | { action: 'resume'; reason: string }
+  | { action: 'wipe'; reason: string };
+
+/**
+ * What to do with a fork's data directory before spawning.
+ *
+ * `resume` when the databases there were spawned from exactly this bundle — the spawn stamp
+ * names the bite they came from, and a bundle is identified by when it was bitten. Anything
+ * else is wiped: a different bite, a genesis run that shared the directory, or state with no
+ * stamp to vouch for it. Resuming on the wrong database is the failure FORK.md describes —
+ * healthy for a hundred blocks, then `Trie lookup error` — so the default is only ever taken
+ * when the stamp matches.
+ */
+export function forkDataVerdict(dataDir: string, network: string, manifestPath: string): ForkDataVerdict {
+  const populated = fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((f) => f !== SPAWN_FILE);
+  if (!populated) return { action: 'fresh', reason: 'no chain data yet' };
+
+  const stamp = readSpawnStamp(dataDir);
+  if (!stamp) return { action: 'wipe', reason: 'chain data present but no spawn stamp says which bite it came from' };
+  if (stamp.mode !== 'fork') return { action: 'wipe', reason: `it holds a ${stamp.mode} run, not a fork` };
+  if (stamp.network !== network) return { action: 'wipe', reason: `it holds a fork of ${stamp.network}` };
+
+  let bittenAt: string | undefined;
+  try {
+    bittenAt = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')).bittenAt;
+  } catch {
+    return { action: 'wipe', reason: 'the bundle has no readable manifest to compare against' };
+  }
+  if (!stamp.bite?.at || stamp.bite.at !== bittenAt) {
+    return { action: 'wipe', reason: `it continues a bite from ${stamp.bite?.at ?? 'unknown'}, the bundle is from ${bittenAt}` };
+  }
+  return { action: 'resume', reason: `continuing the fork spawned ${stamp.spawnedAt} from the bite of ${bittenAt}` };
 }
 
 /**
@@ -332,12 +384,6 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   if (opts.clean) {
     console.log(`cleaning ${dataDir}`);
     fs.rmSync(dataDir, { recursive: true, force: true });
-  } else if (opts.fork) {
-    // zombienet restores a bundle's snapshot only into an empty base path; if a database is
-    // already there it runs on that instead, which is how a fork ends up on another chain's
-    // state. See docs/FORK.md.
-    console.log(`fork mode: wiping ${dataDir} so the bundle's snapshot is restored`);
-    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 
   if (opts.regenerate) {
@@ -349,6 +395,20 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
 
   const tomlFile = await ensureDeps(netDef, opts, binDir);
   if (!fs.existsSync(tomlFile)) throw new Error(`no zombienet config at ${tomlFile}`);
+
+  // Decided after ensureDeps, which is where a --fresh-bite produces the bundle the data is
+  // compared against. zombienet restores a bundle's snapshot only into an empty base path;
+  // a database already there is run on as-is — which is right when it is this bundle's own
+  // fork continuing from where it stopped, and wrong for anything else. See docs/FORK.md.
+  if (opts.fork && !opts.ephemeral) {
+    const verdict = forkDataVerdict(dataDir, name, path.join(forkDirFor(name), 'manifest.json'));
+    if (verdict.action === 'wipe') {
+      console.log(`fork mode: wiping ${dataDir} — ${verdict.reason}`);
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    } else if (verdict.action === 'resume') {
+      console.log(`fork mode: resuming ${dataDir} — ${verdict.reason} (--clean restarts from the bite block)`);
+    }
+  }
   if (!opts.ephemeral) fs.mkdirSync(dataDir, { recursive: true });
 
   // When and from what this network was spawned — a fact of this run, recorded beside its

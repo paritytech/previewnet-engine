@@ -226,6 +226,10 @@ export async function downloadRepoFile(
 export async function downloadUrl(url: string, dest: string): Promise<boolean> {
   return withRetry(`download of ${path.basename(dest)}`, async () => {
     const res = await fetch(url, { redirect: 'follow' });
+    // A 5xx or 429 is the CDN having a moment, not an answer about the file; throwing hands
+    // it to withRetry. A 404 stays a false: the file is not there and asking again will not
+    // make it so.
+    if (res.status >= 500 || res.status === 429) throw new Error(`HTTP ${res.status}`);
     if (!res.ok) return false;
     await writeStream(res, dest);
     return true;

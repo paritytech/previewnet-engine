@@ -1,7 +1,7 @@
 {
   "name": "polkadot",
   "displayName": "Polkadot",
-  "description": "STUB. Fork-only, bitten on the fly (no sudo, so a runtime under test must be injected at bite time rather than upgraded afterwards). Relay + Asset Hub only.",
+  "description": "Fork-only, bitten on the fly (no sudo, so a runtime under test must be injected at bite time rather than upgraded afterwards). Relay, Asset Hub, People and Bulletin — the system chains the fellowship's Individuality release (runtimes 2.5) lands on.",
   "genesis": false,
   "sudo": false,
   "bite": {
@@ -44,6 +44,29 @@
         "release": "polkadot-sdk"
       },
       "_note": "A public system chain carries its spec inside the parachain binary, so unlike Paseo's Asset Hub it needs no host to publish one. Its Aura keys are ed25519, alone among the system chains: with the sr25519 default the collator matches no slot and authors nothing, without ever reporting an error."
+    },
+    {
+      "key": "people",
+      "paraId": 1004,
+      "spec": "people",
+      "rpc": "wss://polkadot-people-rpc.polkadot.io",
+      "specSource": "builtin:people-polkadot",
+      "binary": {
+        "name": "polkadot-parachain",
+        "release": "polkadot-sdk"
+      }
+    },
+    {
+      "key": "bulletin",
+      "paraId": 1010,
+      "spec": "bulletin",
+      "rpc": "wss://bulletin-rpc.polkadot.io",
+      "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/polkadot/parachain/bulletin/chainspec.json",
+      "binary": {
+        "name": "polkadot-parachain",
+        "release": "polkadot-sdk"
+      },
+      "_note": "Not built into polkadot-parachain; Parity's own bulletin RPC nodes run from this published spec (devops-cloud-infra, values-parity-chains-polkadot-bulletin-rpc.yaml)."
     }
   ],
   "services": {

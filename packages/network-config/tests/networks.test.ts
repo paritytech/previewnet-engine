@@ -160,6 +160,20 @@ describe('network descriptors', () => {
     }
   });
 
+  // Polkadot runs the three system chains the fellowship's Individuality release lands on, at
+  // their real ids. People is built into polkadot-parachain; Bulletin is not, so its spec is
+  // the one Parity's own RPC nodes run from.
+  it('forks polkadot as relay + asset hub + people + bulletin', () => {
+    const net = loadNetwork('polkadot');
+    assert.deepEqual(
+      net.parachains.map((p) => [p.key, p.paraId]),
+      [['asset-hub', 1000], ['people', 1004], ['bulletin', 1010]]
+    );
+    assert.equal(net.parachains.find((p) => p.key === 'people')?.specSource, 'builtin:people-polkadot');
+    assert.match(net.parachains.find((p) => p.key === 'bulletin')?.specSource ?? '', /^https:\/\/.*bulletin.*chainspec\.json$/);
+    assert.ok(net.parachains.every((p) => p.binary.name === 'polkadot-parachain'));
+  });
+
   it('pins the bite tool per network, since it must run that network\'s runtimes', () => {
     for (const name of listNetworks()) {
       const dg = loadNetwork(name).bite.doppelganger;

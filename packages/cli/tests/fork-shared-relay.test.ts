@@ -8,15 +8,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { compactLen, keyOf, u32le } from '../src/fork/codec.js';
+import { compactLen, keyOf, twox64Concat, u32le } from '../src/fork/codec.js';
 import {
+  channelsTouching,
   coresFor,
   coreDescriptorsValue,
   DMP_HEAD_EMPTY,
-  HRMP_INGRESS_EMPTY,
-  messagingWipes,
+  dmpWipes,
+  hrmpChannelKey,
+  hrmpContentsWipes,
+  hrmpParaKey,
   paraMessagingWipes,
   planCores,
+  SCALE_EMPTY,
   transactionStorageWipes,
   FORK_RETENTION_PERIOD,
   validatorGroups,
@@ -108,32 +112,90 @@ describe('validatorGroups', () => {
 describe('paraMessagingWipes', () => {
   // The pairing that matters: zeroing only the relay's copy turns the mismatch around rather
   // than resolving it — the parachain's stale head on one side, a zero hash on the other.
-  it('zeroes the parachain half of the DMP head', () => {
+  it('zeroes the parachain half of the DMP head and empties its HRMP heads', () => {
     assert.deepEqual(paraMessagingWipes(), {
       [keyOf('ParachainSystem', 'LastDmqMqcHead')]: DMP_HEAD_EMPTY,
+      [keyOf('ParachainSystem', 'LastHrmpMqcHeads')]: SCALE_EMPTY,
     });
   });
 });
 
-describe('messagingWipes', () => {
-  it('empties both HRMP ingress and the DMP head for each parachain', () => {
-    const wipes = messagingWipes([1500, 1501]);
-    assert.equal(Object.keys(wipes).length, 4);
+describe('dmpWipes', () => {
+  it('zeroes the DMP head for each parachain, and nothing else', () => {
+    const wipes = dmpWipes([1500, 1501]);
+    assert.equal(Object.keys(wipes).length, 2);
     for (const id of [1500, 1501]) {
-      const hrmp = Object.entries(wipes).find(
-        ([k]) => k.startsWith(keyOf('Hrmp', 'HrmpIngressChannelsIndex')) && k.includes(u32le(id))
-      );
       const dmp = Object.entries(wipes).find(
         ([k]) => k.startsWith(keyOf('Dmp', 'DownwardMessageQueueHeads')) && k.includes(u32le(id))
       );
-      assert.equal(hrmp?.[1], HRMP_INGRESS_EMPTY, `hrmp ${id}`);
       assert.equal(dmp?.[1], DMP_HEAD_EMPTY, `dmp ${id}`);
     }
+    // The ingress index is left alone: emptying it is what used to leave the channels
+    // registered but dead, with only a root call able to bring them back.
+    assert.ok(!Object.keys(wipes).some((k) => k.startsWith(keyOf('Hrmp', 'HrmpIngressChannelsIndex'))));
   });
 
   it('writes a 32-byte zero hash for the DMP head', () => {
     assert.equal(DMP_HEAD_EMPTY.length, 64);
     assert.equal(BigInt('0x' + DMP_HEAD_EMPTY), 0n);
+  });
+});
+
+// The HRMP reset keeps every channel and clears its queue on both sides. The channel set is
+// read off the relay at bite time; these pin the keys and the shape of what is written.
+describe('hrmp reset', () => {
+  // Polkadot as of 2026-09: 1000 <-> 1004 <-> 1010 all open, plus 1000's ~37 foreign peers
+  // and 1004's channel with 2034. Only the parts that touch ours matter here.
+  const ingress = new Map<number, number[]>([
+    [1000, [1004, 1010, 2034]],
+    [1004, [1000, 1010, 2034]],
+    [1010, [1000, 1004]],
+  ]);
+  const egress = new Map<number, number[]>([
+    [1000, [1004, 1010, 2034]],
+    [1004, [1000, 1010, 2034]],
+    [1010, [1000, 1004]],
+  ]);
+
+  it('lists every channel touching our parachains once, in a stable order', () => {
+    const channels = channelsTouching([1000, 1004, 1010], ingress, egress);
+    assert.deepEqual(channels, [
+      { sender: 1000, recipient: 1004 },
+      { sender: 1000, recipient: 1010 },
+      { sender: 1000, recipient: 2034 },
+      { sender: 1004, recipient: 1000 },
+      { sender: 1004, recipient: 1010 },
+      { sender: 1004, recipient: 2034 },
+      { sender: 1010, recipient: 1000 },
+      { sender: 1010, recipient: 1004 },
+      { sender: 2034, recipient: 1000 },
+      { sender: 2034, recipient: 1004 },
+    ]);
+  });
+
+  it('keys a channel by HrmpChannelId { sender, recipient }, twox64concat', () => {
+    const ch = { sender: 1004, recipient: 1000 };
+    assert.equal(
+      hrmpChannelKey('HrmpChannels', ch),
+      keyOf('Hrmp', 'HrmpChannels') + twox64Concat(u32le(1004) + u32le(1000))
+    );
+    assert.equal(hrmpParaKey('HrmpChannelDigests', 1000), keyOf('Hrmp', 'HrmpChannelDigests') + twox64Concat(u32le(1000)));
+  });
+
+  it('empties the pending contents of every channel and the digests of every one of ours', () => {
+    const channels = channelsTouching([1000, 1004], ingress, egress);
+    const wipes = hrmpContentsWipes(channels, [1000, 1004]);
+    assert.equal(Object.keys(wipes).length, channels.length + 2);
+    for (const ch of channels) assert.equal(wipes[hrmpChannelKey('HrmpChannelContents', ch)], SCALE_EMPTY);
+    for (const id of [1000, 1004]) assert.equal(wipes[hrmpParaKey('HrmpChannelDigests', id)], SCALE_EMPTY);
+    // Never the channel itself: that entry keeps its capacities and deposits and is rebuilt
+    // from the live value in overrides.ts.
+    assert.ok(!Object.keys(wipes).some((k) => k.startsWith(keyOf('Hrmp', 'HrmpChannels'))));
+  });
+
+  it('is a no-op for a parachain with no channels', () => {
+    assert.deepEqual(channelsTouching([1500], new Map(), new Map()), []);
+    assert.deepEqual(hrmpContentsWipes([], []), {});
   });
 });
 

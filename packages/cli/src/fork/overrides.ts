@@ -11,8 +11,12 @@ import type { StorageIndex } from './rpc.js';
 import { rpc, storageIndex } from './rpc.js';
 import { keyOf } from './codec.js';
 import {
+  channelsTouching,
   coreDescriptorsValue,
-  messagingWipes,
+  dmpWipes,
+  hrmpChannelKey,
+  hrmpContentsWipes,
+  hrmpParaKey,
   paraMessagingWipes,
   planCores,
   transactionStorageWipes,
@@ -99,7 +103,7 @@ function report(label: string, result: VerifyResult, candidates: Record<string, 
  * bundle carries it, and the fork fails later with nothing pointing back here.
  *
  * The key is `<map prefix><hashed key>`, so the entry is found by prefix: the prefix is the
- * first 32 hex characters, exactly as `keyOf` produces it.
+ * first 64 hex characters (two twox128 hashes), exactly as `keyOf` produces it.
  */
 export function verifyInjects(
   { reg, byKey }: Pick<StorageIndex, 'reg' | 'byKey'>,
@@ -110,7 +114,7 @@ export function verifyInjects(
   const failures: string[] = [];
 
   for (const [key, value] of Object.entries(injects)) {
-    const info = byKey.get(key.slice(0, 32));
+    const info = byKey.get(key.slice(0, 64));
     if (!info) {
       skipped.push(`${key.slice(0, 12)}… (no such map in this runtime)`);
       continue;
@@ -261,9 +265,87 @@ async function sharedRelayCandidates(
       ),
       [keyOf('Configuration', 'ActiveConfig')]: config.value,
     },
-    // Storage map entries, so injects: one per parachain.
-    injects: messagingWipes(paraIds),
+    // Storage map entries, so injects.
+    injects: { ...dmpWipes(paraIds), ...(await hrmpResets(index, relayUrl, paraIds)) },
   };
+}
+
+/**
+ * Reset every HRMP channel touching one of our parachains, keeping it open.
+ *
+ * The channel set comes from the relay's own indexes at bite time, so nothing here restates
+ * which channels a network has. Each `HrmpChannels` entry is rebuilt from its live value with
+ * `mqc_head` cleared and the counters zeroed, and everything else — capacities, deposits —
+ * byte-for-byte as production has it; the pending contents and the recipient's digests are
+ * emptied to match. The parachain half is paraMessagingWipes().
+ *
+ * The hashers are checked against the metadata because the keys are assembled by hand: an
+ * inject on a mis-hashed key is a write nothing reads, and the fork would fail later with
+ * `HRMP head mismatch` pointing nowhere near here.
+ */
+async function hrmpResets(index: StorageIndex, relayUrl: string, paraIds: number[]): Promise<Record<string, string>> {
+  if (!index.pallets.has('Hrmp')) return {};
+  for (const item of ['HrmpChannels', 'HrmpChannelContents', 'HrmpChannelDigests', 'HrmpIngressChannelsIndex', 'HrmpEgressChannelsIndex']) {
+    const entry = index.byKey.get(keyOf('Hrmp', item));
+    if (!entry) throw new Error(`this relay runtime has no Hrmp::${item}`);
+    if (entry.hashers.join(',') !== 'Twox64Concat') {
+      throw new Error(`Hrmp::${item} is hashed with ${entry.hashers.join(',')}, not Twox64Concat as the reset assumes`);
+    }
+  }
+
+  const read = (key: string) => rpc<`0x${string}` | null>(relayUrl, 'state_getStorage', ['0x' + key]);
+  const paraList = (hex: `0x${string}` | null): number[] =>
+    hex ? (index.reg.createType('Vec<u32>', hex).toJSON() as number[]) : [];
+
+  const ingress = new Map<number, number[]>();
+  const egress = new Map<number, number[]>();
+  for (const id of paraIds) {
+    ingress.set(id, paraList(await read(hrmpParaKey('HrmpIngressChannelsIndex', id))));
+    egress.set(id, paraList(await read(hrmpParaKey('HrmpEgressChannelsIndex', id))));
+  }
+  const channels = channelsTouching(paraIds, ingress, egress);
+  if (channels.length === 0) {
+    console.log('  hrmp: no channels touch our parachains — nothing to reset');
+    return {};
+  }
+
+  const injects: Record<string, string> = hrmpContentsWipes(channels, paraIds);
+  for (const ch of channels) {
+    const live = await read(hrmpChannelKey('HrmpChannels', ch));
+    if (!live) throw new Error(`the relay indexes channel ${ch.sender} -> ${ch.recipient} but has no HrmpChannels entry for it`);
+    injects[hrmpChannelKey('HrmpChannels', ch)] = resetHrmpChannel(index, live);
+  }
+  const ours = channels.filter((c) => paraIds.includes(c.sender) && paraIds.includes(c.recipient));
+  console.log(
+    `  hrmp: ${channels.length} channel(s) reset, ${ours.length} between our parachains ` +
+      `(${ours.map((c) => `${c.sender}->${c.recipient}`).join(', ') || 'none'})`
+  );
+  return injects;
+}
+
+/**
+ * A live `HrmpChannel` with `mqc_head` cleared and `msg_count`/`total_size` zeroed. Rebuilt
+ * from the decoded value's own codec fields for the same reason patchNumCores() is: the
+ * untouched fields — capacities, deposits — must come out byte-for-byte as they went in.
+ */
+function resetHrmpChannel(index: StorageIndex, liveHex: string): string {
+  const entry = index.byKey.get(keyOf('Hrmp', 'HrmpChannels'));
+  if (!entry?.mapValue) throw new Error('Hrmp::HrmpChannels is not a map here');
+  const type = index.reg.createLookupType(entry.mapValue);
+  const decoded = index.reg.createType(type, liveHex) as any;
+  const fields = Object.fromEntries([...decoded.entries()]);
+  for (const f of ['mqcHead', 'msgCount', 'totalSize']) {
+    if (!(f in fields)) throw new Error(`HrmpChannel has no ${f} field — this relay runtime is not what the reset expects`);
+  }
+  return index.reg
+    .createType(type, {
+      ...fields,
+      mqcHead: index.reg.createType('Option<H256>', null),
+      msgCount: index.reg.createType('u32', 0),
+      totalSize: index.reg.createType('u32', 0),
+    })
+    .toHex()
+    .slice(2);
 }
 
 /** A runtime to authorize at import, for a fork that has no sudo to authorize one later. */
@@ -313,7 +395,7 @@ export async function paraOverrides(
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collator = await collatorKey(paraId, scheme);
-  // On a shared relay the inherited messaging state is cleared on both sides at once — see
+  // On a shared relay the inherited messaging state is reset on both sides at once — see
   // ./shared-relay.ts. On our own relay it is preserved on both sides, which is what keeps
   // previewnet's HRMP channels and its XCM tests working.
   // The transaction-storage wipe applies on EVERY bite of a chain with that pallet, not
