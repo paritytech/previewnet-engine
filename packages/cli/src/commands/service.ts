@@ -279,7 +279,8 @@ function dotSudoAccount(): string {
         '       Use a BIP39 mnemonic or a 0x-prefixed 32-byte hex seed.'
     );
   }
-  const dot = (args: string[]) => execFileSync('dot', args, { stdio: ['pipe', 'pipe', 'ignore'] });
+  const dot = (args: string[]) =>
+    execFileSync('dot', args, { stdio: ['pipe', 'pipe', 'ignore'], env: dotEnv() });
   try {
     dot(['account', 'remove', 'ppn-sudo']);
   } catch {
@@ -289,8 +290,25 @@ function dotSudoAccount(): string {
   return 'ppn-sudo';
 }
 
+/**
+ * A config root of this process's own. `dot` keeps chains and accounts as JSON files and
+ * rewrites them whole, and three services run as concurrent custom processes, each adding a
+ * chain and the same `ppn-sudo` account. Sharing one root lets two writers interleave in one
+ * file: `dot` then fails parsing its own config, the sudo call never lands, and the symptom
+ * surfaces minutes later as an attestation allowance of 0.
+ */
+let dotHome: string | null = null;
+function dotEnv(): NodeJS.ProcessEnv {
+  dotHome ??= fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-dot-'));
+  return { ...process.env, DOT_HOME: dotHome };
+}
+
 const dotRun = (args: string[]) =>
-  execFileSync('dot', args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'inherit'] }).trim();
+  execFileSync('dot', args, {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'inherit'],
+    env: dotEnv(),
+  }).trim();
 
 async function chainReachable(httpUrl: string, attempts: number, gapSeconds: number): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
