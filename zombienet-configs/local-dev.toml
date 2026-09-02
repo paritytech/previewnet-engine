@@ -93,7 +93,7 @@ name = "bulletin-collator1"
 rpc_port = 10030
 p2p_port = 30333
 command = "{{SCRIPTS}}/omni-node.sh"
-args = ["-lparachain=debug,xcm=trace", "--rpc-max-connections=500", "--force-authoring", "--ipfs-server", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--experimental-webrtc", "--listen-addr=/ip4/127.0.0.1/udp/30333/webrtc-direct", "--enable-hop", "--hop-retention-secs=3600", "--hop-check-interval=60"]
+args = ["-lparachain=debug,xcm=trace", "--rpc-max-connections=500", "--force-authoring", "--ipfs-server", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--experimental-webrtc", "--listen-addr=/ip4/127.0.0.1/udp/30333/webrtc-direct", "--enable-hop", "--hop-retention-secs=3600", "--hop-promotion-buffer-secs=1800", "--hop-check-interval=60"]
 
 ## Web3 Storage Chain (Parachain 1600)
 [[parachains]]
