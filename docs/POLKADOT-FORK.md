@@ -122,6 +122,11 @@ pull` may want it stashed):
 sed -i "s|^BOOTNODE_HOSTNAME=.*|BOOTNODE_HOSTNAME=$DOMAIN|; s|^PPN_PUBLIC_URL=.*|PPN_PUBLIC_URL=https://$DOMAIN|" config/ports.env
 ```
 
+The webrtc-direct collators (Asset Hub, Bulletin) bind the interface `P2P_LISTEN_IP` names,
+`127.0.0.1` by default, which nobody outside the box can reach. Export the box's public IP —
+`P2P_LISTEN_IP=203.0.113.10` in the unit below — or set it in `ports.env` the same way. This is
+independent of TLS: webrtc-direct carries its own certificate hash in the address.
+
 **nginx.** The template and the websocket snippet are preview-net-v1's, `server/nginx/`;
 copy the two files onto the box. `ppn nginx-conf` fills the chain routes in from the network
 descriptor — with `PPN_NETWORK=polkadot` that is Asset Hub, People and Bulletin, and nothing for
@@ -170,6 +175,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/previewnet-engine
 Environment="PPN_NETWORK=polkadot"
+Environment="P2P_LISTEN_IP=203.0.113.10"
 Environment="DASHBOARD_PROXY=0"
 Environment="RUST_LOG=info"
 Environment="PATH=/home/ubuntu/previewnet-engine/bin:/usr/local/bin:/usr/bin:/bin"
@@ -193,10 +199,8 @@ Run the bite (`make bite ... UPGRADES=...` above) before the first `systemctl st
 only spawns what is already bitten, and a restart resumes it. `make kill` and `systemctl stop`
 are the same thing; use the latter so systemd does not restart what you stopped.
 
-Two limits of the hand-rolled version, both fixed once preview-net-v1 grows a fork target:
-`fork.toml` is regenerated on every start with webrtc-direct listening on `127.0.0.1`, so
-browser peers over webrtc do not reach the collators (wss through nginx does); and nothing
-collects node logs out of `/tmp/zombie-*/` the way v1's log collector does.
+One limit of the hand-rolled version: nothing collects node logs out of `/tmp/zombie-*/` the
+way v1's log collector does, and `ppn kill` removes them. Copy what you need before stopping.
 
 ## Services on this fork
 
