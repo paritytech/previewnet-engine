@@ -20,14 +20,19 @@
 // zombie-bite handles both by shrinking the world to the bitten parachains: it rewrites
 // `Paras::Parachains`, assigns cores from index 0, sizes the validator set to the cores
 // (`(1 + req_cores).min(7)`), and empties `Hrmp::HrmpIngressChannelsIndex` and
-// `Dmp::DownwardMessageQueueHeads` per parachain. This does the same, with one deliberate
-// difference: it patches `scheduler_params.num_cores` inside the *decoded* HostConfiguration
-// rather than substituting a hand-encoded blob, because that struct also carries
-// `EnabledHostFunction(EccRfc163)` — without which the relay's validators reject People's PVFs.
+// `Dmp::DownwardMessageQueueHeads` per parachain. This does the cores the same way, with one
+// deliberate difference: it patches `scheduler_params.num_cores` inside the *decoded*
+// HostConfiguration rather than substituting a hand-encoded blob, because that struct also
+// carries `EnabledHostFunction(EccRfc163)` — without which the relay's validators reject
+// People's PVFs.
 //
-// The channels are not lost: `ppn service force-open-hrmp` reopens them by sudo after the
-// spawn, exactly as it does for a genesis previewnet, so the fork ends up with consistent
-// working HRMP rather than none.
+// HRMP is handled differently: the channels are kept and their message-queue chains reset on
+// both sides, rather than the ingress index being emptied. Emptying the index leaves the
+// channels registered but unreachable, and the only way back is `force_open_hrmp_channel` —
+// a root call a fork of Kusama or Polkadot can never make. A reset needs no call afterwards:
+// every channel into or out of one of our parachains gets `mqc_head` cleared and its pending
+// contents dropped on the relay, and the parachain's `LastHrmpMqcHeads` is emptied to match.
+// cumulus then computes an empty chain on both sides and the channel carries messages again.
 
 import { compactLen, keyOf, twox64Concat, u32le } from './codec.js';
 
@@ -86,40 +91,97 @@ export function validatorGroups(cores: number, validators: number): string {
   );
 }
 
-/**
- * The value each parachain's `Hrmp::HrmpIngressChannelsIndex` entry is replaced with: an empty
- * list. No ingress channels means no MQC head for cumulus to disagree with.
- */
-export const HRMP_INGRESS_EMPTY = '00';
-
-/** And `Dmp::DownwardMessageQueueHeads`: the zero hash, i.e. nothing received yet. */
+/** `Dmp::DownwardMessageQueueHeads`: the zero hash, i.e. nothing received yet. */
 export const DMP_HEAD_EMPTY = '00'.repeat(32);
 
+/** An empty SCALE `Vec` or `BTreeMap`: a single zero-length compact. */
+export const SCALE_EMPTY = '00';
+
 /**
- * Map entries to write per parachain. Injects rather than overrides — these are storage map
- * entries, and `verify()` only decode-checks plain values.
+ * `Dmp::DownwardMessageQueueHeads` per parachain. Injects rather than overrides — these are
+ * storage map entries, and `verify()` only decode-checks plain values.
  */
-export function messagingWipes(paraIds: number[]): Record<string, string> {
+export function dmpWipes(paraIds: number[]): Record<string, string> {
   const wipes: Record<string, string> = {};
   for (const id of paraIds) {
-    const suffix = twox64Concat(u32le(id));
-    wipes[keyOf('Hrmp', 'HrmpIngressChannelsIndex') + suffix] = HRMP_INGRESS_EMPTY;
-    wipes[keyOf('Dmp', 'DownwardMessageQueueHeads') + suffix] = DMP_HEAD_EMPTY;
+    wipes[keyOf('Dmp', 'DownwardMessageQueueHeads') + twox64Concat(u32le(id))] = DMP_HEAD_EMPTY;
   }
   return wipes;
 }
 
+/** One HRMP channel, as the relay keys it: `HrmpChannelId { sender, recipient }`. */
+export interface ChannelId {
+  sender: number;
+  recipient: number;
+}
+
+/** The map key of a channel-keyed `Hrmp` entry (`HrmpChannels`, `HrmpChannelContents`). */
+export function hrmpChannelKey(item: 'HrmpChannels' | 'HrmpChannelContents', ch: ChannelId): string {
+  return keyOf('Hrmp', item) + twox64Concat(u32le(ch.sender) + u32le(ch.recipient));
+}
+
+/** The map key of a para-keyed `Hrmp` entry (the indexes and `HrmpChannelDigests`). */
+export function hrmpParaKey(
+  item: 'HrmpIngressChannelsIndex' | 'HrmpEgressChannelsIndex' | 'HrmpChannelDigests',
+  paraId: number
+): string {
+  return keyOf('Hrmp', item) + twox64Concat(u32le(paraId));
+}
+
 /**
- * The parachain side of the same wipe: `ParachainSystem::LastDmqMqcHead`.
+ * Every channel that has one of our parachains at either end, from the relay's own indexes.
  *
- * Both halves or neither. The relay's `Dmp::DownwardMessageQueueHeads` and this value are two
- * views of one number, and cumulus asserts they agree — so zeroing only the relay's simply
- * turns the mismatch around, with the parachain's stale head on the left and a zero hash on the
- * right. There is no HRMP counterpart to zero here: with the relay's ingress index emptied,
- * cumulus iterates no channels and never looks at `LastHrmpMqcHeads` at all.
+ * Each channel appears once even when both ends are ours (1000 -> 1004 is in 1000's egress and
+ * 1004's ingress), and in a stable order so the override file is reproducible.
+ */
+export function channelsTouching(
+  paraIds: number[],
+  ingress: Map<number, number[]>,
+  egress: Map<number, number[]>
+): ChannelId[] {
+  const seen = new Set<string>();
+  const out: ChannelId[] = [];
+  const add = (ch: ChannelId) => {
+    const k = `${ch.sender}>${ch.recipient}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(ch);
+  };
+  for (const id of paraIds) {
+    for (const sender of ingress.get(id) ?? []) add({ sender, recipient: id });
+    for (const recipient of egress.get(id) ?? []) add({ sender: id, recipient });
+  }
+  return out.sort((a, b) => a.sender - b.sender || a.recipient - b.recipient);
+}
+
+/**
+ * The relay-side writes that do not depend on a channel's live value: pending contents
+ * dropped, and the recipient's digest of blocks-with-messages emptied so nothing is ever
+ * pruned out of a queue that is already empty. `HrmpChannels` itself is rebuilt from the live
+ * entry in overrides.ts, because everything but its `mqc_head` and counters must survive.
+ */
+export function hrmpContentsWipes(channels: ChannelId[], paraIds: number[]): Record<string, string> {
+  const wipes: Record<string, string> = {};
+  for (const ch of channels) wipes[hrmpChannelKey('HrmpChannelContents', ch)] = SCALE_EMPTY;
+  for (const id of paraIds) wipes[hrmpParaKey('HrmpChannelDigests', id)] = SCALE_EMPTY;
+  return wipes;
+}
+
+/**
+ * The parachain side of the same reset: `ParachainSystem::LastDmqMqcHead` and
+ * `ParachainSystem::LastHrmpMqcHeads`.
+ *
+ * Both halves or neither. The relay's queue heads and these values are two views of one
+ * number, and cumulus asserts they agree — so zeroing only the relay's simply turns the
+ * mismatch around, with the parachain's stale head on the left and a zero hash on the right.
+ * With every channel's `mqc_head` cleared on the relay, the map of last-seen heads here has to
+ * be empty too: a missing entry reads as the default hash, which is what `None` decodes to.
  */
 export function paraMessagingWipes(): Record<string, string> {
-  return { [keyOf('ParachainSystem', 'LastDmqMqcHead')]: DMP_HEAD_EMPTY };
+  return {
+    [keyOf('ParachainSystem', 'LastDmqMqcHead')]: DMP_HEAD_EMPTY,
+    [keyOf('ParachainSystem', 'LastHrmpMqcHeads')]: SCALE_EMPTY,
+  };
 }
 
 /**

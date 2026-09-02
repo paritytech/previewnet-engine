@@ -29,6 +29,12 @@ export interface StorageEntry {
    * exactly the failure a bite must not carry silently into a bundle.
    */
   mapValue: number | null;
+  /**
+   * A map's key hashers, e.g. `['Twox64Concat']`. Injects build their keys by hand, so the
+   * hasher assumed has to be the one the runtime uses, or the write lands on a key nothing
+   * ever reads.
+   */
+  hashers: string[];
 }
 
 export interface StorageIndex {
@@ -54,6 +60,7 @@ export async function storageIndex(url: string): Promise<StorageIndex> {
         label: `${p.name}::${it.name}`,
         plain: it.type.isPlain ? it.type.asPlain.toNumber() : null,
         mapValue: it.type.isMap ? it.type.asMap.value.toNumber() : null,
+        hashers: it.type.isMap ? it.type.asMap.hashers.map((h) => h.type) : [],
       });
     }
   }
