@@ -27,8 +27,12 @@ docs/issues-drafts/
 .env*
 !.env.example
 
-# Claude Code session data
-.claude/
+# Claude Code. Per-developer state stays out; shared agent config is project config, so it is
+# not blanket-ignored — a committed .claude/commands/ would otherwise vanish silently.
+.claude/*
+!.claude/agents/
+!.claude/commands/
+!.claude/skills/
 
 # Staged into packages/cli by its prepack, removed by postpack — never committed.
 packages/cli/scripts/
