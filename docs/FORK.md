@@ -49,20 +49,17 @@ So the authorization is written into state during the bite, which is the state t
 would have produced:
 
 ```bash
-make fetch-runtimes NETWORK=polkadot RUNTIMES=v2.5.0   # the fellowship's wasms, one per chain
-make bite NETWORK=polkadot RUNTIMES=v2.5.0             # bite with every one of them authorized
+gh release download v2.5.0 -R polkadot-fellows/runtimes -D runtimes/ -p 'asset-hub-polkadot_*' -p 'people-polkadot_*'
+make bite NETWORK=polkadot UPGRADES="asset-hub=runtimes/asset-hub-polkadot_runtime-v2005000.compact.compressed.wasm people=runtimes/people-polkadot_runtime-v2005000.compact.compressed.wasm"
 make start FORK=1 NETWORK=polkadot
 make runtime-upgrade NETWORK=polkadot CHAIN=asset-hub  # submits the apply half, unsigned
 make runtime-upgrade NETWORK=polkadot CHAIN=people
 ```
 
-`fetch-runtimes` reads the descriptor's `upgrades` table — which repo publishes the runtimes and
-what each chain's is called there — and puts `<chain>.wasm` under `bin/<network>/runtimes/<tag>/`.
-`RUNTIMES=` takes a release tag (`v2.5.0`) or a pull request (`pr-1265`): for a PR the
-runtimes come from the build artifacts on its head commit, which is how a release that is not
-cut yet gets onto a fork. `RUNTIMES=<ref>` on a bite authorizes all of them;
-`UPGRADES="<chain>=<wasm> ..."` names blobs one by one for anything built elsewhere.
-Both also work on `make start FORK=1 FRESH_BITE=1`, since that bites too.
+`UPGRADES="<chain>=<wasm> ..."` names one blob per chain, from wherever it came — a release
+asset, a PR's build artifact, a local build. It also works on `make start FORK=1 FRESH_BITE=1`,
+since that bites too. Getting the blobs is `gh`'s job, not PPN's: see `docs/POLKADOT-FORK.md`
+for the fellowship's release and pre-release layouts.
 
 Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
 `upgrades/<chain>.wasm`, recording it in `manifest.json` as `seededUpgrades`. Add

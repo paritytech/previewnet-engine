@@ -19,10 +19,6 @@
 #                           # downloading the latest published bundle
 #   UPGRADES="<chain>=<wasm> ..."  # With a bite: runtimes to authorize at import, for a
 #                           # network without sudo (kusama, polkadot). See docs/FORK.md.
-#   RUNTIMES=<ref>          # With a bite: authorize every runtime `make fetch-runtimes
-#                           # RUNTIMES=<ref>` downloaded for this network. <ref> is a
-#                           # release tag (v2.5.0) or a pull request (pr-1265) whose
-#                           # build artifacts carry the runtimes before they are released
 #
 # Examples:
 #   make start                        # Native, persistent, from genesis
@@ -34,9 +30,7 @@
 #   make start FORK=1 CLEAN=1         # Fork, back at the bite block (default resumes)
 #   make bite                         # Just produce a bundle, do not start
 #   make bite NETWORK=paseo-next-v2   # Bundle of another network
-#   make fetch-runtimes NETWORK=polkadot RUNTIMES=pr-1265  # Fellowship runtimes from the release PR's build
-#   make fetch-runtimes NETWORK=polkadot RUNTIMES=v2.5.0   # ...or from the release, once cut
-#   make bite NETWORK=polkadot RUNTIMES=pr-1265            # Bite with them authorized
+#   make bite NETWORK=polkadot UPGRADES="people=./people.wasm"  # Bite with a runtime authorized
 #   DOCKER=1 make start               # Docker, persistent
 #
 # Forking continues from a real block rather than resetting to genesis, so
@@ -45,7 +39,7 @@
 #
 # =============================================================================
 
-.PHONY: test-unit start fresh fetch fetch-doppelganger fetch-runtimes show-network generate generate-toml build build-spawner bite clean clean-bin clean-data clean-chainspecs clean-design-families clean-fork kill pin-design-families test doctor help
+.PHONY: test-unit start fresh fetch fetch-doppelganger show-network generate generate-toml build build-spawner bite clean clean-bin clean-data clean-chainspecs clean-design-families clean-fork kill pin-design-families test doctor help
 
 # Configuration
 #
@@ -88,19 +82,9 @@ SCRIPTS_DIR := $(CURDIR)/scripts
 FORK_DIR := $(CURDIR)/fork-bundle-$(NETWORK)
 FORK_TOML := $(FORK_DIR)/fork.toml
 
-# Runtimes a bite authorizes at import, for a network without sudo. UPGRADES names them
-# one by one; RUNTIMES=<tag> takes every <chain>.wasm `make fetch-runtimes` put under
-# bin/<network>/runtimes/<tag>/. Both go to `ppn bite --upgrade` (or `ppn start` when it bites).
-RUNTIMES_DIR := $(BIN_DIR)/runtimes/$(RUNTIMES)
-UPGRADE_FLAGS := $(foreach u,$(UPGRADES),--upgrade $(u)) \
-	$(if $(RUNTIMES),$(foreach f,$(wildcard $(RUNTIMES_DIR)/*.wasm),--upgrade $(basename $(notdir $(f)))=$(f)))
-ifneq ($(RUNTIMES),)
-ifeq ($(filter fetch-runtimes,$(MAKECMDGOALS)),)
-ifeq ($(wildcard $(RUNTIMES_DIR)/*.wasm),)
-$(error no runtimes under $(RUNTIMES_DIR) — run: make fetch-runtimes NETWORK=$(NETWORK) RUNTIMES=$(RUNTIMES))
-endif
-endif
-endif
+# Runtimes a bite authorizes at import, for a network without sudo: UPGRADES="<chain>=<wasm> ..."
+# becomes one `--upgrade` per entry on `ppn bite` (or `ppn start` when it bites).
+UPGRADE_FLAGS := $(foreach u,$(UPGRADES),--upgrade $(u))
 
 ifeq ($(FORK),1)
 TOML_FILE := $(FORK_TOML)
@@ -203,13 +187,6 @@ show-network: build-spawner
 bite: build-spawner ensure-binaries
 	@node $(CURDIR)/bin/ppn.mjs bite "$(FORK_DIR)" $(UPGRADE_FLAGS)
 	@node $(CURDIR)/bin/ppn.mjs fork toml "$(FORK_DIR)" "$(FORK_TOML)"
-
-# Download the runtimes a fork of this network can be upgraded to, from the release the
-# descriptor's `upgrades` table points at: a release tag, or pr-<N> for a release PR's build
-# artifacts. Usage: make fetch-runtimes NETWORK=polkadot RUNTIMES=pr-1265
-fetch-runtimes: build-spawner
-	@test -n "$(RUNTIMES)" || { echo "RUNTIMES=<release tag or pr-N> is required, e.g. RUNTIMES=pr-1265"; exit 1; }
-	@node $(CURDIR)/bin/ppn.mjs fork fetch-runtimes "$(RUNTIMES)" "$(RUNTIMES_DIR)"
 
 # Make sure a bundle + config exist before a FORK=1 start.
 ensure-fork-bundle: build-spawner
@@ -343,7 +320,6 @@ help:
 	@echo "  fetch                  Download binaries and runtimes"
 	@echo "  bite                   Bite the live network into a fork bundle (no start)"
 	@echo "  fetch-doppelganger     Download the bite-only doppelganger binaries"
-	@echo "  fetch-runtimes         Download runtimes to test on a fork: RUNTIMES=<tag|pr-N> (docs/FORK.md)"
 	@echo "  generate               Generate chain spec files"
 	@echo "  clean                  Remove bin/, data/, and design-families/"
 	@echo "  clean-bin              Remove only bin/ (keeps chain data)"
@@ -366,8 +342,7 @@ help:
 	@echo "  NETWORK=name   Which network (networks/*.json, default previewnet)."
 	@echo "                 Only previewnet starts from genesis; the rest are fork-only."
 	@echo "  FRESH_BITE=1   With FORK=1: bite the live network now, not a published bundle"
-	@echo "  RUNTIMES=tag   With a bite: authorize the runtimes fetch-runtimes downloaded (no-sudo networks)"
-	@echo "  UPGRADES=...   With a bite: authorize named blobs, \"<chain>=<wasm> ...\""
+	@echo "  UPGRADES=...   With a bite: authorize runtimes at import, \"<chain>=<wasm> ...\" (no-sudo networks)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make start                    Start with persistence (default)"

@@ -161,10 +161,9 @@ describe('network descriptors', () => {
   });
 
   // Polkadot runs the three system chains the fellowship's Individuality release lands on, at
-  // their real ids, and says where the runtimes to test on a fork of it are published. People
-  // is built into polkadot-parachain; Bulletin is not, so its spec is the one Parity's own RPC
-  // nodes run from.
-  it('forks polkadot as relay + asset hub + people + bulletin, with a runtime table', () => {
+  // their real ids. People is built into polkadot-parachain; Bulletin is not, so its spec is
+  // the one Parity's own RPC nodes run from.
+  it('forks polkadot as relay + asset hub + people + bulletin', () => {
     const net = loadNetwork('polkadot');
     assert.deepEqual(
       net.parachains.map((p) => [p.key, p.paraId]),
@@ -173,15 +172,6 @@ describe('network descriptors', () => {
     assert.equal(net.parachains.find((p) => p.key === 'people')?.specSource, 'builtin:people-polkadot');
     assert.match(net.parachains.find((p) => p.key === 'bulletin')?.specSource ?? '', /^https:\/\/.*bulletin.*chainspec\.json$/);
     assert.ok(net.parachains.every((p) => p.binary.name === 'polkadot-parachain'));
-    assert.equal(net.upgrades?.repo, 'polkadot-fellows/runtimes');
-    assert.deepEqual(net.upgrades?.runtimes, {
-      relay: 'polkadot',
-      'asset-hub': 'asset-hub-polkadot',
-      people: 'people-polkadot',
-      bulletin: 'bulletin-polkadot',
-    });
-    // Networks with sudo upgrade after the spawn instead, so they need no table.
-    assert.equal(loadNetwork('previewnet').upgrades, undefined);
   });
 
   it('pins the bite tool per network, since it must run that network\'s runtimes', () => {

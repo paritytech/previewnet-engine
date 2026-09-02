@@ -34,36 +34,36 @@ make fetch-doppelganger NETWORK=polkadot # the bite tool, into bin/polkadot/dg/
 
 ## Get the runtimes
 
-2.5 is not a release yet; it is the open release PR
-([polkadot-fellows/runtimes#1265](https://github.com/polkadot-fellows/runtimes/pull/1265)),
-whose build workflow uploads one artifact per runtime on every push. Fetch straight from those:
+PPN takes runtime blobs as files; fetching them is `gh`'s job. 2.5 is not a release yet, it is
+the open release PR ([polkadot-fellows/runtimes#1265](https://github.com/polkadot-fellows/runtimes/pull/1265)),
+whose build workflow uploads one artifact per runtime, named after it, on every push:
 
 ```bash
-make fetch-runtimes NETWORK=polkadot RUNTIMES=pr-1265
+# newest "Tests" run on the release branch that actually uploaded the runtimes (not every run does)
+RUN=$(for id in $(gh api "repos/polkadot-fellows/runtimes/actions/runs?branch=kiz-release-2.5&per_page=30" -q '.workflow_runs[] | select(.name=="Tests") | .id'); do
+  gh api repos/polkadot-fellows/runtimes/actions/runs/$id/artifacts -q '.artifacts[] | select(.name=="people-polkadot") | .id' | grep -q . && echo $id && break; done)
+gh run download $RUN -R polkadot-fellows/runtimes -D runtimes/ -n asset-hub-polkadot -n people-polkadot
+ls runtimes/*/   # runtimes/asset-hub-polkadot/asset_hub_polkadot_runtime.compact.compressed.wasm, …
 ```
 
-That resolves the PR's current head commit, takes each chain's runtime from the newest build
-run that produced it, and puts `<chain>.wasm` under `bin/polkadot/runtimes/pr-1265/`. Re-run
-it after the PR is pushed to and the blobs follow. Artifacts expire after 90 days, and the
-directory is what you keep.
-
-Once 2.5 is cut, the same command takes the tag and reads the release assets instead:
+Re-run after the PR is pushed to and the blobs follow. Artifacts expire after 90 days; the
+directory is what you keep. Once 2.5 is cut, the release assets replace the artifacts:
 
 ```bash
-make fetch-runtimes NETWORK=polkadot RUNTIMES=v2.5.0
+gh release download v2.5.0 -R polkadot-fellows/runtimes -D runtimes/ -p 'asset-hub-polkadot_*' -p 'people-polkadot_*'
 ```
 
-Either way the `upgrades` table in `networks/polkadot.json` says which repo and what each
-chain's runtime is called there.
+The relay and bulletin runtimes are in the same places (`polkadot`, `bulletin-polkadot`) if you
+want the whole release on the fork; 2.5 changes nothing in them beyond the version.
 
 ## Bite and start
 
 ```bash
-make bite NETWORK=polkadot RUNTIMES=pr-1265   # ~20 min: warp-syncs all four chains, authorizes the blobs
+make bite NETWORK=polkadot UPGRADES="asset-hub=runtimes/asset-hub-polkadot/asset_hub_polkadot_runtime.compact.compressed.wasm people=runtimes/people-polkadot/people_polkadot_runtime.compact.compressed.wasm"
 make start FORK=1 NETWORK=polkadot            # spawns from fork-bundle-polkadot/
 ```
 
-`make bite` prints, per chain, the runtime it authorized. Watch the relay finalize
+That is ~20 minutes: it warp-syncs all four chains and authorizes the blobs. `make bite` prints, per chain, the runtime it authorized. Watch the relay finalize
 (`ws://127.0.0.1:10000`) and the collators author before upgrading. Then, one chain at a time:
 
 ```bash
@@ -72,14 +72,7 @@ make runtime-upgrade NETWORK=polkadot CHAIN=people
 ```
 
 Each submits `apply_authorized_upgrade` unsigned, waits for the relay's PVF pre-check and
-go-ahead, and reports `OK <chain>: <spec> 2004000 -> 2005000`. The relay and bulletin blobs are
-authorized too; enact them the same way when you want the whole release on the fork.
-
-To authorize a single blob by hand instead of a whole tag:
-
-```bash
-make bite NETWORK=polkadot UPGRADES="asset-hub=/path/to/ah.wasm people=/path/to/people.wasm"
-```
+go-ahead, and reports `OK <chain>: <spec> 2004000 -> 2005000`.
 
 ## Day to day
 
@@ -88,9 +81,8 @@ make bite NETWORK=polkadot UPGRADES="asset-hub=/path/to/ah.wasm people=/path/to/
 | Stop | `make kill` |
 | Start again where it stopped, upgrades still enacted | `make start FORK=1 NETWORK=polkadot` |
 | Back to the bite block, upgrades authorized but not enacted | `make start FORK=1 NETWORK=polkadot CLEAN=1` |
-| Fresh state from live Polkadot, same runtimes | `make bite NETWORK=polkadot RUNTIMES=pr-1265` then start |
-| The PR was pushed to, pick up its new build | `make fetch-runtimes NETWORK=polkadot RUNTIMES=pr-1265`, then a new bite |
-| Different runtimes | a new bite with a different `RUNTIMES=` or `UPGRADES=` — the authorization is state inside the bundle |
+| Fresh state from live Polkadot, same runtimes | the same `make bite ... UPGRADES=...` then start |
+| Different runtimes (the PR was pushed to) | download again, then a new bite with the new files — the authorization is state inside the bundle |
 | Throw the bundle away | `make clean-fork NETWORK=polkadot` |
 
 A start decides between resuming and wiping from the spawn stamp in `data-fork-polkadot/`: if

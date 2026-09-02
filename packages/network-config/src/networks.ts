@@ -183,16 +183,6 @@ export interface NetworkDef {
   /** Local tools this network needs that are neither a chain nor a service. */
   tools: Record<string, BinaryRef>;
   /**
-   * Where a runtime to test on a fork of this network is published, and what each chain's
-   * runtime is called there. Fork-only networks without sudo need one: the runtime is
-   * authorized at bite time (`ppn bite --upgrade`), and `ppn fork fetch-runtimes <tag>`
-   * downloads `<runtime>_runtime-v*.compact.compressed.wasm` per chain from this repo.
-   */
-  upgrades?: {
-    repo: string;
-    runtimes: Partial<Record<ChainKey, string>>;
-  };
-  /**
    * DotNS product import (`ppn service pin-bulletin-products`), per network because every
    * DotNS deployment has its own contracts and its own place to fetch product bytes from.
    * `gateway` is only needed where that is not `bite.source`.
@@ -422,23 +412,6 @@ export function loadDescriptor(name: string): NetworkDef {
   const unused = Object.keys(releases).filter((r) => !usedReleases.has(r));
   if (unused.length) bad(`releases declared but never used: ${unused.join(', ')}`);
 
-  // Every runtime named must belong to a chain this network runs, or fetch-runtimes would
-  // download a blob `ppn bite --upgrade` then refuses.
-  let upgrades: NetworkDef['upgrades'];
-  if (raw.upgrades !== undefined) {
-    const chainKeys = ['relay', ...raw.parachains.map((p: NetworkParachain) => p.key)];
-    const runtimes = Object.fromEntries(
-      Object.entries(raw.upgrades.runtimes ?? {}).filter(([k]) => !k.startsWith('_'))
-    ) as Partial<Record<ChainKey, string>>;
-    if (!raw.upgrades.repo) bad('upgrades needs repo');
-    if (Object.keys(runtimes).length === 0) bad('upgrades.runtimes names no chain');
-    for (const [chain, runtime] of Object.entries(runtimes)) {
-      if (!chainKeys.includes(chain)) bad(`upgrades.runtimes names "${chain}", which this network does not run`);
-      if (typeof runtime !== 'string' || !runtime) bad(`upgrades.runtimes.${chain} must be a runtime name`);
-    }
-    upgrades = { repo: raw.upgrades.repo, runtimes };
-  }
-
   const todos: string[] = [];
   collectTodos(raw, '', todos);
 
@@ -462,7 +435,6 @@ export function loadDescriptor(name: string): NetworkDef {
     })),
     services,
     tools,
-    upgrades,
     dotns: raw.dotns,
     todos,
   };

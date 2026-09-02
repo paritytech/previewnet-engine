@@ -561,12 +561,6 @@ export function buildProgram(): Command {
       await ensureDoppelganger(d, binDir ?? `bin${d.name === 'previewnet' ? '' : '/' + d.name}`);
     });
 
-  forkCmd('fetch-runtimes <tag> [outDir]', 'download the runtimes a fork of this network can be upgraded to')
-    .action(async (tag: string, outDir?: string) => {
-      const { fetchRuntimes } = await import('./commands/bite.js');
-      await fetchRuntimes(outDir ? [tag, outDir] : [tag]);
-    });
-
   forkCmd('manifest <baseUrl> <outFile>', 'record what is about to be bitten')
     .action((baseUrl: string, outFile: string) => runFork(['manifest', baseUrl, outFile]));
 

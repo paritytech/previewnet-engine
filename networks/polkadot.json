@@ -20,16 +20,6 @@
       "tag": "latest"
     }
   },
-  "upgrades": {
-    "repo": "polkadot-fellows/runtimes",
-    "runtimes": {
-      "relay": "polkadot",
-      "asset-hub": "asset-hub-polkadot",
-      "people": "people-polkadot",
-      "bulletin": "bulletin-polkadot"
-    },
-    "_note": "Release assets are named <runtime>_runtime-v<spec>.compact.compressed.wasm. `ppn fork fetch-runtimes <tag>` downloads one per chain listed here, into bin/polkadot/runtimes/<tag>/<chain>.wasm, for `ppn bite --upgrade`."
-  },
   "relay": {
     "chain": "polkadot",
     "spec": "polkadot",

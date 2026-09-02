@@ -39,7 +39,6 @@ make pin-design-families # Pin design families to IPFS (also runs automatically 
 make test               # Run integration tests (spawns a network)
 make test-unit          # Run workspace unit tests (config generators, fork/bite)
 make bite               # Bite the live network into a fork bundle (no start)
-make fetch-runtimes     # Download runtimes to authorize on a no-sudo fork: NETWORK=polkadot RUNTIMES=v2.5.0
 make runtime-upgrade    # Upgrade a running chain: CHAIN=<chain> WASM=<path> (see docs/RUNTIME-UPGRADE.md)
 make doctor             # Check prerequisites
 make clean              # Remove bin/, data/, and design-families/
@@ -64,7 +63,7 @@ make start FORK=1             # Start from production previewnet state, not gene
 make start FORK=1 NETWORK=devnet  # Fork a different network (networks/*.json)
 make start FORK=1 FRESH_BITE=1  # Fork, biting production now instead of using a bundle
 make start FORK=1 CLEAN=1       # Fork, back at its bite block (a stopped fork otherwise resumes)
-make bite NETWORK=polkadot RUNTIMES=v2.5.0  # Bite with fetched runtimes authorized (no-sudo networks)
+make bite NETWORK=polkadot UPGRADES="people=<wasm>"  # Bite with a runtime authorized at import (no-sudo networks)
 ```
 
 Fork mode continues from a real block rather than resetting to genesis, so contracts,
