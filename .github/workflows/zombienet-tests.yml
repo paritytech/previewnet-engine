@@ -531,11 +531,13 @@ jobs:
   # A spawn that merely starts proves none of that, so this asserts behaviour instead.
   # ==========================================================================
   fork-e2e:
-    # Its own runner, not the one integration-tests uses. Both spawn a network on
-    # the fixed ports in config/ports.env, so sharing a machine means fighting over p2p 30334
-    # ("Can't bind") — and serialising them to avoid that cost ~9min of queueing for a job
-    # that only takes 4.5.
-    runs-on: parity-large
+    # A different label from integration-tests, which is what keeps the two off the same
+    # machine. Both bind the fixed ports in config/ports.env, and a machine that just finished
+    # the other job still holds them for around a minute after the sockets close, so one
+    # shared pool fails with "cannot be bound ... possibly TIME_WAIT". Serialising them
+    # instead cost ~9min of queueing for a job that takes 4.5.
+    # 8 vCPU / 32 GB here, and this leg passed on a 4 vCPU GitHub-hosted runner.
+    runs-on: parity-ubuntu
     timeout-minutes: 45
     strategy:
       # Every network CI bites, spawned. Biting and spawning are different things: the nightly
