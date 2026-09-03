@@ -946,7 +946,7 @@ async function enactUpgrades(ctx: ServiceContext, _deps: ServiceDeps = {}): Prom
   await waitSeconds('the chains to start authoring', 60);
 
   const { run: upgrade } = await import('./upgrade.js');
-  for (const chain of chains) {
+  const enactOne = async (chain: string): Promise<void> => {
     // Retries cover the chain not answering yet, not the enactment wait, which is inside
     // each attempt — so the budget must exceed one full attempt.
     const deadline = Date.now() + 3 * 3_600_000;
@@ -954,9 +954,11 @@ async function enactUpgrades(ctx: ServiceContext, _deps: ServiceDeps = {}): Prom
       try {
         console.log(`enact-upgrades: ${chain} (attempt ${attempt})`);
         // A parachain enacts on the relay's go-ahead, validation_upgrade_delay relay blocks
-        // after the PVF pre-check: 600 blocks, an hour, on Polkadot. Two hours leaves room.
+        // after the PVF pre-check. A shared-relay bite sets that to 30 blocks; a bundle bitten
+        // before it did carries the live value — 600 on Polkadot, an hour — so the wait stays
+        // generous.
         await upgrade([chain], { skipFunding: true, enactTimeoutMs: 2 * 3_600_000 });
-        break;
+        return;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (Date.now() > deadline) throw new Error(`enact-upgrades: ${chain} not enacted within 3 hours — ${msg}`);
@@ -964,6 +966,11 @@ async function enactUpgrades(ctx: ServiceContext, _deps: ServiceDeps = {}): Prom
         await sleep(30);
       }
     }
-  }
+  };
+  // Every parachain at once: each apply is its own transaction on its own chain, and the
+  // go-ahead delay runs per parachain, so serial would multiply it by their number. The relay
+  // last and alone, because its upgrade changes what the parachains are validated against.
+  await Promise.all(chains.filter((c) => c !== 'relay').map(enactOne));
+  if (chains.includes('relay')) await enactOne('relay');
   console.log('enact-upgrades: done');
 }
