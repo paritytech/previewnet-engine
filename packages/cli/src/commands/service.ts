@@ -947,15 +947,19 @@ async function enactUpgrades(ctx: ServiceContext, _deps: ServiceDeps = {}): Prom
 
   const { run: upgrade } = await import('./upgrade.js');
   for (const chain of chains) {
-    const deadline = Date.now() + 15 * 60_000;
+    // Retries cover the chain not answering yet, not the enactment wait, which is inside
+    // each attempt — so the budget must exceed one full attempt.
+    const deadline = Date.now() + 3 * 3_600_000;
     for (let attempt = 1; ; attempt++) {
       try {
         console.log(`enact-upgrades: ${chain} (attempt ${attempt})`);
-        await upgrade([chain], { skipFunding: true });
+        // A parachain enacts on the relay's go-ahead, validation_upgrade_delay relay blocks
+        // after the PVF pre-check: 600 blocks, an hour, on Polkadot. Two hours leaves room.
+        await upgrade([chain], { skipFunding: true, enactTimeoutMs: 2 * 3_600_000 });
         break;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (Date.now() > deadline) throw new Error(`enact-upgrades: ${chain} not enacted within 15 minutes — ${msg}`);
+        if (Date.now() > deadline) throw new Error(`enact-upgrades: ${chain} not enacted within 3 hours — ${msg}`);
         console.log(`  ${chain}: ${msg.split('\n')[0]} — retrying in 30s`);
         await sleep(30);
       }
