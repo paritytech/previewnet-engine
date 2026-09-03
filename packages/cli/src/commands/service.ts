@@ -546,10 +546,13 @@ async function patchBootnodes(ctx: ServiceContext, _deps: ServiceDeps = {}): Pro
     console.log('patch-bootnodes: BOOTNODE_HOSTNAME is 127.0.0.1, nothing to advertise');
     return;
   }
-  const dataDir = fs.existsSync('/var/lib/ppn/data')
-    ? '/var/lib/ppn/data'
-    : path.join(WS, process.env.DATA_DIR ? '' : 'data');
-  const dir = process.env.DATA_DIR || dataDir;
+  // Where the specs are depends on the mode: data/ for genesis, data-fork-<network>/ for a
+  // fork. `ppn start` records the answer in ports.local.env, which ctx.ports merges in; a
+  // deployment that spawns zombie-cli itself sets DATA_DIR. Only then the genesis default.
+  const dir =
+    process.env.DATA_DIR ||
+    ctx.ports.PPN_DATA_DIR ||
+    (fs.existsSync('/var/lib/ppn/data') ? '/var/lib/ppn/data' : path.join(WS, 'data'));
   if (!fs.existsSync(dir)) throw new Error(`DATA_DIR does not exist: ${dir}`);
 
   // A raw chainspec is any top-level JSON with an id and a bootNodes list. Matching by
