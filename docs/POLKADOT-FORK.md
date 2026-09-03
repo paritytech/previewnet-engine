@@ -65,16 +65,18 @@ make start FORK=1 NETWORK=polkadot            # spawns from fork-bundle-polkadot
 
 The bite is ~20 minutes: it warp-syncs all four chains and authorizes the blobs, printing per
 chain what it authorized. The start then does the rest on its own: once the chains author, the
-`enact-upgrades` process submits `apply_authorized_upgrade` for each seeded chain, waits for the
-relay's PVF pre-check and go-ahead, and the dashboard flips it to `2005000`. Its log is under
-the dashboard's logs tab. Budget about an hour per parachain: Polkadot's
-`validation_upgrade_delay` is 600 relay blocks, and the go-ahead only comes after it. dub
-restarts itself until People carries the Individuality pallets, so it comes up a few seconds
-after the People upgrade lands.
+`enact-upgrades` process submits `apply_authorized_upgrade` for every seeded parachain at once,
+waits for the relay's PVF pre-check and go-ahead, then does the relay, and the dashboard flips
+each to `2005000`. Its log is under the dashboard's logs tab. On a bundle bitten with the
+current code that is a few minutes: the bite sets the relay's `validation_upgrade_delay` to 30
+blocks and the cooldown to 60 (live Polkadot: 600 and 14400, an hour and a day). dub restarts
+itself until People carries the Individuality pallets, so it comes up a few seconds after the
+People upgrade lands.
 
-To redo one chain by hand, `make runtime-upgrade NETWORK=polkadot CHAIN=people
-ENACT_TIMEOUT_MIN=70` with no `WASM=` applies the blob the bite authorized; on a chain already
-running it, it is a no-op.
+To redo one chain by hand, `make runtime-upgrade NETWORK=polkadot CHAIN=people` with no `WASM=`
+applies the blob the bite authorized; on a chain already running it, it is a no-op. A second
+upgrade of the same chain (a newer build of the PR) is a new bite with the new blob, and the
+60-block cooldown means it can follow the first within minutes.
 
 ## Day to day
 
@@ -223,9 +225,10 @@ bite wrote the upgrade authorization as an override, which doppelganger applies 
 the live state already has, so it never landed and the apply failed `NothingAuthorized`; and
 the upgrade command read `Sudo.Key` before checking whether the chain has a Sudo pallet.
 
-- The upgrade enactment end to end on a bite made after those fixes: the apply landing, the
-  relay's PVF pre-check, the go-ahead after Polkadot's `validation_upgrade_delay` of 600 relay
-  blocks (an hour), and the chains reporting `2005000`.
+- The upgrade enactment end to end was verified the same day on a re-bite: apply landing,
+  PVF pre-check, go-ahead 600 relay blocks later, all four chains on `2005000`, dub up. Not yet
+  verified: a bite made after the delay/cooldown patch enacting within minutes, and a second
+  upgrade of the same parachain after the shortened cooldown.
 - Stop and resume of a running fork. Mechanically it is only skipping the wipe, and each node
   restarts on its own database, but nobody has watched six validators come back after an hour.
 - Whether dub works against the fellowship's People runtime rather than previewnet's build.
