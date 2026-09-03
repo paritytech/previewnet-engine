@@ -565,13 +565,19 @@ export async function runtimeUpgrade(opts: UpgradeOptions): Promise<UpgradeResul
     // profile (PPN_PROFILE=deployable) Alice is stripped and PPN_SUDO_URI is required.
     // Checked ahead of the no-op shortcut below, so a misconfigured key is always
     // reported loudly instead of being masked by a blob that happens to match.
+    // A chain without a Sudo pallet (a fork of Kusama or Polkadot) has no key to check: the
+    // authorization was seeded at bite time and the apply is unsigned, so the signer is unused.
     const signer = opts.signer ?? signerFromUri('//Alice').signer;
-    const sudoKey = (await api.query.Sudo.Key.getValue()) as string | undefined;
-    if (!sudoKey || !bytesEq(ss58Decode(sudoKey)[0], signer.publicKey)) {
-      throw new Error(
-        `signer is not the sudo key (${sudoKey ?? 'unset'}) — ` +
-          'set PPN_SUDO_URI to the operator key on a deployable-profile network'
-      );
+    if (api.query.Sudo) {
+      const sudoKey = (await api.query.Sudo.Key.getValue()) as string | undefined;
+      if (!sudoKey || !bytesEq(ss58Decode(sudoKey)[0], signer.publicKey)) {
+        throw new Error(
+          `signer is not the sudo key (${sudoKey ?? 'unset'}) — ` +
+            'set PPN_SUDO_URI to the operator key on a deployable-profile network'
+        );
+      }
+    } else {
+      log('no Sudo pallet on this chain — relying on the authorization seeded at bite time');
     }
 
     // A byte-identical blob is a no-op, and must not be submitted: the chain already
