@@ -1,0 +1,24 @@
+# Rendered by apply.sh: __ROOT__ and __USER__ come from where the checkout is and vm.env.
+[Unit]
+Description=PPN fork of Polkadot (polkadot-test.substrate.dev)
+Documentation=https://github.com/paritytech/previewnet-engine/blob/main/docs/POLKADOT-FORK.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__ROOT__
+Environment="PATH=__ROOT__/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=__ROOT__/deploy/polkadot-test/start.sh
+ExecStop=/usr/bin/env node __ROOT__/bin/ppn.mjs kill
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=30
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

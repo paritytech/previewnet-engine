@@ -53,3 +53,6 @@ server/nginx/ppn.conf
 # The dashboard UI compiles into the CLI package (packages/dashboard-ui -> vite build).
 # Built output ships in the npm tarball via prepack, never in git.
 packages/cli/web/
+
+# The VM branch keeps its one secret out of git
+deploy/*/local.env
