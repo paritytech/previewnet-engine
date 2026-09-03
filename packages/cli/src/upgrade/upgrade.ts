@@ -158,12 +158,20 @@ export function httpFromWs(wsUrl: string): string {
 }
 
 async function rawRpc<T>(httpUrl: string, method: string, params: unknown[] = []): Promise<T> {
-  const r = await fetch(httpUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(60_000),
-  });
+  let r: Response;
+  try {
+    r = await fetch(httpUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (err) {
+    // undici's "fetch failed" says neither where nor why; the cause does.
+    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+    const why = cause?.code ?? cause?.message ?? (err instanceof Error ? err.message : String(err));
+    throw new Error(`${method} at ${httpUrl}: ${why}`);
+  }
   const j = (await r.json()) as { result?: T; error?: unknown };
   if (j.error) throw new Error(`${method}: ${JSON.stringify(j.error)}`);
   return j.result as T;
