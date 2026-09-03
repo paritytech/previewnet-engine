@@ -62,9 +62,12 @@ for the fellowship's release and pre-release layouts.
 The apply half is a transaction, not state, so it runs after the spawn: the `enact-upgrades`
 custom process submits `apply_authorized_upgrade` for every seeded chain, parachains first and
 the relay last, through the same path `ppn upgrade` uses. It waits for the chains to author,
-retries for up to fifteen minutes per chain, and is a no-op on a chain already running the
-blob — so a resumed fork does nothing here. `make runtime-upgrade NETWORK=polkadot CHAIN=people`
-with no `WASM=` does the same for one chain by hand.
+retries a chain that does not answer yet, and is a no-op on a chain already running the blob —
+so a resumed fork does nothing here. Enactment itself is slow on a parachain of a real network:
+the code goes live only on the relay's go-ahead, `validation_upgrade_delay` relay blocks after
+the PVF pre-check, which on Polkadot is 600 blocks, an hour. The service waits up to two hours
+per chain. `make runtime-upgrade NETWORK=polkadot CHAIN=people ENACT_TIMEOUT_MIN=70` with no
+`WASM=` does the same for one chain by hand.
 
 Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
 `upgrades/<chain>.wasm`, recording it in `manifest.json` as `seededUpgrades`. Add

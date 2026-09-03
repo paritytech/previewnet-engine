@@ -65,13 +65,16 @@ make start FORK=1 NETWORK=polkadot            # spawns from fork-bundle-polkadot
 
 The bite is ~20 minutes: it warp-syncs all four chains and authorizes the blobs, printing per
 chain what it authorized. The start then does the rest on its own: once the chains author, the
-`enact-upgrades` process submits `apply_authorized_upgrade` for Asset Hub and People, waits for
-the relay's PVF pre-check and go-ahead, and the dashboard flips them to `2005000`. Its log is
-under the dashboard's logs tab. dub restarts itself until People carries the Individuality
-pallets, so it comes up a few seconds after the People upgrade lands.
+`enact-upgrades` process submits `apply_authorized_upgrade` for each seeded chain, waits for the
+relay's PVF pre-check and go-ahead, and the dashboard flips it to `2005000`. Its log is under
+the dashboard's logs tab. Budget about an hour per parachain: Polkadot's
+`validation_upgrade_delay` is 600 relay blocks, and the go-ahead only comes after it. dub
+restarts itself until People carries the Individuality pallets, so it comes up a few seconds
+after the People upgrade lands.
 
-To redo one chain by hand, `make runtime-upgrade NETWORK=polkadot CHAIN=people` with no
-`WASM=` applies the blob the bite authorized; on a chain already running it, it is a no-op.
+To redo one chain by hand, `make runtime-upgrade NETWORK=polkadot CHAIN=people
+ENACT_TIMEOUT_MIN=70` with no `WASM=` applies the blob the bite authorized; on a chain already
+running it, it is a no-op.
 
 ## Day to day
 
@@ -213,10 +216,16 @@ to import into Bulletin either.
 
 ## What is not verified yet
 
-- A real bite of Polkadot with three parachains, end to end, on this branch. The override
-  generation was run against live Polkadot (79 HRMP channels reset, six between our chains,
-  every value round-trips through the live metadata); the warp sync of Bulletin from its
-  published spec has not been.
+Verified on the first machine (2026-09-03): the bite of all four chains including Bulletin
+from its published spec, all four authoring afterwards with the HRMP reset in place, and the
+dashboard, eth-rpc and IPFS coming up beside them. Two bugs found the same day and fixed: the
+bite wrote the upgrade authorization as an override, which doppelganger applies only to keys
+the live state already has, so it never landed and the apply failed `NothingAuthorized`; and
+the upgrade command read `Sudo.Key` before checking whether the chain has a Sudo pallet.
+
+- The upgrade enactment end to end on a bite made after those fixes: the apply landing, the
+  relay's PVF pre-check, the go-ahead after Polkadot's `validation_upgrade_delay` of 600 relay
+  blocks (an hour), and the chains reporting `2005000`.
 - Stop and resume of a running fork. Mechanically it is only skipping the wipe, and each node
   restarts on its own database, but nobody has watched six validators come back after an hour.
 - Whether dub works against the fellowship's People runtime rather than previewnet's build.
