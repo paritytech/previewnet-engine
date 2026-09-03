@@ -575,8 +575,12 @@ export async function runtimeUpgrade(opts: UpgradeOptions): Promise<UpgradeResul
     // reported loudly instead of being masked by a blob that happens to match.
     // A chain without a Sudo pallet (a fork of Kusama or Polkadot) has no key to check: the
     // authorization was seeded at bite time and the apply is unsigned, so the signer is unused.
+    // Probed by reading, the same way the strategies below are probed by encoding: the
+    // dynamic API hands out a proxy for any pallet name, so `api.query.Sudo` is truthy on
+    // every chain and only the read says whether the pallet exists.
     const signer = opts.signer ?? signerFromUri('//Alice').signer;
-    if (api.query.Sudo) {
+    let hasSudo = true;
+    try {
       const sudoKey = (await api.query.Sudo.Key.getValue()) as string | undefined;
       if (!sudoKey || !bytesEq(ss58Decode(sudoKey)[0], signer.publicKey)) {
         throw new Error(
@@ -584,7 +588,9 @@ export async function runtimeUpgrade(opts: UpgradeOptions): Promise<UpgradeResul
             'set PPN_SUDO_URI to the operator key on a deployable-profile network'
         );
       }
-    } else {
+    } catch (err) {
+      if (!/not found/i.test(err instanceof Error ? err.message : String(err))) throw err;
+      hasSudo = false;
       log('no Sudo pallet on this chain — relying on the authorization seeded at bite time');
     }
 
@@ -673,7 +679,7 @@ export async function runtimeUpgrade(opts: UpgradeOptions): Promise<UpgradeResul
       }) as SubmittableTx;
       enactingLabel = `sudo(${strategy.label})`;
       enactingSigned = await sudoTx.sign(signer, TX_OPTIONS);
-    } else if (!api.tx.Sudo) {
+    } else if (!hasSudo) {
       // No Sudo pallet, so `authorize_upgrade` — a root call — can never be made here. The
       // authorization has to be in state already, written during the bite (`ppn bite
       // --upgrade <chain>=<wasm>`); this submits only the apply half, which is callable
