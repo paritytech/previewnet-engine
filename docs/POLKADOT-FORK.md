@@ -220,5 +220,12 @@ to import into Bulletin either.
 - Stop and resume of a running fork. Mechanically it is only skipping the wipe, and each node
   restarts on its own database, but nobody has watched six validators come back after an hour.
 - Whether dub works against the fellowship's People runtime rather than previewnet's build.
+  dub signs with vendored metadata generated from next-people-paseo, previewnet's People; the
+  fellowship's people-polkadot 2005000 is built from the same pallets but is a different
+  runtime, and no dub release names it yet. Expect it to connect once People runs 2.5, then
+  either sign fine or log a metadata-drift `WARN` at boot (dub v0.5.0 does that) and fail to
+  encode submissions. The second outcome is a dub change, a people-polkadot entry in its known
+  runtimes, not an engine one. After that comes the attestation allowance and the invites,
+  which previewnet grants by sudo and Polkadot cannot.
 
 Tell the runbook what you find.
