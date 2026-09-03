@@ -119,7 +119,17 @@ const FORK_COMMON = ['--state-pruning=256', '--no-hardware-benchmarks'];
 // PeerSet::Collation is configured out_peers: 0 with an empty reserved set, and validators never
 // dial collators — set_reserved_peers() from a resolved address is the only way that substream
 // ever opens. So this is not a nicety; nothing is backed without it.
-const FORK_RELAY_ARGS = ['--force-authoring', '--discover-local', '--allow-private-ip', ...FORK_COMMON];
+// Every collator reaches the relay over alice's RPC (--relay-chain-rpc-urls) and the dashboard
+// polls all six, so a fork relay answers far more runtime calls than a validator normally does;
+// the default pool of 8 instances runs dry and every validator logs "Ran out of free WASM
+// instances" several times a block.
+const FORK_RELAY_ARGS = [
+  '--force-authoring',
+  '--discover-local',
+  '--allow-private-ip',
+  '--max-runtime-instances=32',
+  ...FORK_COMMON,
+];
 const FORK_COLLATOR_ARGS = ['--discover-local', '--allow-private-ip', ...FORK_COMMON];
 
 // Quieter than the genesis default (runtime=debug); babe and grandpa are what you actually
