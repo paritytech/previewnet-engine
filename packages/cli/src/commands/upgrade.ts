@@ -43,6 +43,12 @@ export interface UpgradeOptions {
   allowSameSpec?: boolean;
   /** Skip the sudo top-up (already funded, or funding is not wanted). */
   skipFunding?: boolean;
+  /**
+   * How long to wait for the new code to be live. A parachain enacts only on the relay's
+   * go-ahead, `validation_upgrade_delay` relay blocks after the PVF pre-check — 600 blocks,
+   * an hour, on Polkadot — so the ten-minute default fits previewnet, not a fork of it.
+   */
+  enactTimeoutMs?: number;
 }
 
 export function upgradeChains(): string[] {
@@ -102,6 +108,7 @@ export async function run(args: string[], opts: UpgradeOptions = {}): Promise<vo
     wasm: new Uint8Array(wasm),
     signer: signerFromUri(sudoUri).signer,
     allowSameSpec: Boolean(opts.allowSameSpec),
+    enactTimeoutMs: opts.enactTimeoutMs,
     log: console.log,
   });
   console.log(

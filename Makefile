@@ -278,8 +278,10 @@ pin-design-families:
 
 # Upgrade the runtime of a running chain (genesis or fork; local by default, WS= for remote).
 # Usage: make runtime-upgrade CHAIN=asset-hub WASM=path/to/runtime.wasm [WS=wss://...] [ALLOW_SAME_SPEC=1]
+# WASM= may be left out on a fork whose bite authorized a blob for the chain. ENACT_TIMEOUT_MIN=
+# extends the wait for the new code (a parachain of a Polkadot fork needs ~70 minutes).
 runtime-upgrade: build-spawner
-	@WS="$(WS)" ALLOW_SAME_SPEC="$(ALLOW_SAME_SPEC)" \
+	@WS="$(WS)" ALLOW_SAME_SPEC="$(ALLOW_SAME_SPEC)" ENACT_TIMEOUT_MIN="$(ENACT_TIMEOUT_MIN)" \
 	node $(CURDIR)/bin/ppn.mjs upgrade "$(CHAIN)" "$(WASM)"
 
 # Integration tests: spawn a network and run the .zndsl suites against it.

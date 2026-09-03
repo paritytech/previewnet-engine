@@ -284,7 +284,8 @@ describe('generateForkToml — custom processes', () => {
   });
 
   it('runs the service processes', () => {
-    for (const name of FORK_PROCESSES) {
+    // enact-upgrades depends on the bundle having seeded runtimes; covered below.
+    for (const name of FORK_PROCESSES.filter((n) => n !== 'enact-upgrades')) {
       assert.ok(toml.includes(`command = "${REPO}/scripts/${name}.sh"`), `${name} missing`);
     }
   });
@@ -443,6 +444,27 @@ describe('generateForkToml — non-previewnet bundles', () => {
     }
     // devnet has sudo, so there the grants run.
     assert.ok(devnetToml().includes('name = "grant-invites"'));
+  });
+
+  // A bite that authorized runtimes leaves the apply half to the spawn: the fork should come
+  // up running the release under test, not merely permitted to. A bundle that seeded nothing
+  // gets no such process.
+  it('enacts the runtimes the bite authorized, and only then', () => {
+    assert.ok(!polkadotToml().includes('name = "enact-upgrades"'), 'nothing seeded, nothing to enact');
+
+    const dir = makeNetBundle('polkadot', {
+      relay: { paraId: null, spec: 'polkadot', specId: 'polkadot' },
+      'asset-hub': { paraId: 1000, spec: 'asset-hub', specId: 'asset-hub-polkadot' },
+      people: { paraId: 1004, spec: 'people', specId: 'people-polkadot' },
+      bulletin: { paraId: 1010, spec: 'bulletin', specId: 'bulletin-polkadot' },
+    });
+    const manifestPath = path.join(dir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    manifest.seededUpgrades = { people: { file: 'upgrades/people.wasm', codeHash: 'ab'.repeat(32), checkVersion: true } };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    const toml = generateForkToml({ repoDir: REPO, bundleDir: dir });
+    assert.ok(toml.includes('name = "enact-upgrades"'));
+    assert.ok(toml.includes(`command = "${REPO}/scripts/enact-upgrades.sh"`));
   });
 
   it('says nothing about Aura for the sr25519 chains', () => {

@@ -90,6 +90,10 @@ const PROCESS_GATES: Record<string, Parachain | null> = {
   // say nothing about the account signing here, and without invites the ticket pool fails
   // every batch it submits.
   'grant-invites': 'people',
+  // Applies the runtimes the bite authorized (`ppn bite --upgrade`); only present when the
+  // bundle's manifest lists any. The authorization is state, the apply is a transaction, and
+  // a fork spawned to test a release should come up running it without a manual step.
+  'enact-upgrades': null,
 };
 
 // Processes whose only move is a sudo call. A fork of a network without sudo (kusama,
@@ -115,7 +119,17 @@ const FORK_COMMON = ['--state-pruning=256', '--no-hardware-benchmarks'];
 // PeerSet::Collation is configured out_peers: 0 with an empty reserved set, and validators never
 // dial collators — set_reserved_peers() from a resolved address is the only way that substream
 // ever opens. So this is not a nicety; nothing is backed without it.
-const FORK_RELAY_ARGS = ['--force-authoring', '--discover-local', '--allow-private-ip', ...FORK_COMMON];
+// Every collator reaches the relay over alice's RPC (--relay-chain-rpc-urls) and the dashboard
+// polls all six, so a fork relay answers far more runtime calls than a validator normally does;
+// the default pool of 8 instances runs dry and every validator logs "Ran out of free WASM
+// instances" several times a block.
+const FORK_RELAY_ARGS = [
+  '--force-authoring',
+  '--discover-local',
+  '--allow-private-ip',
+  '--max-runtime-instances=32',
+  ...FORK_COMMON,
+];
 const FORK_COLLATOR_ARGS = ['--discover-local', '--allow-private-ip', ...FORK_COMMON];
 
 // Quieter than the genesis default (runtime=debug); babe and grandpa are what you actually
@@ -270,11 +284,18 @@ export function pinsProducts(net: NetworkDef): boolean {
   return net.dotns?.pinProducts === true;
 }
 
-function customProcesses(scriptsDir: string, net: NetworkDef, present: Set<Parachain>): string {
+function customProcesses(
+  scriptsDir: string,
+  net: NetworkDef,
+  present: Set<Parachain>,
+  manifest: ForkManifest
+): string {
+  const seeded = Object.keys(manifest.seededUpgrades ?? {}).length > 0;
   return FORK_PROCESSES.filter((name) => {
     const gate = PROCESS_GATES[name];
     if (gate !== null && !present.has(gate)) return false;
     if (name === 'pin-bulletin-products' && !pinsProducts(net)) return false;
+    if (name === 'enact-upgrades' && !seeded) return false;
     if (SUDO_PROCESSES.has(name) && !net.sudo) return false;
     return net.services[name] !== false;
   })
@@ -359,7 +380,7 @@ ${relayNodes(net.relay.validators)}
 ${parachains
     .map((p) => parachainSection(p, manifest, bundleDir, scriptsDir, enableHop, net, options.binDir))
     .join('')}
-${customProcesses(scriptsDir, net, present)}${identity}`;
+${customProcesses(scriptsDir, net, present, manifest)}${identity}`;
 
   // Collapse 3+ consecutive blank lines into 2
   return toml.replace(/\n{3,}/g, '\n\n').trim() + '\n';

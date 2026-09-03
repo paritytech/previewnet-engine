@@ -119,12 +119,15 @@ export function verifyInjects(
       skipped.push(`${key.slice(0, 12)}… (no such map in this runtime)`);
       continue;
     }
-    if (info.mapValue === null) {
-      skipped.push(`${info.label} (not a map here)`);
+    // A plain value can be an inject too — one the live chain does not have, such as the
+    // seeded upgrade authorization — and is then checked against its own type.
+    const type = key.length === 64 ? info.plain : info.mapValue;
+    if (type === null) {
+      skipped.push(`${info.label} (${key.length === 64 ? 'a map, written without a key' : 'not a map here'})`);
       continue;
     }
     try {
-      const decoded = reg.createType(reg.createLookupType(info.mapValue), '0x' + value);
+      const decoded = reg.createType(reg.createLookupType(type), '0x' + value);
       if (decoded.toHex().slice(2) !== value) throw new Error('round-trip mismatch');
       kept[key] = value;
     } catch (e) {
@@ -370,19 +373,36 @@ export async function relayOverrides(
   const extra = shared
     ? await sharedRelayCandidates(index, relayUrl, shared.paras, shared.validators)
     : { overrides: {}, injects: {} };
-  const candidates = {
-    ...relayCandidates(),
-    ...extra.overrides,
-    ...(upgrade ? authorizedUpgradeCandidate(upgrade.codeHash, upgrade.checkVersion) : {}),
-  };
+  const candidates = { ...relayCandidates(), ...extra.overrides };
 
   const overrides = report('relay overrides', verify(index, candidates), candidates);
   write(outFile, {
     overrides,
     // On a shared relay the dev accounts hold nothing — endow sudo at import so its
     // first transaction (a runtime upgrade's fees) is payable.
-    injects: { ...relayInjects(), ...(shared ? sudoEndowInjects() : {}), ...extra.injects },
+    injects: {
+      ...relayInjects(),
+      ...(shared ? sudoEndowInjects() : {}),
+      ...extra.injects,
+      ...seededUpgradeInject(index, upgrade),
+    },
   }, index);
+}
+
+/**
+ * The seeded authorization is an inject, never an override.
+ *
+ * doppelganger overrides a key only if the state being imported already has it, and writes
+ * injects unconditionally at the end of the import. `System::AuthorizedUpgrade` is empty on
+ * every live chain — nobody leaves an authorization lying around — so as an override it was
+ * verified, written to the file, and never applied: the fork came up with no authorization and
+ * the apply failed `NothingAuthorized`, having paid its fee. Verified here against the plain
+ * value's type, exactly as an override would be, before it goes into the injects.
+ */
+function seededUpgradeInject(index: StorageIndex, upgrade?: SeededUpgrade): Record<string, string> {
+  if (!upgrade) return {};
+  const candidate = authorizedUpgradeCandidate(upgrade.codeHash, upgrade.checkVersion);
+  return report('seeded upgrade authorization', verify(index, candidate), candidate);
 }
 
 export async function paraOverrides(
@@ -407,7 +427,6 @@ export async function paraOverrides(
     ...paraCandidates(collator),
     ...(sharedRelay ? paraMessagingWipes() : {}),
     ...(index.pallets.has('TransactionStorage') ? transactionStorageWipes() : {}),
-    ...(upgrade ? authorizedUpgradeCandidate(upgrade.codeHash, upgrade.checkVersion) : {}),
   };
 
   console.log(`para ${paraId} (collator //Collator-${paraId} ${scheme} = ${collator.slice(0, 16)}…):`);
@@ -419,6 +438,7 @@ export async function paraOverrides(
     // Parachains of a shared relay are live public chains: no dev account holds
     // funds there, so sudo is endowed at import (see sudoEndowInjects).
     ...(sharedRelay ? sudoEndowInjects() : {}),
+    ...seededUpgradeInject(index, upgrade),
   };
   write(outFile, { overrides, injects }, index);
 }

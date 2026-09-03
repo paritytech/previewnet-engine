@@ -480,7 +480,7 @@ export function buildProgram(): Command {
   program
     .command('upgrade')
     .argument('<chain>', 'relay | asset-hub | people | bulletin | web3-storage')
-    .argument('<wasm>', 'runtime blob — compact-compressed or raw')
+    .argument('[wasm]', 'runtime blob — compact-compressed or raw; default the blob the bite authorized for the chain')
     .summary('change the runtime of a running chain')
     .description(
       'Authorize and apply a runtime upgrade on a chain that is already running, then wait\n' +
@@ -492,10 +492,29 @@ export function buildProgram(): Command {
       new Option('--allow-same-spec', 'apply a blob whose spec_version is not bumped').env('ALLOW_SAME_SPEC')
     )
     .addOption(new Option('--skip-funding', 'do not top up the sudo account first').env('SKIP_FUNDING'))
-    .action(async (chain: string, wasm: string, opts: { ws?: string; allowSameSpec?: boolean; skipFunding?: boolean }) => {
-      const { run } = await import('./commands/upgrade.js');
-      await run([chain, wasm], { ws: opts.ws, allowSameSpec: opts.allowSameSpec, skipFunding: opts.skipFunding });
-    });
+    .addOption(
+      new Option(
+        '--enact-timeout <minutes>',
+        'how long to wait for the new code to be live; default 10. A parachain of a Polkadot fork needs ~70: the go-ahead comes 600 relay blocks after the PVF pre-check'
+      ).env('ENACT_TIMEOUT_MIN')
+    )
+    .action(
+      async (
+        chain: string,
+        wasm: string | undefined,
+        opts: { ws?: string; allowSameSpec?: boolean; skipFunding?: boolean; enactTimeout?: string }
+      ) => {
+        const { run } = await import('./commands/upgrade.js');
+        const minutes = opts.enactTimeout ? Number(opts.enactTimeout) : undefined;
+        if (minutes !== undefined && !(minutes > 0)) die(`--enact-timeout wants minutes, got "${opts.enactTimeout}"`);
+        await run(wasm ? [chain, wasm] : [chain], {
+          ws: opts.ws,
+          allowSameSpec: opts.allowSameSpec,
+          skipFunding: opts.skipFunding,
+          enactTimeoutMs: minutes ? minutes * 60_000 : undefined,
+        });
+      }
+    );
 
   program
     .command('zombie-compat')

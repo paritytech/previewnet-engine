@@ -158,12 +158,20 @@ export function httpFromWs(wsUrl: string): string {
 }
 
 async function rawRpc<T>(httpUrl: string, method: string, params: unknown[] = []): Promise<T> {
-  const r = await fetch(httpUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(60_000),
-  });
+  let r: Response;
+  try {
+    r = await fetch(httpUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (err) {
+    // undici's "fetch failed" says neither where nor why; the cause does.
+    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+    const why = cause?.code ?? cause?.message ?? (err instanceof Error ? err.message : String(err));
+    throw new Error(`${method} at ${httpUrl}: ${why}`);
+  }
   const j = (await r.json()) as { result?: T; error?: unknown };
   if (j.error) throw new Error(`${method}: ${JSON.stringify(j.error)}`);
   return j.result as T;
@@ -565,13 +573,25 @@ export async function runtimeUpgrade(opts: UpgradeOptions): Promise<UpgradeResul
     // profile (PPN_PROFILE=deployable) Alice is stripped and PPN_SUDO_URI is required.
     // Checked ahead of the no-op shortcut below, so a misconfigured key is always
     // reported loudly instead of being masked by a blob that happens to match.
+    // A chain without a Sudo pallet (a fork of Kusama or Polkadot) has no key to check: the
+    // authorization was seeded at bite time and the apply is unsigned, so the signer is unused.
+    // Probed by reading, the same way the strategies below are probed by encoding: the
+    // dynamic API hands out a proxy for any pallet name, so `api.query.Sudo` is truthy on
+    // every chain and only the read says whether the pallet exists.
     const signer = opts.signer ?? signerFromUri('//Alice').signer;
-    const sudoKey = (await api.query.Sudo.Key.getValue()) as string | undefined;
-    if (!sudoKey || !bytesEq(ss58Decode(sudoKey)[0], signer.publicKey)) {
-      throw new Error(
-        `signer is not the sudo key (${sudoKey ?? 'unset'}) — ` +
-          'set PPN_SUDO_URI to the operator key on a deployable-profile network'
-      );
+    let hasSudo = true;
+    try {
+      const sudoKey = (await api.query.Sudo.Key.getValue()) as string | undefined;
+      if (!sudoKey || !bytesEq(ss58Decode(sudoKey)[0], signer.publicKey)) {
+        throw new Error(
+          `signer is not the sudo key (${sudoKey ?? 'unset'}) — ` +
+            'set PPN_SUDO_URI to the operator key on a deployable-profile network'
+        );
+      }
+    } catch (err) {
+      if (!/not found/i.test(err instanceof Error ? err.message : String(err))) throw err;
+      hasSudo = false;
+      log('no Sudo pallet on this chain — relying on the authorization seeded at bite time');
     }
 
     // A byte-identical blob is a no-op, and must not be submitted: the chain already
@@ -659,7 +679,7 @@ export async function runtimeUpgrade(opts: UpgradeOptions): Promise<UpgradeResul
       }) as SubmittableTx;
       enactingLabel = `sudo(${strategy.label})`;
       enactingSigned = await sudoTx.sign(signer, TX_OPTIONS);
-    } else if (!api.tx.Sudo) {
+    } else if (!hasSudo) {
       // No Sudo pallet, so `authorize_upgrade` — a root call — can never be made here. The
       // authorization has to be in state already, written during the bite (`ppn bite
       // --upgrade <chain>=<wasm>`); this submits only the apply half, which is callable

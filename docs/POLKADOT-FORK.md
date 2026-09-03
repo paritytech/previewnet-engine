@@ -63,16 +63,18 @@ make bite NETWORK=polkadot UPGRADES="asset-hub=runtimes/asset-hub-polkadot/asset
 make start FORK=1 NETWORK=polkadot            # spawns from fork-bundle-polkadot/
 ```
 
-That is ~20 minutes: it warp-syncs all four chains and authorizes the blobs. `make bite` prints, per chain, the runtime it authorized. Watch the relay finalize
-(`ws://127.0.0.1:10000`) and the collators author before upgrading. Then, one chain at a time:
+The bite is ~20 minutes: it warp-syncs all four chains and authorizes the blobs, printing per
+chain what it authorized. The start then does the rest on its own: once the chains author, the
+`enact-upgrades` process submits `apply_authorized_upgrade` for each seeded chain, waits for the
+relay's PVF pre-check and go-ahead, and the dashboard flips it to `2005000`. Its log is under
+the dashboard's logs tab. Budget about an hour per parachain: Polkadot's
+`validation_upgrade_delay` is 600 relay blocks, and the go-ahead only comes after it. dub
+restarts itself until People carries the Individuality pallets, so it comes up a few seconds
+after the People upgrade lands.
 
-```bash
-make runtime-upgrade NETWORK=polkadot CHAIN=asset-hub   # no WASM=: uses the blob the bite authorized
-make runtime-upgrade NETWORK=polkadot CHAIN=people
-```
-
-Each submits `apply_authorized_upgrade` unsigned, waits for the relay's PVF pre-check and
-go-ahead, and reports `OK <chain>: <spec> 2004000 -> 2005000`.
+To redo one chain by hand, `make runtime-upgrade NETWORK=polkadot CHAIN=people
+ENACT_TIMEOUT_MIN=70` with no `WASM=` applies the blob the bite authorized; on a chain already
+running it, it is a no-op.
 
 ## Day to day
 
@@ -80,7 +82,7 @@ go-ahead, and reports `OK <chain>: <spec> 2004000 -> 2005000`.
 | --- | --- |
 | Stop | `make kill` |
 | Start again where it stopped, upgrades still enacted | `make start FORK=1 NETWORK=polkadot` |
-| Back to the bite block, upgrades authorized but not enacted | `make start FORK=1 NETWORK=polkadot CLEAN=1` |
+| Back to the bite block (the upgrades are re-enacted on the way up) | `make start FORK=1 NETWORK=polkadot CLEAN=1` |
 | Fresh state from live Polkadot, same runtimes | the same `make bite ... UPGRADES=...` then start |
 | Different runtimes (the PR was pushed to) | download again, then a new bite with the new files — the authorization is state inside the bundle |
 | Throw the bundle away | `make clean-fork NETWORK=polkadot` |
@@ -214,12 +216,25 @@ to import into Bulletin either.
 
 ## What is not verified yet
 
-- A real bite of Polkadot with three parachains, end to end, on this branch. The override
-  generation was run against live Polkadot (79 HRMP channels reset, six between our chains,
-  every value round-trips through the live metadata); the warp sync of Bulletin from its
-  published spec has not been.
+Verified on the first machine (2026-09-03): the bite of all four chains including Bulletin
+from its published spec, all four authoring afterwards with the HRMP reset in place, and the
+dashboard, eth-rpc and IPFS coming up beside them. Two bugs found the same day and fixed: the
+bite wrote the upgrade authorization as an override, which doppelganger applies only to keys
+the live state already has, so it never landed and the apply failed `NothingAuthorized`; and
+the upgrade command read `Sudo.Key` before checking whether the chain has a Sudo pallet.
+
+- The upgrade enactment end to end on a bite made after those fixes: the apply landing, the
+  relay's PVF pre-check, the go-ahead after Polkadot's `validation_upgrade_delay` of 600 relay
+  blocks (an hour), and the chains reporting `2005000`.
 - Stop and resume of a running fork. Mechanically it is only skipping the wipe, and each node
   restarts on its own database, but nobody has watched six validators come back after an hour.
 - Whether dub works against the fellowship's People runtime rather than previewnet's build.
+  dub signs with vendored metadata generated from next-people-paseo, previewnet's People; the
+  fellowship's people-polkadot 2005000 is built from the same pallets but is a different
+  runtime, and no dub release names it yet. Expect it to connect once People runs 2.5, then
+  either sign fine or log a metadata-drift `WARN` at boot (dub v0.5.0 does that) and fail to
+  encode submissions. The second outcome is a dub change, a people-polkadot entry in its known
+  runtimes, not an engine one. After that comes the attestation allowance and the invites,
+  which previewnet grants by sudo and Polkadot cannot.
 
 Tell the runbook what you find.

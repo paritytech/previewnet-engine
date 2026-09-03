@@ -245,6 +245,19 @@ describe('verifyInjects', () => {
     assert.equal(r.skipped.length, 1);
   });
 
+  // The seeded upgrade authorization is a plain value the live chain does not have, so it has
+  // to travel as an inject (doppelganger overrides only keys already present) — and it is
+  // checked against the plain type, not skipped as "not a map".
+  it('checks a plain-value inject against its own type', () => {
+    const AUTH = keyOf('System', 'AuthorizedUpgrade');
+    const r = verifyInjects(
+      index([[AUTH, { label: 'System::AuthorizedUpgrade', plain: 3, mapValue: null } as never]]) as never,
+      { [AUTH]: 'ab'.repeat(32) + '01' }
+    );
+    assert.deepEqual(Object.keys(r.kept), [AUTH]);
+    assert.deepEqual(r.failures, []);
+  });
+
   it('fails an inject the runtime decodes to something else', () => {
     const r = verifyInjects(
       index([[PREFIX, { label: 'Dmp::DownwardMessageQueueHeads', mapValue: MAPVAL }]]) as never,
