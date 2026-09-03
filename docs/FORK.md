@@ -51,15 +51,20 @@ would have produced:
 ```bash
 gh release download v2.5.0 -R polkadot-fellows/runtimes -D runtimes/ -p 'asset-hub-polkadot_*' -p 'people-polkadot_*'
 make bite NETWORK=polkadot UPGRADES="asset-hub=runtimes/asset-hub-polkadot_runtime-v2005000.compact.compressed.wasm people=runtimes/people-polkadot_runtime-v2005000.compact.compressed.wasm"
-make start FORK=1 NETWORK=polkadot
-make runtime-upgrade NETWORK=polkadot CHAIN=asset-hub  # submits the apply half, unsigned
-make runtime-upgrade NETWORK=polkadot CHAIN=people
+make start FORK=1 NETWORK=polkadot   # spawns, then enacts both upgrades once the chains author
 ```
 
 `UPGRADES="<chain>=<wasm> ..."` names one blob per chain, from wherever it came — a release
 asset, a PR's build artifact, a local build. It also works on `make start FORK=1 FRESH_BITE=1`,
 since that bites too. Getting the blobs is `gh`'s job, not PPN's: see `docs/POLKADOT-FORK.md`
 for the fellowship's release and pre-release layouts.
+
+The apply half is a transaction, not state, so it runs after the spawn: the `enact-upgrades`
+custom process submits `apply_authorized_upgrade` for every seeded chain, parachains first and
+the relay last, through the same path `ppn upgrade` uses. It waits for the chains to author,
+retries for up to fifteen minutes per chain, and is a no-op on a chain already running the
+blob — so a resumed fork does nothing here. `make runtime-upgrade NETWORK=polkadot CHAIN=people`
+with no `WASM=` does the same for one chain by hand.
 
 Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
 `upgrades/<chain>.wasm`, recording it in `manifest.json` as `seededUpgrades`. Add

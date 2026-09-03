@@ -63,16 +63,15 @@ make bite NETWORK=polkadot UPGRADES="asset-hub=runtimes/asset-hub-polkadot/asset
 make start FORK=1 NETWORK=polkadot            # spawns from fork-bundle-polkadot/
 ```
 
-That is ~20 minutes: it warp-syncs all four chains and authorizes the blobs. `make bite` prints, per chain, the runtime it authorized. Watch the relay finalize
-(`ws://127.0.0.1:10000`) and the collators author before upgrading. Then, one chain at a time:
+The bite is ~20 minutes: it warp-syncs all four chains and authorizes the blobs, printing per
+chain what it authorized. The start then does the rest on its own: once the chains author, the
+`enact-upgrades` process submits `apply_authorized_upgrade` for Asset Hub and People, waits for
+the relay's PVF pre-check and go-ahead, and the dashboard flips them to `2005000`. Its log is
+under the dashboard's logs tab. dub restarts itself until People carries the Individuality
+pallets, so it comes up a few seconds after the People upgrade lands.
 
-```bash
-make runtime-upgrade NETWORK=polkadot CHAIN=asset-hub   # no WASM=: uses the blob the bite authorized
-make runtime-upgrade NETWORK=polkadot CHAIN=people
-```
-
-Each submits `apply_authorized_upgrade` unsigned, waits for the relay's PVF pre-check and
-go-ahead, and reports `OK <chain>: <spec> 2004000 -> 2005000`.
+To redo one chain by hand, `make runtime-upgrade NETWORK=polkadot CHAIN=people` with no
+`WASM=` applies the blob the bite authorized; on a chain already running it, it is a no-op.
 
 ## Day to day
 
@@ -80,7 +79,7 @@ go-ahead, and reports `OK <chain>: <spec> 2004000 -> 2005000`.
 | --- | --- |
 | Stop | `make kill` |
 | Start again where it stopped, upgrades still enacted | `make start FORK=1 NETWORK=polkadot` |
-| Back to the bite block, upgrades authorized but not enacted | `make start FORK=1 NETWORK=polkadot CLEAN=1` |
+| Back to the bite block (the upgrades are re-enacted on the way up) | `make start FORK=1 NETWORK=polkadot CLEAN=1` |
 | Fresh state from live Polkadot, same runtimes | the same `make bite ... UPGRADES=...` then start |
 | Different runtimes (the PR was pushed to) | download again, then a new bite with the new files — the authorization is state inside the bundle |
 | Throw the bundle away | `make clean-fork NETWORK=polkadot` |

@@ -77,6 +77,7 @@ const services: Record<string, Service> = {
   'patch-bootnodes': patchBootnodes,
   'storage-provider-node': storageProviderNode,
   'pin-bulletin-products': pinBulletinProducts,
+  'enact-upgrades': enactUpgrades,
 };
 
 export { pinBulletinProducts };
@@ -908,4 +909,57 @@ async function pinBulletinProducts(ctx: ServiceContext, deps: ServiceDeps = {}):
   console.log(
     `pin-bulletin-products: imported ${imported}, failed ${failed} — ${served}/${cids.length} served locally`
   );
+}
+
+// ---------------------------------------------------------------------------
+// enact-upgrades
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply the runtimes `ppn bite --upgrade` authorized, once the fork is up.
+ *
+ * The bite writes the authorization into state — what `authorize_upgrade` would have done on
+ * a chain with sudo — and stages the blob in the bundle. This is the other half: one
+ * `apply_authorized_upgrade` per seeded chain, through the same code path `ppn upgrade` uses,
+ * so the upgrade still goes through the relay's PVF pre-check and go-ahead. Parachains first,
+ * the relay last: a relay upgrade changes what the parachains are checked against.
+ *
+ * Idempotent by construction: a chain already running the blob is a no-op inside `ppn
+ * upgrade`, so a resumed fork that enacted everything last time does nothing here. Each chain
+ * is retried for a while, because this starts alongside the nodes and a collator that has not
+ * produced its first block yet answers nothing.
+ */
+async function enactUpgrades(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
+  const forkDir = process.env.FORK_DIR || path.join(WS, forkBundleName(ctx.net.name));
+  const manifestPath = path.join(forkDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    console.log(`enact-upgrades: no bundle at ${forkDir} — not a fork, nothing to enact`);
+    return;
+  }
+  const seeded: Record<string, { file: string }> = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).seededUpgrades ?? {};
+  const chains = Object.keys(seeded).sort((a, b) => Number(a === 'relay') - Number(b === 'relay'));
+  if (chains.length === 0) {
+    console.log('enact-upgrades: the bite authorized no runtime — nothing to enact');
+    return;
+  }
+  console.log(`enact-upgrades: ${chains.join(', ')} authorized at bite time`);
+  await waitSeconds('the chains to start authoring', 60);
+
+  const { run: upgrade } = await import('./upgrade.js');
+  for (const chain of chains) {
+    const deadline = Date.now() + 15 * 60_000;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        console.log(`enact-upgrades: ${chain} (attempt ${attempt})`);
+        await upgrade([chain], { skipFunding: true });
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (Date.now() > deadline) throw new Error(`enact-upgrades: ${chain} not enacted within 15 minutes — ${msg}`);
+        console.log(`  ${chain}: ${msg.split('\n')[0]} — retrying in 30s`);
+        await sleep(30);
+      }
+    }
+  }
+  console.log('enact-upgrades: done');
 }
