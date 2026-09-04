@@ -26,7 +26,7 @@
     "@parity/ppn-network-config": "workspace:*",
     "commander": "^15.0.0",
     "polkadot-api": "^1.23.3",
-    "toml": "^3.0.0"
+    "toml": "^4.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
