@@ -205,7 +205,12 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
       '--experimental-webrtc',
       `--listen-addr=/ip4/${P2P_LISTEN_IP}/udp/${P2P_PORTS['bulletin']}/webrtc-direct`,
     ],
-    defaultLogs: { parachain: 'debug', xcm: 'trace' },
+    defaultLogs: {
+      parachain: 'debug',
+      xcm: 'trace',
+      'sub-libp2p::bitswap': 'trace',
+      'runtime::transaction-storage': 'trace',
+    },
   },
   'web3-storage': {
     required: [
