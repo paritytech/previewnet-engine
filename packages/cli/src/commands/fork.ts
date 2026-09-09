@@ -95,7 +95,8 @@ export async function run(args: string[]): Promise<void> {
           NETWORK.bite.sharedRelay,
           seeded[p.key],
           p.aura,
-          { dispatcher: p.dotnsDispatcher, deployer: p.dotnsDeployer }
+          { dispatcher: p.dotnsDispatcher, deployer: p.dotnsDeployer },
+          p.bulletinAuthorizer
         );
       }
       return;

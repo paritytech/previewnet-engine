@@ -15,6 +15,7 @@ import {
   relayInjects,
   sessionKeys,
   authorizedUpgradeCandidate,
+  bulletinAuthorizerInjects,
   dotnsDispatcherInject,
   evmDeployerEndowInjects,
   sudoEndowInjects,
@@ -435,6 +436,33 @@ describe('the evm deployer endowment', () => {
     assert.deepEqual(evmDeployerEndowInjects(ANVIL0.slice(2)), evmDeployerEndowInjects(ANVIL0));
     for (const bad of ['0x1234', '', 'nope']) {
       assert.throws(() => evmDeployerEndowInjects(bad), /20-byte hex address/);
+    }
+  });
+});
+
+// A bitten Bulletin has no authorizer at all: the runtime seeds one in its genesis preset and a
+// fork has no genesis, while live Polkadot Bulletin's AllowedAuthorizers is empty because there
+// authorizers arrive by governance. Without this every store fails BadSigner.
+describe('the bulletin authorizer seed', () => {
+  const ALICE = '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+
+  it('writes into TransactionStorage::AllowedAuthorizers, blake2-128-concat keyed', () => {
+    const entry = Object.keys(bulletinAuthorizerInjects(ALICE))[0];
+    assert.equal(entry.slice(0, 64), keyOf('TransactionStorage', 'AllowedAuthorizers'));
+    assert.ok(entry.endsWith(ALICE.slice(2)));
+  });
+
+  // AuthorizerBudget { quota: Some(Quota { transactions: u32, bytes: u64 }), valid_until: None,
+  // feeless: bool } — the budget the bulletin runtime's own genesis preset writes.
+  it('encodes the genesis presets budget: 100k transactions, 100 GiB, feeless, no expiry', () => {
+    const v = Object.values(bulletinAuthorizerInjects(ALICE))[0];
+    assert.equal(v, '01' + 'a0860100' + '0000000019000000' + '00' + '01');
+    assert.equal(v.length / 2, 15);
+  });
+
+  it('refuses anything that is not a 32-byte account id', () => {
+    for (const bad of ['0x1234', '', '0xd43593c7', 'nope']) {
+      assert.throws(() => bulletinAuthorizerInjects(bad), /32-byte account id/);
     }
   });
 });

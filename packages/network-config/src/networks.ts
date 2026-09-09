@@ -145,6 +145,13 @@ export interface NetworkParachain {
    * bitten, or its nonce is not 0 and the factory lands somewhere else.
    */
   dotnsDeployer?: string | string[];
+  /**
+   * Account written into this chain's `TransactionStorage::AllowedAuthorizers` at bite time, so
+   * something can authorize Bulletin storage. Only a fork needs it: the bulletin runtime seeds an
+   * authorizer in its genesis preset, and a fork has no genesis, so a bitten Bulletin has none and
+   * every store fails. A 32-byte account id, hex, `0x`-prefixed.
+   */
+  bulletinAuthorizer?: string;
 }
 
 export interface NetworkRelay extends Omit<NetworkParachain, 'key' | 'paraId'> {
@@ -395,6 +402,9 @@ export function loadDescriptor(name: string): NetworkDef {
       if (deployers.some((a: unknown) => typeof a !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(a))) {
         bad(`parachain ${p.key}: every dotnsDeployer must be a 0x-prefixed 20-byte address`);
       }
+    }
+    if (p.bulletinAuthorizer !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(p.bulletinAuthorizer)) {
+      bad(`parachain ${p.key}: bulletinAuthorizer must be a 0x-prefixed 32-byte account id`);
     }
     checkBinary(`parachains.${p.key}`, p.binary);
     checkRuntime(`parachains.${p.key}`, p.runtime);

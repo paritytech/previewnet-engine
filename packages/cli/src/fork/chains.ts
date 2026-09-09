@@ -28,6 +28,8 @@ export interface ForkParachain extends ForkChain {
   dotnsDispatcher?: string;
   /** Ethereum wallets that deploy dotNS after the spawn; each one's revive account is endowed. */
   dotnsDeployer?: string | string[];
+  /** Account seeded into Bulletin's AllowedAuthorizers, which a fork has no genesis to provide. */
+  bulletinAuthorizer?: string;
 }
 
 export function parachainsOf(net: NetworkDef): ForkParachain[] {
@@ -39,6 +41,7 @@ export function parachainsOf(net: NetworkDef): ForkParachain[] {
     aura: p.aura,
     dotnsDispatcher: p.dotnsDispatcher,
     dotnsDeployer: p.dotnsDeployer,
+    bulletinAuthorizer: p.bulletinAuthorizer,
   }));
 }
 

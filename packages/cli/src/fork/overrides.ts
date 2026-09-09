@@ -28,6 +28,7 @@ import {
 import {
   collatorKey,
   paraCandidates,
+  bulletinAuthorizerInjects,
   dotnsDispatcherInject,
   evmDeployerEndowInjects,
   paraInjects,
@@ -444,7 +445,8 @@ export async function paraOverrides(
   sharedRelay = false,
   upgrade?: SeededUpgrade,
   scheme: AuraScheme = 'sr25519',
-  dotns?: { dispatcher?: string; deployer?: string | string[] }
+  dotns?: { dispatcher?: string; deployer?: string | string[] },
+  bulletinAuthorizer?: string
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collator = await collatorKey(paraId, scheme);
@@ -479,6 +481,10 @@ export async function paraOverrides(
     // revive accounts hold nothing on the chain being bitten. Endow them here so no funding
     // step has to be repeated by hand on every rebite.
     ...(dotns?.deployer ? evmDeployerEndowInjects(dotns.deployer) : {}),
+    // A bitten Bulletin has no authorizer: the runtime seeds one at genesis and a fork has none.
+    ...(bulletinAuthorizer && index.pallets.has('TransactionStorage')
+      ? bulletinAuthorizerInjects(bulletinAuthorizer)
+      : {}),
     ...seededUpgradeInject(index, upgrade),
   };
   write(outFile, { overrides, injects }, index);
