@@ -62,6 +62,49 @@ const BITE_ENV = {
 
 const COMMON_ARGS = ['--no-hardware-benchmarks', '--state-pruning', '256', '--database', 'rocksdb'];
 
+export const SYNC_SOURCE_PREFIX = 'PPN_BITE_SYNC_SOURCE_';
+
+/**
+ * A local node to take a parachain's state from, instead of whatever peers the network offers.
+ *
+ * Set `PPN_BITE_SYNC_SOURCE_<paraId>` to a multiaddr. Opt-in per machine, because it names a
+ * node only that machine has.
+ *
+ * `--reserved-only` is not optional: nothing in `schedule_next_peer` prefers a reserved peer,
+ * so without it the pinned node is one more entry in the pool. It also removes the fallback,
+ * so a source that is down stops a bite rather than slowing it.
+ *
+ * Parachains only, though both they and the relay are bitten with `--sync warp`. Cumulus gives
+ * a parachain `WarpSyncConfig::WithTarget`, which skips the proof download and syncs state from
+ * a header the relay supplied. A relay warp proof is built from the GRANDPA justification at
+ * every authority-set change back to genesis, and a source that warp-synced itself keeps none of
+ * those, so it has nothing to build one from. An archive node could serve them, at the price of
+ * a database built from genesis, to save the few minutes a relay bite takes on public peers.
+ */
+export function syncSourceArgs(paraId: string): string[] {
+  const addr = process.env[`${SYNC_SOURCE_PREFIX}${paraId}`];
+  if (!addr) return [];
+  return ['--reserved-nodes', addr, '--reserved-only'];
+}
+
+/**
+ * Sync source variables that are set but will have no effect, each with the reason.
+ *
+ * Two routes reach that state: a para id this network does not have, and `VAR="$MISSING"`,
+ * which leaves the variable present and empty for the lookup to read as unset. Both leave the
+ * bite syncing from public peers, which on its own looks like an ordinary slow bite.
+ */
+export function syncSourceWarnings(paraIds: string[]): string[] {
+  return Object.entries(process.env)
+    .filter(([key]) => key.startsWith(SYNC_SOURCE_PREFIX))
+    .flatMap(([key, addr]) => {
+      if (!addr) return [`${key} is set but empty`];
+      if (paraIds.includes(key.slice(SYNC_SOURCE_PREFIX.length))) return [];
+      return [`${key} names no parachain in this network`];
+    })
+    .sort();
+}
+
 /**
  * Where a bite's node logs go. Beside the bundle, never inside it: the bundle is tarred whole
  * and published, and `work/` (which used to hold these) is deleted once the snapshots are
@@ -489,12 +532,19 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
   ]);
 
   console.log('=== 4/6 biting parachains (parallel) ===');
+  for (const warning of syncSourceWarnings(parachains.map((para) => String(para.paraId)))) {
+    console.log(`  ${warning}, ignoring it`);
+  }
   const relaySpec = path.join(out, 'work', 'specs', `${relay.spec}.json`);
   await Promise.all(
     parachains.map(async (para, i) => {
       const id = String(para.paraId);
       const work = path.join(out, 'work', id);
       fs.mkdirSync(work, { recursive: true });
+      const syncSource = syncSourceArgs(id);
+      if (syncSource.length) {
+        console.log(`  ${para.key}: syncing state from ${SYNC_SOURCE_PREFIX}${id}, no other peer`);
+      }
       // The bite node always exits non-zero: doppelganger ends an essential task to stop
       // the node once the state import is captured. Success is judged by the info file.
       await runBiteNode(
@@ -502,6 +552,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
         [
           '--chain', path.join(out, 'work', 'specs', `${para.spec}.json`),
           '--sync', 'warp',
+          ...syncSource,
           '-d', path.join(work, 'db'),
           '--rpc-port', String(19990 + i),
           '--prometheus-port', String(19890 + i),
