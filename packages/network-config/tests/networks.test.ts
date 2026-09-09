@@ -186,29 +186,33 @@ describe('network descriptors', () => {
     }
   });
 
+  // A copy of a real descriptor in a scratch PPN_HOME, so a check runs against a file that is
+  // otherwise valid. `where` is a parachain key, or "root" to patch the network itself.
+  const make = (patch: Record<string, unknown>, where: string): (() => void) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-desc-'));
+    fs.mkdirSync(path.join(dir, 'networks'));
+    const d = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks', 'polkadot.json'), 'utf-8'));
+    d.name = 'scratchnet';
+    if (where === 'root') Object.assign(d, patch);
+    else Object.assign(d.parachains.find((p: { key: string }) => p.key === where), patch);
+    fs.writeFileSync(path.join(dir, 'networks', 'scratchnet.json'), JSON.stringify(d));
+    return () => {
+      const prev = process.env.PPN_HOME;
+      process.env.PPN_HOME = dir;
+      try {
+        loadDescriptor('scratchnet');
+      } finally {
+        if (prev === undefined) delete process.env.PPN_HOME;
+        else process.env.PPN_HOME = prev;
+      }
+    };
+  };
+
   // The dotNS fields are the only ones a fork can get wrong in a way the bite would not notice:
   // a malformed address is written as a storage value and only fails hours later, when the
-  // gateway is called. Load a copy of a real descriptor from a scratch PPN_HOME so the checks
-  // run against a file that is otherwise valid.
+  // gateway is called.
   describe('the dotNS address checks', () => {
-    const withDotns = (patch: Record<string, unknown>): (() => void) => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-desc-'));
-      fs.mkdirSync(path.join(dir, 'networks'));
-      const d = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks', 'polkadot.json'), 'utf-8'));
-      d.name = 'scratchnet';
-      Object.assign(d.parachains.find((p: { key: string }) => p.key === 'asset-hub'), patch);
-      fs.writeFileSync(path.join(dir, 'networks', 'scratchnet.json'), JSON.stringify(d));
-      return () => {
-        const prev = process.env.PPN_HOME;
-        process.env.PPN_HOME = dir;
-        try {
-          loadDescriptor('scratchnet');
-        } finally {
-          if (prev === undefined) delete process.env.PPN_HOME;
-          else process.env.PPN_HOME = prev;
-        }
-      };
-    };
+    const withDotns = (patch: Record<string, unknown>): (() => void) => make(patch, 'asset-hub');
 
     it('accepts a single deployer and a list of them', () => {
       withDotns({ dotnsDeployer: '0x' + 'ab'.repeat(20) })();
@@ -230,6 +234,31 @@ describe('network descriptors', () => {
     // pay for itself. Naming the field at all has to mean naming a wallet.
     it('refuses an empty deployer list', () => {
       assert.throws(withDotns({ dotnsDeployer: [] }), /dotnsDeployer must name at least one address/);
+    });
+  });
+
+  // A chain named here but absent from the network is not something the bite reports: its
+  // loop never visits that chain, so the asset is simply never registered.
+  describe('the seeded asset descriptor', () => {
+    const withNetwork = (patch: Record<string, unknown>): (() => void) => make(patch, 'root');
+    const ASSET = { id: 1, owner: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      minBalance: '1', isSufficient: true, name: 'A', symbol: 'A', decimals: 6,
+      reserve: 'asset-hub' };
+
+    // PalletInstance 50 in the foreign location is Asset Hub's Assets index, so the reserve
+    // cannot be another chain: it would be keyed at a pallet that chain does not have.
+    it('refuses a reserve that is not asset-hub', () => {
+      assert.throws(
+        withNetwork({ seedAsset: { ...ASSET, reserve: 'people', alsoOn: ['asset-hub'] } }),
+        /seedAsset.reserve must be "asset-hub", got "people"/
+      );
+    });
+
+    it('refuses a chain this network does not have', () => {
+      assert.throws(
+        withNetwork({ seedAsset: { ...ASSET, alsoOn: ['web3-storage'] } }),
+        /seedAsset names "web3-storage", which this network does not have/
+      );
     });
   });
 

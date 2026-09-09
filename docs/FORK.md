@@ -138,6 +138,28 @@ What this does not give you is a working personhood flow. `PopRules` reads the p
 `AliasAccounts`, fed by ring roots from People's `MembersNotifier`, and a fork of a chain whose
 individuality pallets arrive with the upgrade carries no rings to read.
 
+## Seeding the asset Coinage wraps
+
+A Coinage instance wraps one asset as coins, so the asset has to exist before any instance can
+be created, and the chain being bitten does not carry it. People is what forces the seed:
+`CreateOrigin` for its by-`Location` instance is `EnsureNever`, so no signed origin can register
+the foreign representation whatever deposit it offers, and `force_create` takes Root, which on a
+fork of Polkadot is a 28-day referendum. Asset Hub would take a signed `create` against a
+deposit; the bite seeds both so there is one mechanism and no step to repeat after every rebite.
+
+The descriptor states the asset. `reserve` names the chain that keys it by id, and must be
+`asset-hub`: the foreign location the other chains are keyed by hardcodes `PalletInstance` 50,
+which is the `Assets` index there. `alsoOn` lists the chains holding it by location.
+
+```json
+{ "seedAsset": { "id": 50000413, "reserve": "asset-hub", "alsoOn": ["people"] } }
+```
+
+Only the registration is seeded, not any balance. Minting, the conversion pool and the Coinage
+instance are ordinary signed calls that run after the spawn and compute their own state, which
+is also what keeps the extrinsics the fork exists to test in the path. `seedAssetInjects` in
+`overrides.ts` says what the entry holds.
+
 ## What you get, and what you don't
 
 The fork resumes at the bite block and diverges from there — it is a real fork, not a mirror. It

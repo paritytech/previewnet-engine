@@ -84,5 +84,17 @@
         "release": "polkadot-sdk"
       }
     }
+  },
+  "seedAsset": {
+    "id": 50000413,
+    "owner": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    "minBalance": "1",
+    "isSufficient": true,
+    "name": "CASH",
+    "symbol": "CASH",
+    "decimals": 6,
+    "reserve": "asset-hub",
+    "alsoOn": ["people"],
+    "_note": "Coinage needs an asset on both Asset Hub (the reserve) and People (by location). Assets.force_create and force_set_metadata take ForceOrigin, which is Root on both, and People's by-Location instance has CreateOrigin = EnsureNever, so nothing signed could ever register it there. Id, decimals and min_balance reuse XTRNL from individuality-community's initial-setup so a Coinage instance built the same way behaves the same; the name is CASH for this fork. Owner is //Alice because the bite endows Alice on every chain and nothing else here can pay to mint."
   }
 }
