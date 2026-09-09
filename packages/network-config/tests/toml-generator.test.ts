@@ -9,6 +9,7 @@ import {
   VALID_PARACHAINS,
   CHAIN_ARGS,
   P2P_PORTS,
+  forkRelayBootnode,
   POPULAR_LOG_TARGETS,
   LOG_LEVELS,
 } from '../src/toml-generator.js';
@@ -465,5 +466,17 @@ describe('exports', () => {
 
   it('exports LOG_LEVELS', () => {
     assert.deepEqual(LOG_LEVELS, ['trace', 'debug', 'info', 'warn', 'error']);
+  });
+});
+
+// The bootnode a bitten relay spec ships. Its peer id cannot be checked without a spawn, so
+// what is pinned here is the port. With another chain's port the relay nodes never reach the
+// bootnode, their routing tables stay empty, and nothing says so.
+describe('the fork relay bootnode', () => {
+  it('dials the relay on the port the generator pins', () => {
+    assert.equal(
+      forkRelayBootnode(),
+      `/ip4/127.0.0.1/tcp/${P2P_PORTS.relay}/ws/p2p/12D3KooWQCkBm1BYtkHpocxCwMgR8yjitEeHGx8spzcDLGt2gkBm`
+    );
   });
 });
