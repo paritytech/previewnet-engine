@@ -119,6 +119,11 @@ export function relayInjects(): Record<string, string> {
 export function sudoEndowInjects(): Record<string, string> {
   // //Alice, sr25519 public key.
   const alice = 'd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+  return endowInjects(alice);
+}
+
+/** Write one `System::Account` entry with a spendable balance and nothing else set. */
+function endowInjects(accountId: string): Record<string, string> {
   const info =
     '00000000' + // nonce
     '00000000' + // consumers
@@ -128,7 +133,63 @@ export function sudoEndowInjects(): Record<string, string> {
     u128le(0n) + // reserved
     u128le(0n) + // frozen
     u128le(1n << 127n); // flags: the new-logic marker every current account carries
-  return { [keyOf('System', 'Account') + blake2128Concat(alice)]: info };
+  return { [keyOf('System', 'Account') + blake2128Concat(accountId)]: info };
+}
+
+/**
+ * The account `pallet-revive` spends from when an Ethereum wallet signs.
+ *
+ * An secp256k1 wallet has no AccountId32 of its own, so revive derives a fallback: the twenty
+ * address bytes followed by twelve `0xEE` (`to_fallback_account_id` in `frame/revive/address.rs`,
+ * which also recognises the suffix on the way back). Fees and deposits for anything that wallet
+ * signs come out of that account.
+ *
+ * Endowing it at import is what lets a contract deployment run on a fork of a chain where no key
+ * we hold has funds. A signed transfer after the spawn would also work where the bite endows
+ * Alice, which it does on a shared relay, but that is a manual step to repeat on every rebite
+ * and here it costs one entry.
+ *
+ * A chain may name more than one wallet. dotns signs the CREATE3 factory from a single-purpose
+ * key and the deploy pipeline from another, which becomes the proxy owner, so a fork that
+ * reproduces another network's addresses and its ownership has to fund both.
+ */
+export function evmDeployerEndowInjects(addresses: string | string[]): Record<string, string> {
+  const injects: Record<string, string> = {};
+  for (const address of Array.isArray(addresses) ? addresses : [addresses]) {
+    const hex = address.replace(/^0x/, '').toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(hex)) {
+      throw new Error(`evm deployer must be a 20-byte hex address, got "${address}"`);
+    }
+    Object.assign(injects, endowInjects(hex + 'ee'.repeat(12)));
+  }
+  return injects;
+}
+
+/**
+ * Point `DotnsGateway` at the contract it dispatches into, written at import.
+ *
+ * `set_dispatcher_address` takes `RootOrWhitelist`, and a fork of a chain without Sudo reaches
+ * neither arm: Root has no dispatcher, and the whitelisted caller needs a referendum to
+ * whitelist the call. Until it is set, `reserve_name` and `register_name` fail
+ * `DispatcherAddressNotSet`, the two calls that reach the contract. The bite is the only
+ * origin-free moment, exactly as it is for the seeded upgrade authorization.
+ *
+ * Two things here differ from every other inject, and both follow from the pallet arriving with
+ * the runtime the bite authorizes rather than being on the chain being bitten. `verifyInjects`
+ * cannot type-check the value, because the live metadata has no `DotnsGateway`, and reports it
+ * skipped; the value is a bare H160, so nothing a type check would catch is lost. And the guard
+ * is the descriptor rather than `index.pallets.has('DotnsGateway')`, which would be false at
+ * bite time for the same reason and would silently write nothing at all.
+ *
+ * `DispatcherAddress` is `OptionQuery`, whose `Some` is stored as the bare value: 20 bytes, no
+ * discriminant.
+ */
+export function dotnsDispatcherInject(address: string): Record<string, string> {
+  const hex = address.replace(/^0x/, '').toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(hex)) {
+    throw new Error(`dotns dispatcher must be a 20-byte hex address, got "${address}"`);
+  }
+  return { [keyOf('DotnsGateway', 'DispatcherAddress')]: hex };
 }
 
 /**

@@ -94,6 +94,50 @@ This mirrors zombie-bite's `--rc-upgrade`/`--para-upgrade`
 meant to be deleted along with the rest of `packages/cli/src/fork/` once PPN calls zombie-bite
 instead of driving doppelganger itself ([#120](https://github.com/paritytech/zombie-bite/issues/120)).
 
+## Seeding what dotNS needs
+
+The same problem as the runtime upgrade, and the same answer. `pallet-dotns-gateway` will not
+call its contract until `DispatcherAddress` is set, and `set_dispatcher_address` takes
+`RootOrWhitelist` — governance on a real network, and nothing at all on a fork of one without
+Sudo. Until it is set, `reserve_name` and `register_name` fail `DispatcherAddressNotSet`: they
+are the two calls that reach the contract. No origin on the fork can ever set it.
+
+A network that has Sudo needs none of this: the `set-dispatcher-address` service reads the
+same choice out of the fetched dotNS manifest and dispatches it after the spawn. A fork
+without Sudo cannot, so its descriptor states the answer and the bite writes it into state:
+
+```json
+{ "key": "asset-hub", "dotnsDispatcher": "0xCC93…8a4b", "dotnsDeployer": ["0xd498…f164"] }
+```
+
+Deploying the contracts is not blocked by origin, but the wallet that signs it needs money.
+`pallet-revive` is live on Polkadot Asset Hub today, so the deploy needs only a funded Ethereum
+wallet, and on a fork of a real chain no wallet we hold has funds. `//Alice` does, and can send
+them: she cannot sign the deploy, but the account the wallet spends from is an ordinary one she
+can transfer to.
+
+A secp256k1 wallet owns no `AccountId32` either, so `pallet-revive` spends from a fallback
+account, the twenty address bytes followed by twelve `0xEE`. The bite endows that account for
+every wallet `dotnsDeployer` names, so the deploy pays for itself and nobody has to remember
+the transfer on the next rebite. Name more than one where the deploy uses more than one key:
+dotNS signs the CREATE3 factory from a single-purpose key and the pipeline from another, which
+becomes the proxy owner.
+
+Ordering looks circular and is not. dotNS derives every address through CREATE3 from a factory
+deployed at nonce 0 of a single-purpose key, so the addresses are the same on any fresh chain —
+`DotnsContentResolver` is one address on both previewnet and paseo-next-v2 — and the value is
+therefore known before anything is deployed. Seed it, spawn, upgrade, then deploy with the same
+factory key and the contracts land where the seed points. If you would rather not predict:
+bite, spawn, deploy, read the address off the chain, then re-bite with it.
+
+The bite reports this one as a skipped inject, because the live metadata has no `DotnsGateway`
+to check it against. It is written regardless; `dotnsDispatcherInject` in `validators.ts` says
+why, and why the descriptor rather than the runtime is what guards it.
+
+What this does not give you is a working personhood flow. `PopRules` reads the precompile over
+`AliasAccounts`, fed by ring roots from People's `MembersNotifier`, and a fork of a chain whose
+individuality pallets arrive with the upgrade carries no rings to read.
+
 ## What you get, and what you don't
 
 The fork resumes at the bite block and diverges from there — it is a real fork, not a mirror. It

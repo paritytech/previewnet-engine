@@ -123,6 +123,28 @@ export interface NetworkParachain {
    * is ed25519, and the collator authors nothing at all if the fork guesses wrong.
    */
   aura?: AuraScheme;
+  /**
+   * Contract `pallet-dotns-gateway` dispatches into, written into this chain's state at bite
+   * time. Only a fork of a chain without Sudo needs it: `set_dispatcher_address` takes
+   * `RootOrWhitelist`, and such a fork reaches neither arm, so nothing can set it afterwards
+   * and `reserve_name` and `register_name` fail `DispatcherAddressNotSet`. The DotNS deployment
+   * manifest names it `RootGatewayDispatcher`, or `DotnsPopController` where no separate
+   * dispatcher is deployed.
+   * The `set-dispatcher-address` service makes the same choice from the fetched manifest and
+   * dispatches it through Sudo, which is why a fork without Sudo states the answer here.
+   */
+  dotnsDispatcher?: string;
+  /**
+   * Ethereum wallets that will deploy the dotNS contracts after the spawn. The bite endows each
+   * one's revive fallback account, so the deployment needs no funding step. A signed transfer
+   * after the spawn would work too, but only as a manual step to repeat on every rebite.
+   *
+   * dotNS signs the CREATE3 factory from a single-purpose key and the pipeline from another,
+   * which becomes the proxy owner, so name both to reproduce another network's ownership as
+   * well as its addresses. The factory key must be one nobody has used on the chain being
+   * bitten, or its nonce is not 0 and the factory lands somewhere else.
+   */
+  dotnsDeployer?: string | string[];
 }
 
 export interface NetworkRelay extends Omit<NetworkParachain, 'key' | 'paraId'> {
@@ -361,6 +383,18 @@ export function loadDescriptor(name: string): NetworkDef {
     if (!p.spec || !p.rpc || !p.specSource) bad(`parachain ${p.key} needs spec, rpc and specSource`);
     if (p.aura !== undefined && p.aura !== 'sr25519' && p.aura !== 'ed25519') {
       bad(`parachain ${p.key}: aura must be "sr25519" or "ed25519"`);
+    }
+    if (p.dotnsDispatcher !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(p.dotnsDispatcher)) {
+      bad(`parachain ${p.key}: dotnsDispatcher must be a 0x-prefixed 20-byte address`);
+    }
+    if (p.dotnsDeployer !== undefined) {
+      const deployers = Array.isArray(p.dotnsDeployer) ? p.dotnsDeployer : [p.dotnsDeployer];
+      if (deployers.length === 0) {
+        bad(`parachain ${p.key}: dotnsDeployer must name at least one address`);
+      }
+      if (deployers.some((a: unknown) => typeof a !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(a))) {
+        bad(`parachain ${p.key}: every dotnsDeployer must be a 0x-prefixed 20-byte address`);
+      }
     }
     checkBinary(`parachains.${p.key}`, p.binary);
     checkRuntime(`parachains.${p.key}`, p.runtime);

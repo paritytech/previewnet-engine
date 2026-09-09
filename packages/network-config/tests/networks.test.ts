@@ -14,7 +14,12 @@ import {
   asHttp,
   asWs,
   DEFAULT_NETWORK,
+  loadDescriptor,
 } from '../src/networks.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { repoRoot } from '../src/repo-root.js';
 import { loadNetwork } from '../src/load.js';
 import { pinsProducts } from '../src/fork-toml.js';
 import { paraIds, VALID_PARACHAINS } from '../src/toml-generator.js';
@@ -199,6 +204,53 @@ describe('network descriptors', () => {
       const dg = loadNetwork(name).bite.doppelganger;
       assert.ok(dg?.repo && dg?.tag, `${name} must pin bite.doppelganger`);
     }
+  });
+
+  // The dotNS fields are the only ones a fork can get wrong in a way the bite would not notice:
+  // a malformed address is written as a storage value and only fails hours later, when the
+  // gateway is called. Load a copy of a real descriptor from a scratch PPN_HOME so the checks
+  // run against a file that is otherwise valid.
+  describe('the dotNS address checks', () => {
+    const withDotns = (patch: Record<string, unknown>): (() => void) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-desc-'));
+      fs.mkdirSync(path.join(dir, 'networks'));
+      const d = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks', 'polkadot.json'), 'utf-8'));
+      d.name = 'scratchnet';
+      Object.assign(d.parachains.find((p: { key: string }) => p.key === 'asset-hub'), patch);
+      fs.writeFileSync(path.join(dir, 'networks', 'scratchnet.json'), JSON.stringify(d));
+      return () => {
+        const prev = process.env.PPN_HOME;
+        process.env.PPN_HOME = dir;
+        try {
+          loadDescriptor('scratchnet');
+        } finally {
+          if (prev === undefined) delete process.env.PPN_HOME;
+          else process.env.PPN_HOME = prev;
+        }
+      };
+    };
+
+    it('accepts a single deployer and a list of them', () => {
+      withDotns({ dotnsDeployer: '0x' + 'ab'.repeat(20) })();
+      withDotns({ dotnsDeployer: ['0x' + 'ab'.repeat(20), '0x' + 'cd'.repeat(20)] })();
+    });
+
+    it('refuses a dispatcher that is not a 20-byte address', () => {
+      assert.throws(withDotns({ dotnsDispatcher: '0xdead' }), /dotnsDispatcher must be a 0x-prefixed 20-byte address/);
+    });
+
+    it('refuses a deployer list holding a bad address', () => {
+      assert.throws(
+        withDotns({ dotnsDeployer: ['0x' + 'ab'.repeat(20), 'nope'] }),
+        /every dotnsDeployer must be a 0x-prefixed 20-byte address/
+      );
+    });
+
+    // An empty list reads as "endow nobody", which silently produces a fork whose deploy cannot
+    // pay for itself. Naming the field at all has to mean naming a wallet.
+    it('refuses an empty deployer list', () => {
+      assert.throws(withDotns({ dotnsDeployer: [] }), /dotnsDeployer must name at least one address/);
+    });
   });
 
   it('rejects unknown networks with the known list', () => {
