@@ -26,6 +26,7 @@ import {
   type PlannedPara,
 } from './shared-relay.js';
 import {
+  attestationAllowanceInjects,
   collatorKey,
   paraCandidates,
   bulletinAuthorizerInjects,
@@ -575,7 +576,8 @@ export async function paraOverrides(
   scheme: AuraScheme = 'sr25519',
   dotns?: { dispatcher?: string; deployer?: string | string[] },
   bulletinAuthorizer?: string,
-  seedAsset?: { asset: SeededAsset; assetHubParaId: number; isReserve: boolean }
+  seedAsset?: { asset: SeededAsset; assetHubParaId: number; isReserve: boolean },
+  attestation?: { attester: string; count: number; pallet: 'PeopleLite' | 'DotnsGateway' }
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collator = await collatorKey(paraId, scheme);
@@ -625,6 +627,11 @@ export async function paraOverrides(
             : assetHubAssetLocation(seedAsset.assetHubParaId, seedAsset.asset.id),
           seedAsset.asset
         )
+      : {}),
+    // Neither pallet is in the metadata of the chain being bitten, so the guard is the
+    // descriptor rather than `index.pallets.has`. See attestationAllowanceInjects.
+    ...(attestation
+      ? attestationAllowanceInjects(attestation.pallet, attestation.attester, attestation.count)
       : {}),
     ...seededUpgradeInject(index, upgrade),
   };

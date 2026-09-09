@@ -14,6 +14,7 @@ import {
   relayCandidates,
   relayInjects,
   sessionKeys,
+  attestationAllowanceInjects,
   authorizedUpgradeCandidate,
   bulletinAuthorizerInjects,
   dotnsDispatcherInject,
@@ -27,7 +28,7 @@ import {
   verify,
   verifyInjects,
 } from '../src/fork/overrides.js';
-import { compactLen, keyOf, u32le } from '../src/fork/codec.js';
+import { blake2128Concat, compactLen, keyOf, u32le } from '../src/fork/codec.js';
 import { PARACHAINS } from '../src/fork/chains.js';
 
 // Captured from the override files of a bite that produced a verified working fork, before
@@ -577,5 +578,70 @@ describe('the seeded asset', () => {
     assert.equal(meta.decimals, ASSET.decimals);
     assert.equal(meta.deposit, 0);
     assert.equal(meta.isFrozen, false);
+  });
+});
+
+// Two quotas share the `AttestationAllowance` name. `PeopleLite`'s counts how many people a
+// verifier may attest, spent by `attest`; `DotnsGateway`'s how many names an attester may
+// reserve, spent by `reserve_name`. The identity backend needs both, and on a fork neither can be
+// granted after the spawn: `PeopleLite`'s manager is `EnsureRoot` and `DotnsGateway`'s is
+// `RootOrWhitelist`.
+describe('the attestation allowance seeds', () => {
+  const ALICE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  // What polkadot.json grants. Multi-byte, so the literal below catches a byte-order slip.
+  const COUNT = 1000000;
+
+  for (const pallet of ['PeopleLite', 'DotnsGateway'] as const) {
+    it(`writes one ${pallet} entry keyed by the attester`, () => {
+      const out = attestationAllowanceInjects(pallet, ALICE, COUNT);
+      assert.deepEqual(out, {
+        [keyOf(pallet, 'AttestationAllowance') + blake2128Concat(ALICE_SR)]: u32le(COUNT),
+      });
+    });
+  }
+
+  // Both pallets arrive with the runtime the bite authorizes, so they are absent from the
+  // metadata of every chain this runs against. A key derived from that metadata would resolve
+  // to nothing and write nothing, without reporting it, so the key depends on the pallet name
+  // and the attester alone.
+  it('needs no metadata, since neither pallet exists on the chain being bitten', () => {
+    const out = attestationAllowanceInjects('DotnsGateway', ALICE, COUNT);
+    assert.equal(Object.keys(out).length, 1);
+    assert.equal(Object.keys(out)[0].slice(0, 64), keyOf('DotnsGateway', 'AttestationAllowance'));
+  });
+
+  // Both pallets hold it as a bare `u32` with `ValueQuery`, and both setters only
+  // saturating-add, so the count is the whole state the call produces.
+  it('encodes the count as a bare little-endian u32', () => {
+    const [value] = Object.values(attestationAllowanceInjects('PeopleLite', ALICE, COUNT));
+    assert.equal(value, u32le(COUNT));
+    assert.equal(value, '40420f00');
+  });
+
+  it('accepts the raw account id as well as SS58', () => {
+    assert.deepEqual(
+      attestationAllowanceInjects('PeopleLite', '0x' + ALICE_SR, COUNT),
+      attestationAllowanceInjects('PeopleLite', ALICE, COUNT)
+    );
+  });
+
+  it('refuses a count that would grant nothing', () => {
+    for (const bad of [0, -1, 1.5]) {
+      assert.throws(() => attestationAllowanceInjects('PeopleLite', ALICE, bad), /positive integer/);
+    }
+  });
+
+  it('refuses an attester that is not a 32-byte account', () => {
+    // A 20-byte address decodes, so it reaches the length check. Garbage does not: decodeAddress
+    // throws first, which is why that case cannot stand in for this one, and why the throw is
+    // wrapped in a message that names the field.
+    assert.throws(
+      () => attestationAllowanceInjects('PeopleLite', '0x' + 'ab'.repeat(20), COUNT),
+      /32-byte account, got 20 bytes/
+    );
+    assert.throws(
+      () => attestationAllowanceInjects('PeopleLite', 'not-an-account', COUNT),
+      /attester "not-an-account" is not an account: Decoding/
+    );
   });
 });
