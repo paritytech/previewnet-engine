@@ -108,6 +108,13 @@ export async function run(args: string[]): Promise<void> {
           isReserve: key === a.reserve,
         };
       };
+      // Which pallet gates attestation on which chain comes from the descriptor: neither pallet
+      // is in the bitten chain's metadata, so the engine cannot work it out.
+      const attestationFor = (key: string) => {
+        const at = NETWORK.attestation;
+        const pallet = at?.on?.[key];
+        return at && pallet ? { attester: at.attester, count: at.count, pallet } : undefined;
+      };
       for (const p of PARACHAINS) {
         await paraOverrides(
           p.paraId,
@@ -118,7 +125,8 @@ export async function run(args: string[]): Promise<void> {
           p.aura,
           { dispatcher: p.dotnsDispatcher, deployer: p.dotnsDeployer },
           p.bulletinAuthorizer,
-          seedAssetFor(p.key)
+          seedAssetFor(p.key),
+          attestationFor(p.key)
         );
       }
       return;

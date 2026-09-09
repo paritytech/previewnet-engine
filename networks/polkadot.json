@@ -96,5 +96,11 @@
     "reserve": "asset-hub",
     "alsoOn": ["people"],
     "_note": "Coinage needs an asset on both Asset Hub (the reserve) and People (by location). Assets.force_create and force_set_metadata take ForceOrigin, which is Root on both, and People's by-Location instance has CreateOrigin = EnsureNever, so nothing signed could ever register it there. Id, decimals and min_balance reuse XTRNL from individuality-community's initial-setup so a Coinage instance built the same way behaves the same; the name is CASH for this fork. Owner is //Alice because the bite endows Alice on every chain and nothing else here can pay to mint."
+  },
+  "attestation": {
+    "attester": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    "count": 1000000,
+    "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" },
+    "_note": "//Alice, matching what the bite already endows, and 1000000 to match PEOPLELITE_ATTESTATION_ALLOWANCE and DOTNSGATEWAY_ATTESTATION_ALLOWANCE in individuality-community's initial-setup, which grants both by sudo. Two quotas share the AttestationAllowance name: PeopleLite's counts how many people a verifier may attest, DotnsGateway's how many names an attester may reserve, and the backend needs both. Managers are EnsureRoot and RootOrWhitelist; neither is reachable on a fork after the spawn. attestation.on pairs each chain with the pallet to seed there: both arrive with the runtime the bite authorizes, so they are absent from the bitten chain's metadata and the engine cannot find them itself."
   }
 }

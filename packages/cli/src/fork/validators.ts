@@ -9,7 +9,7 @@
 // additionally decode-verify each value against the live runtime before writing it.
 
 import { Keyring } from '@polkadot/keyring';
-import { cryptoWaitReady } from '@polkadot/util-crypto';
+import { cryptoWaitReady, decodeAddress } from '@polkadot/util-crypto';
 import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le, u64le } from './codec.js';
 import type { AuraScheme } from '@parity/ppn-network-config';
 
@@ -223,6 +223,50 @@ export function dotnsDispatcherInject(address: string): Record<string, string> {
     throw new Error(`dotns dispatcher must be a 20-byte hex address, got "${address}"`);
   }
   return { [keyOf('DotnsGateway', 'DispatcherAddress')]: hex };
+}
+
+/**
+ * Grant an attestation allowance, as `increase_attestation_allowance` would have.
+ *
+ * Two quotas share the name. `PeopleLite`'s is how many people a verifier may attest, spent by
+ * `attest`; `DotnsGateway`'s is how many names an attester may reserve, spent by `reserve_name`.
+ * Without the first nobody becomes a lite person, without the second nobody who did can take a
+ * username, and the backend needs both.
+ *
+ * `PeopleLite`'s manager is `EnsureRoot` and `DotnsGateway`'s is `RootOrWhitelist`, so on a fork
+ * of a chain whose Root is a referendum neither can be granted after the spawn.
+ *
+ * The key is hand-built for the same reason `dotnsDispatcherInject` hand-builds its own: both
+ * pallets arrive with the runtime the bite authorizes, so neither is in the metadata of the
+ * chain being bitten. Deriving the key from that metadata yields nothing at all, silently, on
+ * exactly the chains this is meant for.
+ *
+ * Both pallets store it as `StorageMap<_, Blake2_128Concat, AccountId, u32, ValueQuery>`, and
+ * both `increase_attestation_allowance` implementations only saturating-add, so the count is
+ * the whole state.
+ */
+export function attestationAllowanceInjects(
+  pallet: 'PeopleLite' | 'DotnsGateway',
+  attester: string,
+  count: number
+): Record<string, string> {
+  // One descriptor object feeds both calls, so neither message names the pallet: the count and
+  // the attester are the same on each, and naming one would imply a figure that is per-pallet.
+  if (!Number.isInteger(count) || count <= 0) {
+    throw new Error(`attestation allowance must be a positive integer, got ${count}`);
+  }
+  let id: string;
+  try {
+    id = Buffer.from(decodeAddress(attester)).toString('hex');
+  } catch (cause) {
+    // decodeAddress reports the encoding it failed to read, which says nothing about where the
+    // value came from. This is the only place that knows it is an attester.
+    throw new Error(`attester "${attester}" is not an account: ${(cause as Error).message}`);
+  }
+  if (id.length !== 64) {
+    throw new Error(`attester must be a 32-byte account, got ${id.length / 2} bytes`);
+  }
+  return { [keyOf(pallet, 'AttestationAllowance') + blake2128Concat(id)]: u32le(count) };
 }
 
 /**
