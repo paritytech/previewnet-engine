@@ -28,7 +28,7 @@
     },
     "bulletin": {
       "repo": "paritytech/polkadot-bulletin-chain",
-      "tag": "v0.0.23-paseo",
+      "tag": "v0.0.26-paseo",
       "_note": "bulletin tags the paseo build with a -paseo suffix; \"latest\" there can resolve to a release for another network, so pin an explicit tag"
     },
     "web3-storage": {
