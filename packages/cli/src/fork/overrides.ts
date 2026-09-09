@@ -28,6 +28,8 @@ import {
 import {
   collatorKey,
   paraCandidates,
+  dotnsDispatcherInject,
+  evmDeployerEndowInjects,
   paraInjects,
   relayCandidates,
   relayInjects,
@@ -441,7 +443,8 @@ export async function paraOverrides(
   outFile: string,
   sharedRelay = false,
   upgrade?: SeededUpgrade,
-  scheme: AuraScheme = 'sr25519'
+  scheme: AuraScheme = 'sr25519',
+  dotns?: { dispatcher?: string; deployer?: string | string[] }
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collator = await collatorKey(paraId, scheme);
@@ -468,6 +471,14 @@ export async function paraOverrides(
     // Parachains of a shared relay are live public chains: no dev account holds
     // funds there, so sudo is endowed at import (see sudoEndowInjects).
     ...(sharedRelay ? sudoEndowInjects() : {}),
+    // Written for the runtime this bite authorizes, not the one being bitten: DotnsGateway
+    // arrives with the upgrade, so the live metadata cannot type-check this and the guard is
+    // the descriptor. See dotnsDispatcherInject.
+    ...(dotns?.dispatcher ? dotnsDispatcherInject(dotns.dispatcher) : {}),
+    // The contracts the dispatcher points at are deployed after the spawn, by wallets whose
+    // revive accounts hold nothing on the chain being bitten. Endow them here so no funding
+    // step has to be repeated by hand on every rebite.
+    ...(dotns?.deployer ? evmDeployerEndowInjects(dotns.deployer) : {}),
     ...seededUpgradeInject(index, upgrade),
   };
   write(outFile, { overrides, injects }, index);

@@ -94,7 +94,8 @@ export async function run(args: string[]): Promise<void> {
           `${outDir}/${p.paraId}_overrides.json`,
           NETWORK.bite.sharedRelay,
           seeded[p.key],
-          p.aura
+          p.aura,
+          { dispatcher: p.dotnsDispatcher, deployer: p.dotnsDeployer }
         );
       }
       return;

@@ -24,6 +24,10 @@ export interface ForkParachain extends ForkChain {
   paraId: number;
   /** Curve this chain's Aura keys are on, as the descriptor declares it. */
   aura?: AuraScheme;
+  /** Contract the dotNS gateway dispatches into, seeded into this chain at bite time. */
+  dotnsDispatcher?: string;
+  /** Ethereum wallets that deploy dotNS after the spawn; each one's revive account is endowed. */
+  dotnsDeployer?: string | string[];
 }
 
 export function parachainsOf(net: NetworkDef): ForkParachain[] {
@@ -33,6 +37,8 @@ export function parachainsOf(net: NetworkDef): ForkParachain[] {
     endpoint: p.rpc,
     paraId: p.paraId,
     aura: p.aura,
+    dotnsDispatcher: p.dotnsDispatcher,
+    dotnsDeployer: p.dotnsDeployer,
   }));
 }
 

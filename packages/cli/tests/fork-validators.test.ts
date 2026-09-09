@@ -15,6 +15,9 @@ import {
   relayInjects,
   sessionKeys,
   authorizedUpgradeCandidate,
+  dotnsDispatcherInject,
+  evmDeployerEndowInjects,
+  sudoEndowInjects,
 } from '../src/fork/validators.js';
 import { verify, verifyInjects } from '../src/fork/overrides.js';
 import { compactLen, keyOf, u32le } from '../src/fork/codec.js';
@@ -333,5 +336,103 @@ describe('collator key curve', () => {
 
   it('is a different key on each curve, from the one seed', async () => {
     assert.notEqual(await collatorKey(1000), await collatorKey(1000, 'ed25519'));
+  });
+});
+
+// The dotNS dispatcher is the one inject written for a runtime the bite has not yet applied:
+// DotnsGateway arrives with the authorized upgrade, so the chain being bitten has no such
+// pallet. That is exactly why it cannot be guarded on `index.pallets.has` and why verifyInjects
+// can only skip it.
+describe('the dotNS dispatcher seed', () => {
+  // Pinned, not recomputed: twox128('DotnsGateway') ++ twox128('DispatcherAddress'). The pallet
+  // is named in the runtime's construct_runtime, so a rename moves the key and this catches it.
+  const KEY = '57ca9018d648b40a8286a471e82c3808f31ce5ec278db3dff6304333f0019302';
+  const ADDR = '0xCC932348606cc1f3318cADeC5A5Cd2CA447f8a4b';
+
+  it('writes the address as a bare 20-byte value, lowercased', () => {
+    assert.deepEqual(dotnsDispatcherInject(ADDR), {
+      [KEY]: 'cc932348606cc1f3318cadec5a5cd2ca447f8a4b',
+    });
+  });
+
+  it('agrees with keyOf, so the pinned key is the one the bite writes', () => {
+    assert.equal(keyOf('DotnsGateway', 'DispatcherAddress'), KEY);
+  });
+
+  // OptionQuery stores Some as the bare value, so 20 bytes and no discriminant.
+  it('writes 20 bytes, with no Option discriminant', () => {
+    assert.equal(Object.values(dotnsDispatcherInject(ADDR))[0].length, 40);
+  });
+
+  it('takes the address with or without 0x', () => {
+    assert.deepEqual(dotnsDispatcherInject(ADDR.slice(2)), dotnsDispatcherInject(ADDR));
+  });
+
+  for (const bad of ['0x1234', '', 'not-an-address', '0x' + 'gg'.repeat(20)]) {
+    it(`refuses "${bad}" rather than writing a malformed value`, () => {
+      assert.throws(() => dotnsDispatcherInject(bad), /20-byte hex address/);
+    });
+  }
+
+  // The bite must not die on this inject. verifyInjects cannot type-check a pallet the live
+  // runtime does not carry, so it must report it skipped — a failure would abort the bundle,
+  // and `write` carries the whole inject set regardless of what was checked.
+  it('is skipped, not failed, when the bitten runtime has no DotnsGateway', () => {
+    const r = verifyInjects({ reg: {} as never, byKey: new Map() }, dotnsDispatcherInject(ADDR));
+    assert.deepEqual(r.failures, []);
+    assert.deepEqual(r.kept, {});
+    assert.equal(r.skipped.length, 1);
+    assert.match(r.skipped[0], /no such map in this runtime/);
+  });
+});
+
+// A contract deployment on a fork is signed by an Ethereum wallet, which has no AccountId32 of
+// its own. Fees come from revive's fallback account, so the bite endows it rather than leaving
+// a transfer to be repeated by hand on every rebite.
+describe('the evm deployer endowment', () => {
+  const ANVIL0 = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+  const ADMIN = '0x4A519C30DA0EC16AA9a73c26EA6CA6F701CcE099';
+  const KEY = keyOf('System', 'Account');
+
+  // frame/revive/src/address.rs: the address bytes, then twelve 0xEE.
+  it('endows the revive fallback account, not the address', () => {
+    const entry = Object.keys(evmDeployerEndowInjects(ANVIL0))[0];
+    assert.equal(entry.slice(0, 64), KEY);
+    // blake2_128concat appends the raw key after the 16-byte hash, so the account id is readable.
+    assert.ok(entry.endsWith('f39fd6e51aad88f6f4ce6ab8827279cfffb92266' + 'ee'.repeat(12)));
+  });
+
+  it('writes a 32-byte account id', () => {
+    const entry = Object.keys(evmDeployerEndowInjects(ANVIL0))[0];
+    assert.equal((entry.length - 64 - 32) / 2, 32);
+  });
+
+  // Same shape as sudo's, so a change to AccountInfo breaks both together rather than silently
+  // leaving one malformed.
+  it('writes the same AccountInfo as the sudo endowment', () => {
+    assert.equal(
+      Object.values(evmDeployerEndowInjects(ANVIL0))[0],
+      Object.values(sudoEndowInjects())[0]
+    );
+  });
+
+  // dotns signs the CREATE3 factory from one key and the pipeline from another, so a fork that
+  // reproduces another network's addresses and its proxy ownership has to fund both wallets.
+  it('endows every wallet a chain names, keyed separately', () => {
+    const two = evmDeployerEndowInjects([ANVIL0, ADMIN]);
+    assert.equal(Object.keys(two).length, 2);
+    assert.deepEqual(two, { ...evmDeployerEndowInjects(ANVIL0), ...evmDeployerEndowInjects(ADMIN) });
+    assert.ok(Object.keys(two).some((k) => k.endsWith(ADMIN.slice(2).toLowerCase() + 'ee'.repeat(12))));
+  });
+
+  it('refuses a list holding a bad address, rather than endowing the good ones', () => {
+    assert.throws(() => evmDeployerEndowInjects([ANVIL0, 'nope']), /20-byte hex address/);
+  });
+
+  it('takes the address with or without 0x, and refuses anything else', () => {
+    assert.deepEqual(evmDeployerEndowInjects(ANVIL0.slice(2)), evmDeployerEndowInjects(ANVIL0));
+    for (const bad of ['0x1234', '', 'nope']) {
+      assert.throws(() => evmDeployerEndowInjects(bad), /20-byte hex address/);
+    }
   });
 });
