@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import type { StorageIndex } from './rpc.js';
 import { rpc, storageIndex } from './rpc.js';
+import { hexToU8a, u8aToHex } from '@polkadot/util';
 import { blake2128Concat, keyOf, twox64Concat } from './codec.js';
 import {
   channelsTouching,
@@ -77,8 +78,8 @@ export function verify(
       continue;
     }
     try {
-      const decoded = reg.createType(reg.createLookupType(info.plain), '0x' + value);
-      if (decoded.toHex().slice(2) !== value) throw new Error('round-trip mismatch');
+      const decoded = reg.createType(reg.createLookupType(info.plain), hexToU8a('0x' + value));
+      if (scaleHex(decoded) !== value) throw new Error('round-trip mismatch');
       kept[key] = value;
     } catch (e) {
       failures.push(`${info.label}: ${(e as Error).message}`);
@@ -133,8 +134,8 @@ export function verifyInjects(
       continue;
     }
     try {
-      const decoded = reg.createType(reg.createLookupType(type), '0x' + value);
-      if (decoded.toHex().slice(2) !== value) throw new Error('round-trip mismatch');
+      const decoded = reg.createType(reg.createLookupType(type), hexToU8a('0x' + value));
+      if (scaleHex(decoded) !== value) throw new Error('round-trip mismatch');
       kept[key] = value;
     } catch (e) {
       failures.push(`${info.label}: ${(e as Error).message}`);
@@ -167,6 +168,18 @@ function write(outFile: string, file: OverrideFile, index?: StorageIndex): void 
 }
 
 /**
+ * SCALE bytes of a codec, as hex without the 0x.
+ *
+ * polkadot-js overrides `toHex` on its integer types to emit big-endian, so it does not give
+ * SCALE bytes. Decoding has the same trap, since a multi-byte integer read from a hex string
+ * comes back byte-reversed. Every encode goes through this function, including the struct ones
+ * `toHex` would get right.
+ */
+export function scaleHex(codec: { toU8a(): Uint8Array }): string {
+  return u8aToHex(codec.toU8a()).slice(2);
+}
+
+/**
  * Encode a value through the chain's own metadata.
  *
  * For anything whose shape is more than a list of integers. `verify()` decodes every override
@@ -176,7 +189,7 @@ function encode(index: StorageIndex, pallet: string, item: string, value: unknow
   const entry = index.byKey.get(keyOf(pallet, item));
   if (!entry?.plain) throw new Error(`${pallet}::${item} is not a plain storage value here`);
   const type = index.reg.createLookupType(entry.plain);
-  return index.reg.createType(type, value).toHex().slice(2);
+  return scaleHex(index.reg.createType(type, value));
 }
 
 /**
@@ -204,10 +217,7 @@ export function encodeMapEntry(
   if (entry.mapValue === null || entry.mapKey === null) {
     throw new Error(`${pallet}::${item} is not a map here`);
   }
-  const encKey = index.reg
-    .createType(index.reg.createLookupType(entry.mapKey), key)
-    .toHex()
-    .slice(2);
+  const encKey = scaleHex(index.reg.createType(index.reg.createLookupType(entry.mapKey), key));
   // A double map holds two hashers and hashes the key tuple, so taking the first alone would
   // write a key nothing reads back. Joining leaves no single hasher name to match, so it is
   // refused instead.
@@ -224,10 +234,7 @@ export function encodeMapEntry(
                 `${pallet}::${item} is hashed with ${hasher}, which is not one key-preserving hasher`
               );
             })();
-  const encValue = index.reg
-    .createType(index.reg.createLookupType(entry.mapValue), value)
-    .toHex()
-    .slice(2);
+  const encValue = scaleHex(index.reg.createType(index.reg.createLookupType(entry.mapValue), value));
   return [prefix + hashed, encValue];
 }
 
@@ -337,7 +344,7 @@ function patchHostConfig(
   if (!entry?.plain) throw new Error('Configuration::ActiveConfig is not a plain value here');
   const type = index.reg.createLookupType(entry.plain);
 
-  const decoded = index.reg.createType(type, liveHex) as any;
+  const decoded = index.reg.createType(type, hexToU8a(liveHex)) as any;
   const fields = Object.fromEntries([...decoded.entries()]);
   const params = fields.schedulerParams;
   if (!params?.entries) {
@@ -357,15 +364,14 @@ function patchHostConfig(
 
   const u32 = (n: number) => index.reg.createType('u32', n);
   const patchedParams = new (params.constructor as any)(index.reg, { ...paramFields, numCores: u32(want.numCores) });
-  const value = index.reg
-    .createType(type, {
+  const value = scaleHex(
+    index.reg.createType(type, {
       ...fields,
       schedulerParams: patchedParams,
       validationUpgradeDelay: u32(want.validationUpgradeDelay),
       validationUpgradeCooldown: u32(want.validationUpgradeCooldown),
     })
-    .toHex()
-    .slice(2);
+  );
 
   // Guards, because this rebuilds a struct whose layout is the runtime's, not ours: the result
   // must differ from production only inside those three u32s, and must read back as asked.
@@ -374,7 +380,7 @@ function patchHostConfig(
   if (changed === 0 || changed > 12) {
     throw new Error(`patching HostConfiguration changed ${changed} bytes; expected 1-12`);
   }
-  const back = index.reg.createType(type, '0x' + value).toJSON() as any;
+  const back = index.reg.createType(type, hexToU8a('0x' + value)).toJSON() as any;
   const got = {
     numCores: back.schedulerParams?.numCores,
     validationUpgradeDelay: back.validationUpgradeDelay,
@@ -460,7 +466,7 @@ async function hrmpResets(index: StorageIndex, relayUrl: string, paraIds: number
 
   const read = (key: string) => rpc<`0x${string}` | null>(relayUrl, 'state_getStorage', ['0x' + key]);
   const paraList = (hex: `0x${string}` | null): number[] =>
-    hex ? (index.reg.createType('Vec<u32>', hex).toJSON() as number[]) : [];
+    hex ? (index.reg.createType('Vec<u32>', hexToU8a(hex)).toJSON() as number[]) : [];
 
   const ingress = new Map<number, number[]>();
   const egress = new Map<number, number[]>();
@@ -497,20 +503,19 @@ function resetHrmpChannel(index: StorageIndex, liveHex: string): string {
   const entry = index.byKey.get(keyOf('Hrmp', 'HrmpChannels'));
   if (!entry?.mapValue) throw new Error('Hrmp::HrmpChannels is not a map here');
   const type = index.reg.createLookupType(entry.mapValue);
-  const decoded = index.reg.createType(type, liveHex) as any;
+  const decoded = index.reg.createType(type, hexToU8a(liveHex)) as any;
   const fields = Object.fromEntries([...decoded.entries()]);
   for (const f of ['mqcHead', 'msgCount', 'totalSize']) {
     if (!(f in fields)) throw new Error(`HrmpChannel has no ${f} field — this relay runtime is not what the reset expects`);
   }
-  return index.reg
-    .createType(type, {
+  return scaleHex(
+    index.reg.createType(type, {
       ...fields,
       mqcHead: index.reg.createType('Option<H256>', null),
       msgCount: index.reg.createType('u32', 0),
       totalSize: index.reg.createType('u32', 0),
     })
-    .toHex()
-    .slice(2);
+  );
 }
 
 /** A runtime to authorize at import, for a fork that has no sudo to authorize one later. */
