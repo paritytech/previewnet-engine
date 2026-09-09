@@ -87,6 +87,27 @@ export async function run(args: string[]): Promise<void> {
         shared,
         seeded.relay
       );
+      // The seeded asset is one network-level record; each chain that carries it gets the same
+      // asset, keyed by id on its reserve chain and by location everywhere else.
+      const seedAssetFor = (key: string) => {
+        const a = NETWORK.seedAsset;
+        const reserve = a && PARACHAINS.find((x) => x.key === a.reserve);
+        if (!a || !reserve) return undefined;
+        if (key !== a.reserve && !a.alsoOn.includes(key)) return undefined;
+        return {
+          asset: {
+            id: a.id,
+            owner: a.owner,
+            minBalance: BigInt(a.minBalance),
+            isSufficient: a.isSufficient,
+            name: a.name,
+            symbol: a.symbol,
+            decimals: a.decimals,
+          },
+          assetHubParaId: reserve.paraId,
+          isReserve: key === a.reserve,
+        };
+      };
       for (const p of PARACHAINS) {
         await paraOverrides(
           p.paraId,
@@ -96,7 +117,8 @@ export async function run(args: string[]): Promise<void> {
           seeded[p.key],
           p.aura,
           { dispatcher: p.dotnsDispatcher, deployer: p.dotnsDeployer },
-          p.bulletinAuthorizer
+          p.bulletinAuthorizer,
+          seedAssetFor(p.key)
         );
       }
       return;

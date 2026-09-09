@@ -20,7 +20,13 @@ import {
   evmDeployerEndowInjects,
   sudoEndowInjects,
 } from '../src/fork/validators.js';
-import { verify, verifyInjects } from '../src/fork/overrides.js';
+import {
+  assetHubAssetLocation,
+  encodeMapEntry,
+  seedAssetInjects,
+  verify,
+  verifyInjects,
+} from '../src/fork/overrides.js';
 import { compactLen, keyOf, u32le } from '../src/fork/codec.js';
 import { PARACHAINS } from '../src/fork/chains.js';
 
@@ -464,5 +470,112 @@ describe('the bulletin authorizer seed', () => {
     for (const bad of ['0x1234', '', '0xd43593c7', 'nope']) {
       assert.throws(() => bulletinAuthorizerInjects(bad), /32-byte account id/);
     }
+  });
+});
+
+// A Coinage instance wraps an asset, so the asset has to exist on the reserve chain and on every
+// chain that holds it by location. Everything here goes through the chain's own metadata rather
+// than hand-encoding, because an Assets::Asset key is a u32 on Asset Hub and a Location on People.
+describe('the seeded asset', () => {
+  // A registry stub: records what it was asked to encode, so the test can assert the shape passed
+  // to the runtime's own types rather than a byte string this test would also have to invent.
+  const seen: { type: string; value: unknown }[] = [];
+  const reg = {
+    createLookupType: (id: number) => `Type${id}`,
+    createType: (type: string, value: unknown) => {
+      seen.push({ type, value });
+      return { toHex: () => '0x' + (typeof value === 'number' ? 'aa' : 'bb') };
+    },
+  } as never;
+  const index = (entries: [string, unknown][]) =>
+    ({ reg, byKey: new Map(entries), pallets: new Set(['Assets']) }) as never;
+
+  const ASSET = {
+    id: 50000413,
+    owner: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+    minBalance: 1n,
+    isSufficient: true,
+    name: 'CASH',
+    symbol: 'CASH',
+    decimals: 6,
+  };
+  const withAssets = () =>
+    index([
+      [keyOf('Assets', 'Asset'), { label: 'Assets::Asset', plain: null, mapValue: 1, mapKey: 2, hashers: ['Blake2_128Concat'] }],
+      [keyOf('Assets', 'Metadata'), { label: 'Assets::Metadata', plain: null, mapValue: 3, mapKey: 4, hashers: ['Blake2_128Concat'] }],
+    ]);
+
+  it('writes exactly the two entries force_create and force_set_metadata produce', () => {
+    seen.length = 0;
+    const out = seedAssetInjects(withAssets(), ASSET.id, ASSET);
+    assert.equal(Object.keys(out).length, 2);
+    for (const k of Object.keys(out)) {
+      assert.ok(k.startsWith(keyOf('Assets', 'Asset')) || k.startsWith(keyOf('Assets', 'Metadata')));
+    }
+  });
+
+  // do_force_create writes a fresh asset: owner/issuer/admin/freezer identical, everything
+  // countable zero, status Live. Nothing here should invent balance state.
+  it('registers an empty asset, with the owner in all four roles', () => {
+    seen.length = 0;
+    seedAssetInjects(withAssets(), ASSET.id, ASSET);
+    const details = seen.find(x => x.type === 'Type1')!.value as Record<string, unknown>;
+    for (const role of ['owner', 'issuer', 'admin', 'freezer']) {
+      assert.equal(details[role], ASSET.owner, `${role} must be the seeded owner`);
+    }
+    for (const zero of ['supply', 'deposit', 'accounts', 'sufficients', 'approvals']) {
+      assert.equal(details[zero], 0, `${zero} must start at zero`);
+    }
+    assert.equal(details.status, 'Live');
+    assert.equal(details.minBalance, ASSET.minBalance);
+  });
+
+  it('keys the reserve chain by id and any other chain by location', () => {
+    const loc = assetHubAssetLocation(1000, ASSET.id) as { interior: { X3: unknown[] } };
+    assert.deepEqual(loc.interior.X3, [
+      { Parachain: 1000 },
+      { PalletInstance: 50 },
+      { GeneralIndex: ASSET.id },
+    ]);
+  });
+
+  it('refuses a map whose hasher would discard the key', () => {
+    const bad = index([
+      [keyOf('Assets', 'Asset'), { label: 'Assets::Asset', plain: null, mapValue: 1, mapKey: 2, hashers: ['Blake2_128'] }],
+    ]);
+    assert.throws(() => encodeMapEntry(bad, 'Assets', 'Asset', 1, {}), /not one key-preserving hasher/);
+  });
+
+  it('refuses a pallet or item this runtime does not have', () => {
+    assert.throws(() => encodeMapEntry(index([]), 'Assets', 'Asset', 1, {}), /not in this runtime/);
+  });
+
+  it('refuses a plain value, which has no key to hash', () => {
+    const plain = index([
+      [keyOf('Assets', 'Asset'), { label: 'Assets::Asset', plain: 9, mapValue: null, mapKey: null, hashers: [] }],
+    ]);
+    assert.throws(() => encodeMapEntry(plain, 'Assets', 'Asset', 1, {}), /not a map here/);
+  });
+
+  // A double map holds two hashers and hashes the key tuple. Taking the first alone would write
+  // a key nothing reads back, which is the failure this function exists to prevent.
+  it('refuses a map with more than one key', () => {
+    const double = index([
+      [keyOf('Assets', 'Asset'), { label: 'Assets::Asset', plain: null, mapValue: 1, mapKey: 2, hashers: ['Blake2_128Concat', 'Twox64Concat'] }],
+    ]);
+    assert.throws(() => encodeMapEntry(double, 'Assets', 'Asset', 1, {}), /not one key-preserving hasher/);
+  });
+
+  // force_set_metadata writes the name, symbol and decimals a wallet shows. Nothing else asserts
+  // them, so without this the whole metadata entry could be wrong with every other test green.
+  it('writes the metadata force_set_metadata would', () => {
+    seen.length = 0;
+    seedAssetInjects(withAssets(), ASSET.id, ASSET);
+    const meta = seen.find((x) => x.type === 'Type3')!.value as Record<string, unknown>;
+    assert.equal(meta.name, ASSET.name);
+    assert.equal(meta.symbol, ASSET.symbol);
+    assert.equal(meta.decimals, ASSET.decimals);
+    assert.equal(meta.deposit, 0);
+    assert.equal(meta.isFrozen, false);
   });
 });

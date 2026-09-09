@@ -231,6 +231,26 @@ export interface NetworkDef {
      */
     pinProducts?: boolean;
   };
+  /**
+   * Asset registered on this network's chains at bite time, so a Coinage instance has one to
+   * wrap as coins. People's by-`Location` instance has `CreateOrigin = EnsureNever` and
+   * `ForceOrigin` of Root, so on a fork without governance nothing can register it there at all;
+   * Asset Hub is seeded alongside it. Named per network because the id, decimals
+   * and owner are a deployment's choice, not the engine's.
+   */
+  seedAsset?: {
+    id: number;
+    /** Owner, issuer, admin and freezer: hold this key or nothing can mint afterwards. */
+    owner: string;
+    minBalance: string;
+    isSufficient: boolean;
+    name: string;
+    symbol: string;
+    decimals: number;
+    /** Chain keys that carry it. The reserve chain keys it by id, the others by location. */
+    reserve: string;
+    alsoOn: string[];
+  };
   /** Every `_todo` note found in the file — non-empty means the descriptor is a stub. */
   todos: string[];
 }
@@ -414,6 +434,24 @@ export function loadDescriptor(name: string): NetworkDef {
   const ids = raw.parachains.map((p: NetworkParachain) => p.paraId);
   if (new Set(ids).size !== ids.length) bad('duplicate para ids');
 
+  if (raw.seedAsset) {
+    const a = raw.seedAsset;
+    const keys = [a.reserve, ...(a.alsoOn ?? [])];
+    if (!Number.isInteger(a.id) || a.id < 0) bad('seedAsset.id must be a non-negative integer');
+    if (!/^[0-9]+$/.test(String(a.minBalance))) bad('seedAsset.minBalance must be a decimal string');
+    if (typeof a.isSufficient !== 'boolean') bad('seedAsset.isSufficient must be true or false');
+    if (!a.owner || !a.name || !a.symbol) bad('seedAsset needs owner, name and symbol');
+    if (!Number.isInteger(a.decimals)) bad('seedAsset.decimals must be an integer');
+    // assetHubAssetLocation() names the foreign representation with PalletInstance 50, the
+    // Assets index on Asset Hub, so any other reserve would be keyed at a pallet it lacks.
+    if (a.reserve !== 'asset-hub') bad(`seedAsset.reserve must be "asset-hub", got "${a.reserve}"`);
+    // A chain listed here but absent from the network would seed nothing, silently.
+    for (const k of keys) {
+      if (!seen.has(k)) bad(`seedAsset names "${k}", which this network does not have`);
+    }
+    if (a.alsoOn?.includes(a.reserve)) bad('seedAsset.alsoOn must not repeat the reserve chain');
+  }
+
   // A genesis network builds its chain specs locally, so every chain needs a runtime to
   // build from and a spec to build into, and the network needs the settings they share.
   if (raw.genesis === true) {
@@ -487,6 +525,7 @@ export function loadDescriptor(name: string): NetworkDef {
     services,
     tools,
     dotns: raw.dotns,
+    seedAsset: raw.seedAsset,
     todos,
   };
 }

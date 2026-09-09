@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import type { StorageIndex } from './rpc.js';
 import { rpc, storageIndex } from './rpc.js';
-import { keyOf } from './codec.js';
+import { blake2128Concat, keyOf, twox64Concat } from './codec.js';
 import {
   channelsTouching,
   coreDescriptorsValue,
@@ -176,6 +176,134 @@ function encode(index: StorageIndex, pallet: string, item: string, value: unknow
   if (!entry?.plain) throw new Error(`${pallet}::${item} is not a plain storage value here`);
   const type = index.reg.createLookupType(entry.plain);
   return index.reg.createType(type, value).toHex().slice(2);
+}
+
+/**
+ * Build one map entry, hashed key and encoded value, through the chain's own metadata.
+ *
+ * `encode()` handles only plain values. A map entry needs three things the metadata owns:
+ * the key type (an `Assets::Asset` id is a `u32` on Asset Hub and a `Location` on People), the
+ * hasher, and the value type. Getting any of them from a hand-written assumption is how a bite
+ * writes a value the runtime cannot read back.
+ *
+ * Only single-key maps whose hasher keeps the key: `Blake2_128Concat`, `Twox64Concat` and
+ * `Identity`. Anything else either discards the key or hashes a tuple of them, and every map a
+ * bite writes into is reversible by design.
+ */
+export function encodeMapEntry(
+  index: StorageIndex,
+  pallet: string,
+  item: string,
+  key: unknown,
+  value: unknown
+): [string, string] {
+  const prefix = keyOf(pallet, item);
+  const entry = index.byKey.get(prefix);
+  if (!entry) throw new Error(`${pallet}::${item} is not in this runtime`);
+  if (entry.mapValue === null || entry.mapKey === null) {
+    throw new Error(`${pallet}::${item} is not a map here`);
+  }
+  const encKey = index.reg
+    .createType(index.reg.createLookupType(entry.mapKey), key)
+    .toHex()
+    .slice(2);
+  // A double map holds two hashers and hashes the key tuple, so taking the first alone would
+  // write a key nothing reads back. Joining leaves no single hasher name to match, so it is
+  // refused instead.
+  const hasher = entry.hashers.join(',');
+  const hashed =
+    hasher === 'Blake2_128Concat'
+      ? blake2128Concat(encKey)
+      : hasher === 'Twox64Concat'
+        ? twox64Concat(encKey)
+        : hasher === 'Identity'
+          ? encKey
+          : (() => {
+              throw new Error(
+                `${pallet}::${item} is hashed with ${hasher}, which is not one key-preserving hasher`
+              );
+            })();
+  const encValue = index.reg
+    .createType(index.reg.createLookupType(entry.mapValue), value)
+    .toHex()
+    .slice(2);
+  return [prefix + hashed, encValue];
+}
+
+/** The asset a fork seeds, so a Coinage instance has one to wrap as coins. */
+export interface SeededAsset {
+  /** Asset id on its reserve chain; the same asset is keyed by `Location` on People. */
+  id: number;
+  /** Account that owns, issues, admins and freezes it: one we hold, so minting works after. */
+  owner: string;
+  minBalance: bigint;
+  isSufficient: boolean;
+  name: string;
+  symbol: string;
+  decimals: number;
+}
+
+/**
+ * How a sibling names an Asset Hub asset: the reserve chain, its `Assets` pallet, the id.
+ *
+ * Matches `people_foreign_location` in individuality-community's initial-setup, so a seeded
+ * registration is keyed exactly as the scripts and the runtime expect. Pallet index 50 is
+ * `Assets` on Asset Hub.
+ */
+export function assetHubAssetLocation(assetHubParaId: number, assetId: number): unknown {
+  return {
+    parents: 1,
+    interior: {
+      X3: [{ Parachain: assetHubParaId }, { PalletInstance: 50 }, { GeneralIndex: assetId }],
+    },
+  };
+}
+
+/**
+ * Register an asset, as `Assets.force_create` and `force_set_metadata` would have.
+ *
+ * People is what forces this. `CreateOrigin` for its by-`Location` instance is `EnsureNever`, so
+ * no signed origin can register the foreign representation whatever deposit it offers, and
+ * `force_create` takes `ForceOrigin`, which is Root, unreachable on a fork of a chain whose Root
+ * is a 28-day referendum. Asset Hub would take a signed `create` against a deposit; seeding it
+ * too keeps one mechanism and costs no post-spawn step.
+ *
+ * Everything a fresh asset holds is zero. `do_force_create` sets supply, deposit, accounts,
+ * sufficients and approvals to zero and status to `Live`, with owner, issuer, admin and freezer
+ * all the same account. So there is no balance state to keep consistent here: minting, the
+ * conversion pool and the Coinage instance are ordinary signed calls that run afterwards and
+ * compute their own state.
+ *
+ * `assetKey` is the id on its reserve chain and the `Location` on any other, which is why this
+ * takes the key as an opaque value and lets the metadata encode it.
+ */
+export function seedAssetInjects(
+  index: StorageIndex,
+  assetKey: unknown,
+  asset: SeededAsset
+): Record<string, string> {
+  const [detailsKey, details] = encodeMapEntry(index, 'Assets', 'Asset', assetKey, {
+    owner: asset.owner,
+    issuer: asset.owner,
+    admin: asset.owner,
+    freezer: asset.owner,
+    supply: 0,
+    deposit: 0,
+    minBalance: asset.minBalance,
+    isSufficient: asset.isSufficient,
+    accounts: 0,
+    sufficients: 0,
+    approvals: 0,
+    status: 'Live',
+  });
+  const [metaKey, meta] = encodeMapEntry(index, 'Assets', 'Metadata', assetKey, {
+    deposit: 0,
+    name: asset.name,
+    symbol: asset.symbol,
+    decimals: asset.decimals,
+    isFrozen: false,
+  });
+  return { [detailsKey]: details, [metaKey]: meta };
 }
 
 /** The HostConfiguration fields a shared-relay bite changes, and what they were. */
@@ -446,7 +574,8 @@ export async function paraOverrides(
   upgrade?: SeededUpgrade,
   scheme: AuraScheme = 'sr25519',
   dotns?: { dispatcher?: string; deployer?: string | string[] },
-  bulletinAuthorizer?: string
+  bulletinAuthorizer?: string,
+  seedAsset?: { asset: SeededAsset; assetHubParaId: number; isReserve: boolean }
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collator = await collatorKey(paraId, scheme);
@@ -484,6 +613,18 @@ export async function paraOverrides(
     // A bitten Bulletin has no authorizer: the runtime seeds one at genesis and a fork has none.
     ...(bulletinAuthorizer && index.pallets.has('TransactionStorage')
       ? bulletinAuthorizerInjects(bulletinAuthorizer)
+      : {}),
+    // Registered on both the reserve chain and any chain that holds it by location: Coinage
+    // needs the asset on People, and People's by-`Location` CreateOrigin is EnsureNever, so no
+    // signed origin could ever register it. See seedAssetInjects.
+    ...(seedAsset && index.pallets.has('Assets')
+      ? seedAssetInjects(
+          index,
+          seedAsset.isReserve
+            ? seedAsset.asset.id
+            : assetHubAssetLocation(seedAsset.assetHubParaId, seedAsset.asset.id),
+          seedAsset.asset
+        )
       : {}),
     ...seededUpgradeInject(index, upgrade),
   };

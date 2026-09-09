@@ -21,6 +21,13 @@ export interface StorageEntry {
   /** Lookup id of the stored type, or null for maps (which have no single plain value). */
   plain: number | null;
   /**
+   * Lookup id of a map's *key* type, or null for plain entries.
+   *
+   * Needed to build a map entry from scratch rather than only check one: an `Assets::Asset`
+   * key is a `u32` on Asset Hub and a `Location` on People, and only the metadata knows which.
+   */
+  mapKey: number | null;
+  /**
    * Lookup id of a map's *value* type, or null for plain entries.
    *
    * Injects write into maps, so `plain` is null for every one of them and they would otherwise
@@ -59,6 +66,7 @@ export async function storageIndex(url: string): Promise<StorageIndex> {
       byKey.set(keyOf(storage.prefix.toString(), it.name.toString()), {
         label: `${p.name}::${it.name}`,
         plain: it.type.isPlain ? it.type.asPlain.toNumber() : null,
+        mapKey: it.type.isMap ? it.type.asMap.key.toNumber() : null,
         mapValue: it.type.isMap ? it.type.asMap.value.toNumber() : null,
         hashers: it.type.isMap ? it.type.asMap.hashers.map((h) => h.type) : [],
       });
