@@ -65,6 +65,8 @@
     {
       "key": "bulletin",
       "paraId": 1010,
+      "bulletinAuthorizer": "0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+      "_bulletinNote": "//Alice, the account the bite already endows on every chain. A fork has no genesis, and live Polkadot Bulletin has an empty AllowedAuthorizers because authorizers arrive by governance there, so nothing can store anything without this. paseo-next-v2 carries //Alice, //Eve and an ops key; previewnet carries only //Eve, seeded by the bulletin runtime's genesis preset (Sr25519Keyring::Eve, 100_000 transactions, 100 GiB) which is where the budget below comes from. Alice over Eve because she is funded here and Eve is not, and the authorizer and the account it authorizes may be the same.",
       "spec": "bulletin",
       "rpc": "wss://bulletin-rpc.polkadot.io",
       "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/polkadot/parachain/bulletin/chainspec.json",

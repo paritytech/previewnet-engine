@@ -262,6 +262,12 @@ its unincluded segment fills — exactly three blocks in.
 
 ## Bulletin content
 
+Nothing can be stored at all until an authorizer exists. Live Polkadot Bulletin's
+`AllowedAuthorizers` is empty, because authorizers arrive by governance there, and a fork has no
+genesis to seed one, so `bulletinAutoAuthorize` fails `BadSigner`. The `bulletinAuthorizer`
+descriptor field names the account the bite writes in; `bulletinAuthorizerInjects` in
+`validators.ts` says what the entry holds and which reference it deliberately leaves out.
+
 A fork carries chain state but not bulletin's stored bytes: those live in block bodies, and the
 bite is a warp sync. So a forked bulletin *lists* content it does not hold, and anything published
 before the bite is unreachable. Content uploaded after the fork works normally.

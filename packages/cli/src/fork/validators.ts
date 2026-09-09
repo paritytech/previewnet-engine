@@ -10,7 +10,7 @@
 
 import { Keyring } from '@polkadot/keyring';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le } from './codec.js';
+import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le, u64le } from './codec.js';
 import type { AuraScheme } from '@parity/ppn-network-config';
 
 export const ALICE_SR = 'd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
@@ -159,6 +159,43 @@ export function evmDeployerEndowInjects(addresses: string | string[]): Record<st
     Object.assign(injects, endowInjects(hex + 'ee'.repeat(12)));
   }
   return injects;
+}
+
+/**
+ * Let one account authorize Bulletin storage, written at import.
+ *
+ * `TransactionStorage::authorize_account` takes `Authorizer`, which is Root, a sibling parachain
+ * in `AllowedParachainIds`, or an account in `AllowedAuthorizers`. On a fork of a chain without
+ * Sudo the first is unreachable and the other two are empty: live Polkadot Bulletin has no
+ * entry in either, because on a production chain authorizers arrive by governance. So nothing
+ * can store anything, and `bulletinAutoAuthorize` fails `BadSigner`.
+ *
+ * previewnet does not hit this: the bulletin runtime's own genesis preset seeds
+ * `Sr25519Keyring::Eve` with 100_000 transactions and 100 GiB. A fork has no genesis, so the
+ * same entry is written here instead, with the budget copied from that preset rather than
+ * invented. `valid_until: None` and `feeless: true` are what `BuildGenesisConfig` sets.
+ *
+ * This writes the map entry alone. Both paths that create one in the pallet pair the insert
+ * with `inc_authorizer_providers`, which keeps a `feeless` authorizer with no balance from
+ * being reaped between dispatches. So pass an account that holds a balance, which provides
+ * for itself. The reference cannot be supplied later either: both paths guard the increment
+ * on the entry being new, so adding the authorizer again through the pallet is a no-op.
+ *
+ * Unlike the other injects this one is type-checkable: `TransactionStorage` exists on the chain
+ * being bitten, so `verifyInjects` decodes it against real metadata.
+ */
+export function bulletinAuthorizerInjects(accountId: string): Record<string, string> {
+  const id = accountId.replace(/^0x/, '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(id)) {
+    throw new Error(`bulletin authorizer must be a 32-byte account id, got "${accountId}"`);
+  }
+  const budget =
+    '01' + // quota: Some
+    u32le(100_000) + // transactions
+    u64le(100n * 1024n * 1024n * 1024n) + // bytes: 100 GiB
+    '00' + // valid_until: None
+    '01'; // feeless
+  return { [keyOf('TransactionStorage', 'AllowedAuthorizers') + blake2128Concat(id)]: budget };
 }
 
 /**
