@@ -199,6 +199,11 @@ describe('runtime overrides', () => {
       repo: 'paseo-network/runtimes',
       tag: 'v2.4.5',
     });
+    // The local profile selects the fast runtime, so the override has to reach it too.
+    assert.deepEqual(out.releases[out.relay.fastRuntime!.release], {
+      repo: 'paseo-network/runtimes',
+      tag: 'v2.4.5',
+    });
   });
 
   it('refuses a chain the network does not run', () => {

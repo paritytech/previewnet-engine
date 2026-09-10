@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { loadCurrentNetwork, networkChains, repoRoot,
+import { loadCurrentNetwork, networkChains, relayRuntime, repoRoot,
   workspaceRoot} from '@parity/ppn-network-config';
 import { patchSpec, applyProfile, enableEccRfc163, injectDotns, readSpec,
   setNetworkSuffix, createPeopleCollections } from '@parity/ppn-network-config';
@@ -119,6 +119,7 @@ export async function run(args: string[], opts: GenerateOptions = {}): Promise<v
   for (const chain of networkChains(net)) {
     const { chainId, name, preset, file } = chain.genesisSpec!;
     const isRelay = chain.key === 'relay';
+    const runtime = isRelay ? relayRuntime(net.relay)! : chain.runtime!;
 
     console.log(
       isRelay ? `Relay Chain (${chainId}):` : `${name} (parachain ${chain.paraId}):`
@@ -136,7 +137,7 @@ export async function run(args: string[], opts: GenerateOptions = {}): Promise<v
         '-n', name,
         '-t', chainType,
         '--properties', properties,
-        '-r', chain.runtime!.file,
+        '-r', runtime.file,
         'named-preset', preset,
       ],
       { cwd: binDir, stdio: 'inherit' }

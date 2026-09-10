@@ -130,6 +130,8 @@ export interface NetworkRelay extends Omit<NetworkParachain, 'key' | 'paraId'> {
   chain: string;
   /** Dev-key validators the fork runs with, max 6 (alice…ferdie). */
   validators: number;
+  /** Same as `runtime`, but used when `PPN_PROFILE` is `local`. Needs a different `file`. */
+  fastRuntime?: RuntimeRef;
 }
 
 /** A chain of either kind, as networkChains() yields them. */
@@ -319,12 +321,16 @@ export function loadDescriptor(name: string): NetworkDef {
     binaryRelease.set(ref.name, ref.release);
     return ref;
   };
-  const checkRuntime = (at: string, ref?: RuntimeRef): RuntimeRef | undefined => {
+  const checkRuntime = (
+    at: string,
+    ref?: RuntimeRef,
+    field = 'runtime'
+  ): RuntimeRef | undefined => {
     if (ref === undefined) return undefined;
-    if (!ref.asset || !ref.file) bad(`${at}.runtime needs { asset, release, file }`);
-    checkRelease(`${at}.runtime`, ref.release);
+    if (!ref.asset || !ref.file) bad(`${at}.${field} needs { asset, release, file }`);
+    checkRelease(`${at}.${field}`, ref.release);
     const prev = runtimeFile.get(ref.file);
-    if (prev !== undefined && prev !== at) {
+    if (prev !== undefined) {
       bad(
         `runtime file "${ref.file}" is claimed by two chains ("${prev}" and "${at}") — ` +
           'they would collide in bin/'
@@ -343,6 +349,7 @@ export function loadDescriptor(name: string): NetworkDef {
 
   checkBinary('relay', raw.relay.binary);
   checkRuntime('relay', raw.relay.runtime);
+  checkRuntime('relay', raw.relay.fastRuntime, 'fastRuntime');
   const seen = new Set<string>();
   for (const p of raw.parachains) {
     if (!PARACHAIN_KEYS.includes(p.key)) {
@@ -466,13 +473,19 @@ export function networkBinaries(net: NetworkDef): ResolvedBinary[] {
   return [...out.values()];
 }
 
+/** The runtime the relay starts from at genesis. */
+export function relayRuntime(relay: NetworkRelay): RuntimeRef | undefined {
+  const profile = process.env.PPN_PROFILE || 'local';
+  return profile === 'local' ? (relay.fastRuntime ?? relay.runtime) : relay.runtime;
+}
+
 /**
  * Every runtime WASM the network's genesis needs, with its release resolved. Empty for
  * a fork-only network, which restores every runtime from the state it carries.
  */
 export function networkRuntimes(net: NetworkDef): ResolvedRuntime[] {
   const entries: [string, RuntimeRef | undefined][] = [
-    ['relay', net.relay.runtime],
+    ['relay', relayRuntime(net.relay)],
     ...net.parachains.map((p) => [p.key, p.runtime] as [string, RuntimeRef | undefined]),
   ];
   return entries

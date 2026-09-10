@@ -137,7 +137,10 @@ export function applyOverrides(net: NetworkDef, set: OverrideSet): NetworkDef {
   // ever move a whole release, which is the wrong grain for one chain under test.
   const runtimePins = new Map(set.runtimes.map((o) => [o.key, o.pin]));
   const knownChains = new Set<string>();
-  const repointRuntime = <T extends { runtime?: RuntimeRef }>(ref: T, chainKey: string): T => {
+  const repointRuntime = <T extends { runtime?: RuntimeRef; fastRuntime?: RuntimeRef }>(
+    ref: T,
+    chainKey: string
+  ): T => {
     knownChains.add(chainKey);
     const pin = runtimePins.get(chainKey);
     if (!pin) return ref;
@@ -149,7 +152,10 @@ export function applyOverrides(net: NetworkDef, set: OverrideSet): NetworkDef {
     }
     const key = overrideReleaseKey(`runtime:${chainKey}`);
     releases[key] = pin;
-    return { ...ref, runtime: { ...ref.runtime, release: key } };
+    const runtime = { ...ref.runtime, release: key };
+    if (!ref.fastRuntime) return { ...ref, runtime };
+    const fastRuntime = { ...ref.fastRuntime, release: key };
+    return { ...ref, runtime, fastRuntime };
   };
 
   const out: NetworkDef = {

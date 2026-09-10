@@ -8,6 +8,7 @@ import {
   currentNetworkName,
   networkBinaries,
   networkRuntimes,
+  relayRuntime,
   endpointUrl,
   specSourceUrl,
   asHttp,
@@ -130,6 +131,25 @@ describe('network descriptors', () => {
     // The provider ships in a tarball, which the descriptor says explicitly.
     const provider = networkBinaries(net).find((b) => b.name === 'storage-provider-node')!;
     assert.match(provider.archive!, /\{tag\}.*\{triple\}/);
+  });
+
+  it('gives the relay its fast runtime only for the local profile', () => {
+    const net = loadNetwork('previewnet');
+    const prev = process.env.PPN_PROFILE;
+    try {
+      for (const profile of [undefined, 'local']) {
+        if (profile === undefined) delete process.env.PPN_PROFILE;
+        else process.env.PPN_PROFILE = profile;
+        assert.equal(relayRuntime(net.relay)!.file, net.relay.fastRuntime!.file);
+        const relay = networkRuntimes(net).filter((r) => r.chain === 'relay');
+        assert.deepEqual(relay.map((r) => r.file), [net.relay.fastRuntime!.file]);
+      }
+      process.env.PPN_PROFILE = 'deployable';
+      assert.equal(relayRuntime(net.relay)!.file, net.relay.runtime!.file);
+    } finally {
+      if (prev === undefined) delete process.env.PPN_PROFILE;
+      else process.env.PPN_PROFILE = prev;
+    }
   });
 
   // A fork carries every runtime in the state it restores.

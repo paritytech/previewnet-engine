@@ -9,6 +9,8 @@ PPN's chain specs and operational scripts run under one of two profiles, selecte
 
 `local` is the default and is bit-for-bit identical to pre-profile behavior: `make start` on a developer laptop or in `zombienet-tests.yml` CI keeps Alice as a fully-funded sudo. Switch to `deployable` only on long-lived networks where having `//Alice` as a powerful key with on-chain funds is unacceptable.
 
+The profile also selects which runtime the relay starts from: `local` uses `relay.fastRuntime` and `deployable` uses `relay.runtime`.
+
 **Which profile a host runs is a property of that host**, not a per-run choice: it comes
 from `PPN_PROFILE` in the environment or from the secrets file below, so it cannot flip
 with whoever triggered a deploy. How your deployment sets it is up to you — see
@@ -52,7 +54,7 @@ With `PPN_SECRETS_FILE` unset, every consumer runs `local`. That is the develope
 ## What deployable mode does NOT change
 
 - The names of nodes (`alice-paseo-validator`, `bob-paseo-validator`, ...) are zombienet identifiers, unrelated to the sudo/dev account names. They keep their session keys and validate normally on the relay.
-- Tests under `tests/` and `tests/scripts/` always run against `local` profile. There is no test-suite coverage of deployable behavior beyond the unit tests over the genesis patcher and the checks that the attestation-allowance script refuses to fall back to Alice. The `integration-tests` job does generate the chain specs and boot a network, but always in local profile, since no runner sets `PPN_SECRETS_FILE`.
+- Tests under `tests/` and `tests/scripts/` always run against `local` profile. There is no test-suite coverage of deployable behavior beyond the unit tests over the genesis patcher and the checks that the attestation-allowance script refuses to fall back to Alice. The `integration-tests` job does generate the chain specs and boot a network, but always in local profile, since it sets neither `PPN_PROFILE` nor `PPN_SECRETS_FILE`.
 - Short-lived sandbox VMs are reasonably left on `local`: Alice-as-sudo on something you throw away in an hour is fine. Anything long-lived, or reachable by someone else, is not.
 
 ## Reading the diff between profiles
