@@ -3,12 +3,10 @@
 // is a bite of (networks/<name>.json); old bundles without the field are previewnet's.
 // See docs/FORK.md.
 //
-// Ports, para ids and per-chain flags are imported from toml-generator.ts rather than
-// restated here. A forked collator has to run with the same arguments as a genesis one,
-// and when the two lists were maintained separately they drifted immediately — a
-// hand-copied table dropped `--listen-addr=…/webrtc-direct`, which pairs with
-// `--experimental-webrtc`. Only what is genuinely different about a fork is expressed
-// below, and there are four such things:
+// Ports, validator names and per-chain flags are imported from toml-generator.ts rather
+// than restated here. A forked collator runs with the same arguments as a genesis one.
+// Only what is genuinely different about a fork is expressed below, and there are four
+// such things:
 //
 //  1. Node names. zombienet maps the well-known names (alice, bob, …) to the well-known
 //     dev keys, which is exactly the authority set the bite installs over production's

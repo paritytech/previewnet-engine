@@ -53,8 +53,8 @@ Any release or binary can be repointed without editing a descriptor, which is wh
 in a release gate. Run the same network against a candidate build:
 
 ```bash
-ppn fetch --binary polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w33-rc2
-ppn fetch --release polkadot-sdk=paritytech/polkadot-sdk@polkadot-stable2606-1
+ppn fetch --binary polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w37-rc1
+ppn fetch --release polkadot-sdk=paritytech/polkadot-sdk@polkadot-stable2609-rc1
 ppn fetch --binary polkadot-omni-node=file:/path/to/your/build
 
 # or through the environment, for anything that cannot take flags
