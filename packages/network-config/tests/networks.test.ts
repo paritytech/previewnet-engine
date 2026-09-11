@@ -13,7 +13,12 @@ import {
   asHttp,
   asWs,
   DEFAULT_NETWORK,
+  loadDescriptor,
 } from '../src/networks.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { repoRoot } from '../src/repo-root.js';
 import { loadNetwork } from '../src/load.js';
 import { pinsProducts } from '../src/fork-toml.js';
 import { paraIds, VALID_PARACHAINS } from '../src/toml-generator.js';
@@ -181,9 +186,143 @@ describe('network descriptors', () => {
     }
   });
 
+  // A copy of a real descriptor in a scratch PPN_HOME, so a check runs against a file that is
+  // otherwise valid. `where` is a parachain key, or "root" to patch the network itself.
+  const make = (patch: Record<string, unknown>, where: string): (() => void) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-desc-'));
+    fs.mkdirSync(path.join(dir, 'networks'));
+    const d = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks', 'polkadot.json'), 'utf-8'));
+    d.name = 'scratchnet';
+    if (where === 'root') Object.assign(d, patch);
+    else Object.assign(d.parachains.find((p: { key: string }) => p.key === where), patch);
+    fs.writeFileSync(path.join(dir, 'networks', 'scratchnet.json'), JSON.stringify(d));
+    return () => {
+      const prev = process.env.PPN_HOME;
+      process.env.PPN_HOME = dir;
+      try {
+        loadDescriptor('scratchnet');
+      } finally {
+        if (prev === undefined) delete process.env.PPN_HOME;
+        else process.env.PPN_HOME = prev;
+      }
+    };
+  };
+  const withNetwork = (patch: Record<string, unknown>): (() => void) => make(patch, 'root');
+
+  // The dotNS fields are the only ones a fork can get wrong in a way the bite would not notice:
+  // a malformed address is written as a storage value and only fails hours later, when the
+  // gateway is called.
+  describe('the dotNS address checks', () => {
+    const withDotns = (patch: Record<string, unknown>): (() => void) => make(patch, 'asset-hub');
+
+    it('accepts a single deployer and a list of them', () => {
+      withDotns({ dotnsDeployer: '0x' + 'ab'.repeat(20) })();
+      withDotns({ dotnsDeployer: ['0x' + 'ab'.repeat(20), '0x' + 'cd'.repeat(20)] })();
+    });
+
+    it('refuses a dispatcher that is not a 20-byte address', () => {
+      assert.throws(withDotns({ dotnsDispatcher: '0xdead' }), /dotnsDispatcher must be a 0x-prefixed 20-byte address/);
+    });
+
+    it('refuses a deployer list holding a bad address', () => {
+      assert.throws(
+        withDotns({ dotnsDeployer: ['0x' + 'ab'.repeat(20), 'nope'] }),
+        /every dotnsDeployer must be a 0x-prefixed 20-byte address/
+      );
+    });
+
+    // An empty list reads as "endow nobody", which silently produces a fork whose deploy cannot
+    // pay for itself. Naming the field at all has to mean naming a wallet.
+    it('refuses an empty deployer list', () => {
+      assert.throws(withDotns({ dotnsDeployer: [] }), /dotnsDeployer must name at least one address/);
+    });
+  });
+
+  // A chain named here but absent from the network is not something the bite reports: its
+  // loop never visits that chain, so the asset is simply never registered.
+  describe('the seeded asset descriptor', () => {
+    const ASSET = { id: 1, owner: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      minBalance: '1', isSufficient: true, name: 'A', symbol: 'A', decimals: 6,
+      reserve: 'asset-hub' };
+
+    // PalletInstance 50 in the foreign location is Asset Hub's Assets index, so the reserve
+    // cannot be another chain: it would be keyed at a pallet that chain does not have.
+    it('refuses a reserve that is not asset-hub', () => {
+      assert.throws(
+        withNetwork({ seedAsset: { ...ASSET, reserve: 'people', alsoOn: ['asset-hub'] } }),
+        /seedAsset.reserve must be "asset-hub", got "people"/
+      );
+    });
+
+    it('refuses a chain this network does not have', () => {
+      assert.throws(
+        withNetwork({ seedAsset: { ...ASSET, alsoOn: ['web3-storage'] } }),
+        /seedAsset names "web3-storage", which this network does not have/
+      );
+    });
+  });
+
   it('rejects unknown networks with the known list', () => {
     assert.throws(() => loadNetwork('mainnet'), /unknown network "mainnet" — known: .*previewnet/);
     assert.throws(() => loadNetwork('../etc/passwd'), /invalid network name/);
+  });
+
+  // Neither PeopleLite nor DotnsGateway is in the metadata of the chain being bitten: both
+  // arrive with the runtime the bite authorizes. So the descriptor has to say where each one
+  // lives. Without that the seed either derives the key from metadata and writes nothing at
+  // all, or drops the guard and writes the key onto every chain including Bulletin.
+  describe('the attestation descriptor', () => {
+    const AT = {
+      attester: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      count: 1000000,
+      on: { people: 'PeopleLite' },
+    };
+
+    it('scopes each attestation pallet to a chain the network has', () => {
+      const net = loadNetwork('polkadot');
+      assert.deepEqual(net.attestation?.on, { people: 'PeopleLite', 'asset-hub': 'DotnsGateway' });
+      const keys = net.parachains.map((p) => p.key);
+      for (const k of Object.keys(net.attestation?.on ?? {})) {
+        assert.ok(keys.includes(k), `attestation.on names "${k}", not a chain of this network`);
+      }
+    });
+
+    // The same guard the seeded asset uses, reached through its other caller.
+    it('refuses a chain this network does not have', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, on: { 'web3-storage': 'PeopleLite' } } }),
+        /attestation.on names "web3-storage", which this network does not have/
+      );
+    });
+
+    it('refuses a pallet that gates no attestation', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, on: { people: 'Nfts' } } }),
+        /attestation.on.people must be PeopleLite or DotnsGateway, got "Nfts"/
+      );
+    });
+
+    it('refuses a count that would grant nothing', () => {
+      for (const count of [0, -1, 1.5]) {
+        assert.throws(withNetwork({ attestation: { ...AT, count } }), /must be a positive integer/);
+      }
+    });
+
+    // Without this the descriptor passes and the failure surfaces at bite time instead, as a
+    // decodeAddress throw from attestationAllowanceInjects.
+    it('refuses an attester that is not there', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, attester: '' } }),
+        /attestation needs an attester account/
+      );
+    });
+
+    it('refuses naming no chain at all', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, on: {} } }),
+        /attestation.on must name at least one chain/
+      );
+    });
   });
 });
 

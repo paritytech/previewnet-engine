@@ -231,6 +231,18 @@ export function transactionStorageWipes(): Record<string, string> {
  */
 export const FULL_CORE = 57600;
 
+/**
+ * How long a parachain waits for the relay's go-ahead after its new code passed pre-check,
+ * and how long before the same parachain may upgrade again — both in relay blocks, both in
+ * `Configuration::ActiveConfig`, both tuned on live networks for a caution a fork has no use
+ * for: Polkadot's 600 and 14400 mean an hour per upgrade and one upgrade per parachain per
+ * day. The fork exists to enact runtimes under test, several a day, so these drop to three
+ * minutes and six. Still above `minimum_validation_upgrade_delay` (20), which the runtime's
+ * own consistency check enforces; the pre-check and go-ahead path is exercised unchanged.
+ */
+export const FORK_VALIDATION_UPGRADE_DELAY = 30;
+export const FORK_VALIDATION_UPGRADE_COOLDOWN = 60;
+
 export function coreDescriptorsValue(plan: CoreAssignment[]): Record<number, unknown> {
   return Object.fromEntries(
     plan.map(({ core, paraId }) => [

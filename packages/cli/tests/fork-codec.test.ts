@@ -12,6 +12,10 @@ import {
   u32le,
 } from '../src/fork/codec.js';
 import { CHAINS, PARACHAINS } from '../src/fork/chains.js';
+import { scaleHex } from '../src/fork/overrides.js';
+import { TypeRegistry } from '@polkadot/types';
+import { hexToU8a } from '@polkadot/util';
+import { blake2128Concat } from '../src/fork/codec.js';
 import { VALID_PARACHAINS, paraIds } from '@parity/ppn-network-config';
 
 describe('keyOf', () => {
@@ -131,5 +135,28 @@ describe('CHAINS', () => {
   it('records the bundle spec name for each chain', () => {
     assert.equal(CHAINS.find((c) => c.key === 'people')?.spec, 'individuality');
     assert.equal(CHAINS.find((c) => c.key === 'relay')?.spec, 'paseo');
+  });
+});
+
+describe('scaleHex', () => {
+  // The second assertion pins polkadot-js rather than this code, on purpose: it is the premise
+  // `scaleHex` exists for. A failure there means `toHex` was fixed upstream and `scaleHex` is no
+  // longer needed.
+  it('encodes an integer little-endian, where toHex() does not', () => {
+    const value = new TypeRegistry().createType('u32', 50_000_413);
+    assert.equal(scaleHex(value), '1df2fa02');
+    assert.equal(value.toHex(), '0x02faf21d');
+  });
+
+  // Decoding has the same problem, and the second assertion pins polkadot-js for the same reason.
+  it('decodes SCALE bytes, where a hex string is read as a big-endian number', () => {
+    const reg = new TypeRegistry();
+    assert.equal(reg.createType('u32', hexToU8a('0x01000000')).toString(), '1');
+    assert.equal(reg.createType('u32', '0x01000000').toString(), '16777216');
+  });
+
+  it('gives the storage key the runtime reads back for a u32-keyed asset', () => {
+    const encoded = scaleHex(new TypeRegistry().createType('u32', 50_000_413));
+    assert.equal(blake2128Concat(encoded), 'f135a21cac0a18d1229a791a3532ba5a1df2fa02');
   });
 });

@@ -9,11 +9,14 @@
 import fs from 'node:fs';
 import type { StorageIndex } from './rpc.js';
 import { rpc, storageIndex } from './rpc.js';
-import { keyOf } from './codec.js';
+import { hexToU8a, u8aToHex } from '@polkadot/util';
+import { blake2128Concat, keyOf, twox64Concat } from './codec.js';
 import {
   channelsTouching,
   coreDescriptorsValue,
   dmpWipes,
+  FORK_VALIDATION_UPGRADE_COOLDOWN,
+  FORK_VALIDATION_UPGRADE_DELAY,
   hrmpChannelKey,
   hrmpContentsWipes,
   hrmpParaKey,
@@ -24,8 +27,12 @@ import {
   type PlannedPara,
 } from './shared-relay.js';
 import {
+  attestationAllowanceInjects,
   collatorKey,
   paraCandidates,
+  bulletinAuthorizerInjects,
+  dotnsDispatcherInject,
+  evmDeployerEndowInjects,
   paraInjects,
   relayCandidates,
   relayInjects,
@@ -71,8 +78,8 @@ export function verify(
       continue;
     }
     try {
-      const decoded = reg.createType(reg.createLookupType(info.plain), '0x' + value);
-      if (decoded.toHex().slice(2) !== value) throw new Error('round-trip mismatch');
+      const decoded = reg.createType(reg.createLookupType(info.plain), hexToU8a('0x' + value));
+      if (scaleHex(decoded) !== value) throw new Error('round-trip mismatch');
       kept[key] = value;
     } catch (e) {
       failures.push(`${info.label}: ${(e as Error).message}`);
@@ -127,8 +134,8 @@ export function verifyInjects(
       continue;
     }
     try {
-      const decoded = reg.createType(reg.createLookupType(type), '0x' + value);
-      if (decoded.toHex().slice(2) !== value) throw new Error('round-trip mismatch');
+      const decoded = reg.createType(reg.createLookupType(type), hexToU8a('0x' + value));
+      if (scaleHex(decoded) !== value) throw new Error('round-trip mismatch');
       kept[key] = value;
     } catch (e) {
       failures.push(`${info.label}: ${(e as Error).message}`);
@@ -161,6 +168,18 @@ function write(outFile: string, file: OverrideFile, index?: StorageIndex): void 
 }
 
 /**
+ * SCALE bytes of a codec, as hex without the 0x.
+ *
+ * polkadot-js overrides `toHex` on its integer types to emit big-endian, so it does not give
+ * SCALE bytes. Decoding has the same trap, since a multi-byte integer read from a hex string
+ * comes back byte-reversed. Every encode goes through this function, including the struct ones
+ * `toHex` would get right.
+ */
+export function scaleHex(codec: { toU8a(): Uint8Array }): string {
+  return u8aToHex(codec.toU8a()).slice(2);
+}
+
+/**
  * Encode a value through the chain's own metadata.
  *
  * For anything whose shape is more than a list of integers. `verify()` decodes every override
@@ -170,63 +189,205 @@ function encode(index: StorageIndex, pallet: string, item: string, value: unknow
   const entry = index.byKey.get(keyOf(pallet, item));
   if (!entry?.plain) throw new Error(`${pallet}::${item} is not a plain storage value here`);
   const type = index.reg.createLookupType(entry.plain);
-  return index.reg.createType(type, value).toHex().slice(2);
+  return scaleHex(index.reg.createType(type, value));
 }
 
 /**
- * Set `scheduler_params.num_cores` in production's own HostConfiguration.
+ * Build one map entry, hashed key and encoded value, through the chain's own metadata.
+ *
+ * `encode()` handles only plain values. A map entry needs three things the metadata owns:
+ * the key type (an `Assets::Asset` id is a `u32` on Asset Hub and a `Location` on People), the
+ * hasher, and the value type. Getting any of them from a hand-written assumption is how a bite
+ * writes a value the runtime cannot read back.
+ *
+ * Only single-key maps whose hasher keeps the key: `Blake2_128Concat`, `Twox64Concat` and
+ * `Identity`. Anything else either discards the key or hashes a tuple of them, and every map a
+ * bite writes into is reversible by design.
+ */
+export function encodeMapEntry(
+  index: StorageIndex,
+  pallet: string,
+  item: string,
+  key: unknown,
+  value: unknown
+): [string, string] {
+  const prefix = keyOf(pallet, item);
+  const entry = index.byKey.get(prefix);
+  if (!entry) throw new Error(`${pallet}::${item} is not in this runtime`);
+  if (entry.mapValue === null || entry.mapKey === null) {
+    throw new Error(`${pallet}::${item} is not a map here`);
+  }
+  const encKey = scaleHex(index.reg.createType(index.reg.createLookupType(entry.mapKey), key));
+  // A double map holds two hashers and hashes the key tuple, so taking the first alone would
+  // write a key nothing reads back. Joining leaves no single hasher name to match, so it is
+  // refused instead.
+  const hasher = entry.hashers.join(',');
+  const hashed =
+    hasher === 'Blake2_128Concat'
+      ? blake2128Concat(encKey)
+      : hasher === 'Twox64Concat'
+        ? twox64Concat(encKey)
+        : hasher === 'Identity'
+          ? encKey
+          : (() => {
+              throw new Error(
+                `${pallet}::${item} is hashed with ${hasher}, which is not one key-preserving hasher`
+              );
+            })();
+  const encValue = scaleHex(index.reg.createType(index.reg.createLookupType(entry.mapValue), value));
+  return [prefix + hashed, encValue];
+}
+
+/** The asset a fork seeds, so a Coinage instance has one to wrap as coins. */
+export interface SeededAsset {
+  /** Asset id on its reserve chain; the same asset is keyed by `Location` on People. */
+  id: number;
+  /** Account that owns, issues, admins and freezes it: one we hold, so minting works after. */
+  owner: string;
+  minBalance: bigint;
+  isSufficient: boolean;
+  name: string;
+  symbol: string;
+  decimals: number;
+}
+
+/**
+ * How a sibling names an Asset Hub asset: the reserve chain, its `Assets` pallet, the id.
+ *
+ * Matches `people_foreign_location` in individuality-community's initial-setup, so a seeded
+ * registration is keyed exactly as the scripts and the runtime expect. Pallet index 50 is
+ * `Assets` on Asset Hub.
+ */
+export function assetHubAssetLocation(assetHubParaId: number, assetId: number): unknown {
+  return {
+    parents: 1,
+    interior: {
+      X3: [{ Parachain: assetHubParaId }, { PalletInstance: 50 }, { GeneralIndex: assetId }],
+    },
+  };
+}
+
+/**
+ * Register an asset, as `Assets.force_create` and `force_set_metadata` would have.
+ *
+ * People is what forces this. `CreateOrigin` for its by-`Location` instance is `EnsureNever`, so
+ * no signed origin can register the foreign representation whatever deposit it offers, and
+ * `force_create` takes `ForceOrigin`, which is Root, unreachable on a fork of a chain whose Root
+ * is a 28-day referendum. Asset Hub would take a signed `create` against a deposit; seeding it
+ * too keeps one mechanism and costs no post-spawn step.
+ *
+ * Everything a fresh asset holds is zero. `do_force_create` sets supply, deposit, accounts,
+ * sufficients and approvals to zero and status to `Live`, with owner, issuer, admin and freezer
+ * all the same account. So there is no balance state to keep consistent here: minting, the
+ * conversion pool and the Coinage instance are ordinary signed calls that run afterwards and
+ * compute their own state.
+ *
+ * `assetKey` is the id on its reserve chain and the `Location` on any other, which is why this
+ * takes the key as an opaque value and lets the metadata encode it.
+ */
+export function seedAssetInjects(
+  index: StorageIndex,
+  assetKey: unknown,
+  asset: SeededAsset
+): Record<string, string> {
+  const [detailsKey, details] = encodeMapEntry(index, 'Assets', 'Asset', assetKey, {
+    owner: asset.owner,
+    issuer: asset.owner,
+    admin: asset.owner,
+    freezer: asset.owner,
+    supply: 0,
+    deposit: 0,
+    minBalance: asset.minBalance,
+    isSufficient: asset.isSufficient,
+    accounts: 0,
+    sufficients: 0,
+    approvals: 0,
+    status: 'Live',
+  });
+  const [metaKey, meta] = encodeMapEntry(index, 'Assets', 'Metadata', assetKey, {
+    deposit: 0,
+    name: asset.name,
+    symbol: asset.symbol,
+    decimals: asset.decimals,
+    isFrozen: false,
+  });
+  return { [detailsKey]: details, [metaKey]: meta };
+}
+
+/** The HostConfiguration fields a shared-relay bite changes, and what they were. */
+interface HostConfigPatch {
+  value: string;
+  before: { numCores: number; validationUpgradeDelay: number; validationUpgradeCooldown: number };
+}
+
+/**
+ * Change three numbers in production's own HostConfiguration: `scheduler_params.num_cores`,
+ * `validation_upgrade_delay` and `validation_upgrade_cooldown`.
  *
  * Rebuilt from the decoded value's own fields — Codec instances, not JSON. Going through
  * `toJSON()` and back produces bytes that mean the same thing but are not the ones the chain
  * wrote, and `verify()` rightly refuses them: it requires a value to survive decode → encode
  * unchanged. Passing the untouched fields through as codecs keeps them byte-for-byte, so the
- * only bytes that move are the ones for the number being changed.
+ * only bytes that move are the ones for the numbers being changed.
  *
  * That matters beyond tidiness. This struct also carries `executor_params`, whose
  * `EnabledHostFunction(EccRfc163)` the relay's validators need to accept People's PVFs, plus
  * the async-backing values production tuned. Replacing the whole value would cost all of it to
- * fix one number, which is why the bite leaves this key alone on previewnet entirely.
+ * fix three numbers, which is why the bite leaves this key alone on previewnet entirely.
  */
-function patchNumCores(
+function patchHostConfig(
   index: StorageIndex,
   liveHex: string,
-  numCores: number
-): { value: string; before: number } {
+  want: { numCores: number; validationUpgradeDelay: number; validationUpgradeCooldown: number }
+): HostConfigPatch {
   const entry = index.byKey.get(keyOf('Configuration', 'ActiveConfig'));
   if (!entry?.plain) throw new Error('Configuration::ActiveConfig is not a plain value here');
   const type = index.reg.createLookupType(entry.plain);
 
-  const decoded = index.reg.createType(type, liveHex) as any;
+  const decoded = index.reg.createType(type, hexToU8a(liveHex)) as any;
   const fields = Object.fromEntries([...decoded.entries()]);
   const params = fields.schedulerParams;
   if (!params?.entries) {
     throw new Error('HostConfiguration has no schedulerParams — this relay runtime is not what the bite expects');
   }
   const paramFields = Object.fromEntries([...params.entries()]);
-  const before = Number(paramFields.numCores?.toString());
-  if (!Number.isFinite(before)) {
-    throw new Error('schedulerParams has no numCores — this relay runtime is not what the bite expects');
-  }
+  const num = (v: unknown, name: string): number => {
+    const n = Number(v?.toString());
+    if (!Number.isFinite(n)) throw new Error(`HostConfiguration has no ${name} — this relay runtime is not what the bite expects`);
+    return n;
+  };
+  const before = {
+    numCores: num(paramFields.numCores, 'schedulerParams.numCores'),
+    validationUpgradeDelay: num(fields.validationUpgradeDelay, 'validationUpgradeDelay'),
+    validationUpgradeCooldown: num(fields.validationUpgradeCooldown, 'validationUpgradeCooldown'),
+  };
 
-  const patchedParams = new (params.constructor as any)(index.reg, {
-    ...paramFields,
-    numCores: index.reg.createType('u32', numCores),
-  });
-  const value = index.reg
-    .createType(type, { ...fields, schedulerParams: patchedParams })
-    .toHex()
-    .slice(2);
+  const u32 = (n: number) => index.reg.createType('u32', n);
+  const patchedParams = new (params.constructor as any)(index.reg, { ...paramFields, numCores: u32(want.numCores) });
+  const value = scaleHex(
+    index.reg.createType(type, {
+      ...fields,
+      schedulerParams: patchedParams,
+      validationUpgradeDelay: u32(want.validationUpgradeDelay),
+      validationUpgradeCooldown: u32(want.validationUpgradeCooldown),
+    })
+  );
 
   // Guards, because this rebuilds a struct whose layout is the runtime's, not ours: the result
-  // must differ from production only inside that one u32, and must read back as asked.
+  // must differ from production only inside those three u32s, and must read back as asked.
   const bytes = (hex: string) => hex.match(/../g) ?? [];
   const changed = bytes(value).filter((b, i) => b !== bytes(liveHex.slice(2))[i]).length;
-  if (changed === 0 || changed > 4) {
-    throw new Error(`patching num_cores changed ${changed} bytes of HostConfiguration; expected 1-4`);
+  if (changed === 0 || changed > 12) {
+    throw new Error(`patching HostConfiguration changed ${changed} bytes; expected 1-12`);
   }
-  const readBack = (index.reg.createType(type, '0x' + value).toJSON() as any).schedulerParams?.numCores;
-  if (readBack !== numCores) {
-    throw new Error(`num_cores read back as ${readBack}, not ${numCores}`);
+  const back = index.reg.createType(type, hexToU8a('0x' + value)).toJSON() as any;
+  const got = {
+    numCores: back.schedulerParams?.numCores,
+    validationUpgradeDelay: back.validationUpgradeDelay,
+    validationUpgradeCooldown: back.validationUpgradeCooldown,
+  };
+  for (const k of Object.keys(want) as (keyof typeof want)[]) {
+    if (got[k] !== want[k]) throw new Error(`${k} read back as ${got[k]}, not ${want[k]}`);
   }
   return { value, before };
 }
@@ -250,11 +411,18 @@ async function sharedRelayCandidates(
     '0x' + keyOf('Configuration', 'ActiveConfig'),
   ]);
   if (!liveConfig) throw new Error('the relay has no Configuration::ActiveConfig to patch');
-  const config = patchNumCores(index, liveConfig, plan.length);
+  const want = {
+    numCores: plan.length,
+    validationUpgradeDelay: FORK_VALIDATION_UPGRADE_DELAY,
+    validationUpgradeCooldown: FORK_VALIDATION_UPGRADE_COOLDOWN,
+  };
+  const config = patchHostConfig(index, liveConfig, want);
 
   console.log(
     `  shared relay: ${paraIds.join(', ')} on cores 0-${plan.length - 1}, ` +
-      `num_cores ${config.before} -> ${plan.length}`
+      `num_cores ${config.before.numCores} -> ${want.numCores}, ` +
+      `validation_upgrade_delay ${config.before.validationUpgradeDelay} -> ${want.validationUpgradeDelay}, ` +
+      `cooldown ${config.before.validationUpgradeCooldown} -> ${want.validationUpgradeCooldown}`
   );
 
   return {
@@ -298,7 +466,7 @@ async function hrmpResets(index: StorageIndex, relayUrl: string, paraIds: number
 
   const read = (key: string) => rpc<`0x${string}` | null>(relayUrl, 'state_getStorage', ['0x' + key]);
   const paraList = (hex: `0x${string}` | null): number[] =>
-    hex ? (index.reg.createType('Vec<u32>', hex).toJSON() as number[]) : [];
+    hex ? (index.reg.createType('Vec<u32>', hexToU8a(hex)).toJSON() as number[]) : [];
 
   const ingress = new Map<number, number[]>();
   const egress = new Map<number, number[]>();
@@ -335,20 +503,19 @@ function resetHrmpChannel(index: StorageIndex, liveHex: string): string {
   const entry = index.byKey.get(keyOf('Hrmp', 'HrmpChannels'));
   if (!entry?.mapValue) throw new Error('Hrmp::HrmpChannels is not a map here');
   const type = index.reg.createLookupType(entry.mapValue);
-  const decoded = index.reg.createType(type, liveHex) as any;
+  const decoded = index.reg.createType(type, hexToU8a(liveHex)) as any;
   const fields = Object.fromEntries([...decoded.entries()]);
   for (const f of ['mqcHead', 'msgCount', 'totalSize']) {
     if (!(f in fields)) throw new Error(`HrmpChannel has no ${f} field — this relay runtime is not what the reset expects`);
   }
-  return index.reg
-    .createType(type, {
+  return scaleHex(
+    index.reg.createType(type, {
       ...fields,
       mqcHead: index.reg.createType('Option<H256>', null),
       msgCount: index.reg.createType('u32', 0),
       totalSize: index.reg.createType('u32', 0),
     })
-    .toHex()
-    .slice(2);
+  );
 }
 
 /** A runtime to authorize at import, for a fork that has no sudo to authorize one later. */
@@ -411,7 +578,11 @@ export async function paraOverrides(
   outFile: string,
   sharedRelay = false,
   upgrade?: SeededUpgrade,
-  scheme: AuraScheme = 'sr25519'
+  scheme: AuraScheme = 'sr25519',
+  dotns?: { dispatcher?: string; deployer?: string | string[] },
+  bulletinAuthorizer?: string,
+  seedAsset?: { asset: SeededAsset; assetHubParaId: number; isReserve: boolean },
+  attestation?: { attester: string; count: number; pallet: 'PeopleLite' | 'DotnsGateway' }
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collator = await collatorKey(paraId, scheme);
@@ -438,6 +609,35 @@ export async function paraOverrides(
     // Parachains of a shared relay are live public chains: no dev account holds
     // funds there, so sudo is endowed at import (see sudoEndowInjects).
     ...(sharedRelay ? sudoEndowInjects() : {}),
+    // Written for the runtime this bite authorizes, not the one being bitten: DotnsGateway
+    // arrives with the upgrade, so the live metadata cannot type-check this and the guard is
+    // the descriptor. See dotnsDispatcherInject.
+    ...(dotns?.dispatcher ? dotnsDispatcherInject(dotns.dispatcher) : {}),
+    // The contracts the dispatcher points at are deployed after the spawn, by wallets whose
+    // revive accounts hold nothing on the chain being bitten. Endow them here so no funding
+    // step has to be repeated by hand on every rebite.
+    ...(dotns?.deployer ? evmDeployerEndowInjects(dotns.deployer) : {}),
+    // A bitten Bulletin has no authorizer: the runtime seeds one at genesis and a fork has none.
+    ...(bulletinAuthorizer && index.pallets.has('TransactionStorage')
+      ? bulletinAuthorizerInjects(bulletinAuthorizer)
+      : {}),
+    // Registered on both the reserve chain and any chain that holds it by location: Coinage
+    // needs the asset on People, and People's by-`Location` CreateOrigin is EnsureNever, so no
+    // signed origin could ever register it. See seedAssetInjects.
+    ...(seedAsset && index.pallets.has('Assets')
+      ? seedAssetInjects(
+          index,
+          seedAsset.isReserve
+            ? seedAsset.asset.id
+            : assetHubAssetLocation(seedAsset.assetHubParaId, seedAsset.asset.id),
+          seedAsset.asset
+        )
+      : {}),
+    // Neither pallet is in the metadata of the chain being bitten, so the guard is the
+    // descriptor rather than `index.pallets.has`. See attestationAllowanceInjects.
+    ...(attestation
+      ? attestationAllowanceInjects(attestation.pallet, attestation.attester, attestation.count)
+      : {}),
     ...seededUpgradeInject(index, upgrade),
   };
   write(outFile, { overrides, injects }, index);

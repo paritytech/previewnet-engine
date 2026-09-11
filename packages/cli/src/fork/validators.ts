@@ -9,8 +9,8 @@
 // additionally decode-verify each value against the live runtime before writing it.
 
 import { Keyring } from '@polkadot/keyring';
-import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le } from './codec.js';
+import { cryptoWaitReady, decodeAddress } from '@polkadot/util-crypto';
+import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le, u64le } from './codec.js';
 import type { AuraScheme } from '@parity/ppn-network-config';
 
 export const ALICE_SR = 'd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
@@ -83,10 +83,14 @@ export function relayCandidates(): Record<string, string> {
     // value is `18` + 6x(`04` + u32) = [[0],[1],[2],[3],[4],[5]].
     [keyOf('ParaScheduler', 'ValidatorGroups')]:
       len + VALIDATORS.map((_, i) => compactLen(1) + u32le(i)).join(''),
-    // previewnet's relay runs the paseo runtime, which has no `:UsePreviousValidators:`
-    // hook, so doppelganger's inject for it is inert. Without ForceNone the first session
-    // rotation re-elects production's validators — whose Session::NextKeys doppelganger has
-    // just wiped — leaving Babe::NextAuthorities empty and halting authoring after one epoch.
+    // Without this the relay takes the validator set Asset Hub elects. None of those accounts
+    // holds session keys on a fork, so `pallet_session` queues an empty set and announces the
+    // next BABE epoch with no authorities: nobody can claim a slot, no block enacts the next
+    // rotation, and the chain stops at the session boundary. `Buffered` makes `new_session()`
+    // return `None`, so `pallet_session` keeps the ones in `VALIDATORS`.
+    [keyOf('StakingAhClient', 'Mode')]: '01', // OperatingMode::Buffered
+    // `Buffered` above handles the validator set. This is for `ElectionProviderMultiPhase`,
+    // which runs on the relay whatever mode `StakingAhClient` is in.
     [keyOf('Staking', 'ForceEra')]: '02', // Forcing::ForceNone
   };
 }
@@ -115,6 +119,11 @@ export function relayInjects(): Record<string, string> {
 export function sudoEndowInjects(): Record<string, string> {
   // //Alice, sr25519 public key.
   const alice = 'd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+  return endowInjects(alice);
+}
+
+/** Write one `System::Account` entry with a spendable balance and nothing else set. */
+function endowInjects(accountId: string): Record<string, string> {
   const info =
     '00000000' + // nonce
     '00000000' + // consumers
@@ -124,7 +133,144 @@ export function sudoEndowInjects(): Record<string, string> {
     u128le(0n) + // reserved
     u128le(0n) + // frozen
     u128le(1n << 127n); // flags: the new-logic marker every current account carries
-  return { [keyOf('System', 'Account') + blake2128Concat(alice)]: info };
+  return { [keyOf('System', 'Account') + blake2128Concat(accountId)]: info };
+}
+
+/**
+ * The account `pallet-revive` spends from when an Ethereum wallet signs.
+ *
+ * An secp256k1 wallet has no AccountId32 of its own, so revive derives a fallback: the twenty
+ * address bytes followed by twelve `0xEE` (`to_fallback_account_id` in `frame/revive/address.rs`,
+ * which also recognises the suffix on the way back). Fees and deposits for anything that wallet
+ * signs come out of that account.
+ *
+ * Endowing it at import is what lets a contract deployment run on a fork of a chain where no key
+ * we hold has funds. A signed transfer after the spawn would also work where the bite endows
+ * Alice, which it does on a shared relay, but that is a manual step to repeat on every rebite
+ * and here it costs one entry.
+ *
+ * A chain may name more than one wallet. dotns signs the CREATE3 factory from a single-purpose
+ * key and the deploy pipeline from another, which becomes the proxy owner, so a fork that
+ * reproduces another network's addresses and its ownership has to fund both.
+ */
+export function evmDeployerEndowInjects(addresses: string | string[]): Record<string, string> {
+  const injects: Record<string, string> = {};
+  for (const address of Array.isArray(addresses) ? addresses : [addresses]) {
+    const hex = address.replace(/^0x/, '').toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(hex)) {
+      throw new Error(`evm deployer must be a 20-byte hex address, got "${address}"`);
+    }
+    Object.assign(injects, endowInjects(hex + 'ee'.repeat(12)));
+  }
+  return injects;
+}
+
+/**
+ * Let one account authorize Bulletin storage, written at import.
+ *
+ * `TransactionStorage::authorize_account` takes `Authorizer`, which is Root, a sibling parachain
+ * in `AllowedParachainIds`, or an account in `AllowedAuthorizers`. On a fork of a chain without
+ * Sudo the first is unreachable and the other two are empty: live Polkadot Bulletin has no
+ * entry in either, because on a production chain authorizers arrive by governance. So nothing
+ * can store anything, and `bulletinAutoAuthorize` fails `BadSigner`.
+ *
+ * previewnet does not hit this: the bulletin runtime's own genesis preset seeds
+ * `Sr25519Keyring::Eve` with 100_000 transactions and 100 GiB. A fork has no genesis, so the
+ * same entry is written here instead, with the budget copied from that preset rather than
+ * invented. `valid_until: None` and `feeless: true` are what `BuildGenesisConfig` sets.
+ *
+ * This writes the map entry alone. Both paths that create one in the pallet pair the insert
+ * with `inc_authorizer_providers`, which keeps a `feeless` authorizer with no balance from
+ * being reaped between dispatches. So pass an account that holds a balance, which provides
+ * for itself. The reference cannot be supplied later either: both paths guard the increment
+ * on the entry being new, so adding the authorizer again through the pallet is a no-op.
+ *
+ * Unlike the other injects this one is type-checkable: `TransactionStorage` exists on the chain
+ * being bitten, so `verifyInjects` decodes it against real metadata.
+ */
+export function bulletinAuthorizerInjects(accountId: string): Record<string, string> {
+  const id = accountId.replace(/^0x/, '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(id)) {
+    throw new Error(`bulletin authorizer must be a 32-byte account id, got "${accountId}"`);
+  }
+  const budget =
+    '01' + // quota: Some
+    u32le(100_000) + // transactions
+    u64le(100n * 1024n * 1024n * 1024n) + // bytes: 100 GiB
+    '00' + // valid_until: None
+    '01'; // feeless
+  return { [keyOf('TransactionStorage', 'AllowedAuthorizers') + blake2128Concat(id)]: budget };
+}
+
+/**
+ * Point `DotnsGateway` at the contract it dispatches into, written at import.
+ *
+ * `set_dispatcher_address` takes `RootOrWhitelist`, and a fork of a chain without Sudo reaches
+ * neither arm: Root has no dispatcher, and the whitelisted caller needs a referendum to
+ * whitelist the call. Until it is set, `reserve_name` and `register_name` fail
+ * `DispatcherAddressNotSet`, the two calls that reach the contract. The bite is the only
+ * origin-free moment, exactly as it is for the seeded upgrade authorization.
+ *
+ * Two things here differ from every other inject, and both follow from the pallet arriving with
+ * the runtime the bite authorizes rather than being on the chain being bitten. `verifyInjects`
+ * cannot type-check the value, because the live metadata has no `DotnsGateway`, and reports it
+ * skipped; the value is a bare H160, so nothing a type check would catch is lost. And the guard
+ * is the descriptor rather than `index.pallets.has('DotnsGateway')`, which would be false at
+ * bite time for the same reason and would silently write nothing at all.
+ *
+ * `DispatcherAddress` is `OptionQuery`, whose `Some` is stored as the bare value: 20 bytes, no
+ * discriminant.
+ */
+export function dotnsDispatcherInject(address: string): Record<string, string> {
+  const hex = address.replace(/^0x/, '').toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(hex)) {
+    throw new Error(`dotns dispatcher must be a 20-byte hex address, got "${address}"`);
+  }
+  return { [keyOf('DotnsGateway', 'DispatcherAddress')]: hex };
+}
+
+/**
+ * Grant an attestation allowance, as `increase_attestation_allowance` would have.
+ *
+ * Two quotas share the name. `PeopleLite`'s is how many people a verifier may attest, spent by
+ * `attest`; `DotnsGateway`'s is how many names an attester may reserve, spent by `reserve_name`.
+ * Without the first nobody becomes a lite person, without the second nobody who did can take a
+ * username, and the backend needs both.
+ *
+ * `PeopleLite`'s manager is `EnsureRoot` and `DotnsGateway`'s is `RootOrWhitelist`, so on a fork
+ * of a chain whose Root is a referendum neither can be granted after the spawn.
+ *
+ * The key is hand-built for the same reason `dotnsDispatcherInject` hand-builds its own: both
+ * pallets arrive with the runtime the bite authorizes, so neither is in the metadata of the
+ * chain being bitten. Deriving the key from that metadata yields nothing at all, silently, on
+ * exactly the chains this is meant for.
+ *
+ * Both pallets store it as `StorageMap<_, Blake2_128Concat, AccountId, u32, ValueQuery>`, and
+ * both `increase_attestation_allowance` implementations only saturating-add, so the count is
+ * the whole state.
+ */
+export function attestationAllowanceInjects(
+  pallet: 'PeopleLite' | 'DotnsGateway',
+  attester: string,
+  count: number
+): Record<string, string> {
+  // One descriptor object feeds both calls, so neither message names the pallet: the count and
+  // the attester are the same on each, and naming one would imply a figure that is per-pallet.
+  if (!Number.isInteger(count) || count <= 0) {
+    throw new Error(`attestation allowance must be a positive integer, got ${count}`);
+  }
+  let id: string;
+  try {
+    id = Buffer.from(decodeAddress(attester)).toString('hex');
+  } catch (cause) {
+    // decodeAddress reports the encoding it failed to read, which says nothing about where the
+    // value came from. This is the only place that knows it is an attester.
+    throw new Error(`attester "${attester}" is not an account: ${(cause as Error).message}`);
+  }
+  if (id.length !== 64) {
+    throw new Error(`attester must be a 32-byte account, got ${id.length / 2} bytes`);
+  }
+  return { [keyOf(pallet, 'AttestationAllowance') + blake2128Concat(id)]: u32le(count) };
 }
 
 /**

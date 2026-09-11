@@ -22,6 +22,7 @@ import {
   specSourceUrl,
   asWs,
   readEnvFile,
+  forkRelayBootnode,
   type NetworkDef,
   type NetworkChain,
   repoRoot,
@@ -61,6 +62,49 @@ const BITE_ENV = {
 };
 
 const COMMON_ARGS = ['--no-hardware-benchmarks', '--state-pruning', '256', '--database', 'rocksdb'];
+
+export const SYNC_SOURCE_PREFIX = 'PPN_BITE_SYNC_SOURCE_';
+
+/**
+ * A local node to take a parachain's state from, instead of whatever peers the network offers.
+ *
+ * Set `PPN_BITE_SYNC_SOURCE_<paraId>` to a multiaddr. Opt-in per machine, because it names a
+ * node only that machine has.
+ *
+ * `--reserved-only` is not optional: nothing in `schedule_next_peer` prefers a reserved peer,
+ * so without it the pinned node is one more entry in the pool. It also removes the fallback,
+ * so a source that is down stops a bite rather than slowing it.
+ *
+ * Parachains only, though both they and the relay are bitten with `--sync warp`. Cumulus gives
+ * a parachain `WarpSyncConfig::WithTarget`, which skips the proof download and syncs state from
+ * a header the relay supplied. A relay warp proof is built from the GRANDPA justification at
+ * every authority-set change back to genesis, and a source that warp-synced itself keeps none of
+ * those, so it has nothing to build one from. An archive node could serve them, at the price of
+ * a database built from genesis, to save the few minutes a relay bite takes on public peers.
+ */
+export function syncSourceArgs(paraId: string): string[] {
+  const addr = process.env[`${SYNC_SOURCE_PREFIX}${paraId}`];
+  if (!addr) return [];
+  return ['--reserved-nodes', addr, '--reserved-only'];
+}
+
+/**
+ * Sync source variables that are set but will have no effect, each with the reason.
+ *
+ * Two routes reach that state: a para id this network does not have, and `VAR="$MISSING"`,
+ * which leaves the variable present and empty for the lookup to read as unset. Both leave the
+ * bite syncing from public peers, which on its own looks like an ordinary slow bite.
+ */
+export function syncSourceWarnings(paraIds: string[]): string[] {
+  return Object.entries(process.env)
+    .filter(([key]) => key.startsWith(SYNC_SOURCE_PREFIX))
+    .flatMap(([key, addr]) => {
+      if (!addr) return [`${key} is set but empty`];
+      if (paraIds.includes(key.slice(SYNC_SOURCE_PREFIX.length))) return [];
+      return [`${key} names no parachain in this network`];
+    })
+    .sort();
+}
 
 /**
  * Where a bite's node logs go. Beside the bundle, never inside it: the bundle is tarred whole
@@ -298,6 +342,26 @@ function dirSize(dir: string): number {
 }
 
 /**
+ * The compressor tar is handed, with the flags that select it.
+ *
+ * pigz emits ordinary gzip, so the `.tgz` zombienet restores is unchanged; it just uses every
+ * core instead of one, and these archives are gigabytes. gzip is where a bite's packing time
+ * goes, and it compresses badly here anyway because RocksDB has already compressed its SSTs.
+ *
+ * Spelled in full rather than as GNU's `-I` shorthand. Both tars take the long name; on BSD tar
+ * `-I` is a synonym for `-T`, its files-from flag, so the short form reads "pigz" as a file to
+ * list and dies on "Couldn't open pigz" even when pigz is on PATH.
+ */
+export function compressor(): { name: string; flags: string[] } {
+  try {
+    execFileSync('pigz', ['--version'], { stdio: 'ignore' });
+    return { name: 'pigz', flags: ['--use-compress-program', 'pigz'] };
+  } catch {
+    return { name: 'gzip', flags: ['-z'] };
+  }
+}
+
+/**
  * Pack a node database the way zombie-bite's generate_snap() does: data/ containing chains/.
  *
  * Reports as it goes. A snapshot of a public chain runs to gigabytes — devnet's was 4.9 GB —
@@ -316,7 +380,9 @@ function packSnapshot(dbDir: string, dest: string, label: string): void {
   console.log(`  ${label}: copying ${humanSize(raw)}…`);
   fs.cpSync(source, path.join(stage, 'data', 'chains'), { recursive: true });
 
-  console.log(`  ${label}: compressing…`);
+  const { name, flags } = compressor();
+  console.log(`  ${label}: compressing with ${name}…`);
+
   const started = Date.now();
   // Watch the tarball grow: `tar` says nothing, and compressing gigabytes is where a bite
   // looks most like it has died.
@@ -327,13 +393,14 @@ function packSnapshot(dbDir: string, dest: string, label: string): void {
   }, 60_000);
   ticker.unref?.();
   try {
-    execFileSync('tar', ['-czf', dest, '-C', stage, 'data'], { stdio: 'inherit' });
+    execFileSync('tar', [...flags, '-cf', dest, '-C', stage, 'data'], { stdio: 'inherit' });
   } finally {
     clearInterval(ticker);
   }
 
   const packed = fs.statSync(dest).size;
-  console.log(`  ${label}: ${humanSize(packed)} packed from ${humanSize(raw)}`);
+  const secs = Math.round((Date.now() - started) / 1000);
+  console.log(`  ${label}: ${humanSize(packed)} packed from ${humanSize(raw)} in ${secs}s`);
   fs.rmSync(stage, { recursive: true, force: true });
 }
 
@@ -387,17 +454,41 @@ async function collectSpec(
   }
 
   // Two copies, and only one of them ships. The as-fetched spec keeps the source's
-  // bootNodes, which the bite needs in order to warp-sync. What goes in the bundle has
-  // them stripped, because a forked node that keeps them rejoins the source network and
-  // follows its longer chain — which looks like success on every metric while not being a
-  // fork at all.
+  // bootNodes, which the bite needs in order to warp-sync. What goes in the bundle drops
+  // them, because a forked node that keeps them rejoins the source network and follows its
+  // longer chain, which looks like success on every metric while not being a fork at all.
+  //
+  // The relay spec ships one bootnode of its own in their place. Dropping the source's
+  // bootNodes without replacing them strands a fork the moment `fork_id` takes it off the
+  // source network's DHT: Kademlia adds peers manually, so a node with no bootnode never fills
+  // its routing table and authority discovery resolves no addresses. See `forkRelayBootnode`.
+  // Parachain specs ship none, because a fork runs a single collator per parachain and has no
+  // parachain peer to find.
   const spec = JSON.parse(fs.readFileSync(workSpec, 'utf-8'));
-  const bootNodes = spec.bootNodes?.length ?? 0;
-  spec.bootNodes = [];
+  const sourceBootNodes = spec.bootNodes?.length ?? 0;
+  spec.bootNodes = chain.paraId === null ? [forkRelayBootnode()] : [];
+
+  // The fork id is what takes it off that DHT. Protocol names are built from the genesis hash
+  // plus the fork id: `block_announces_protocol_name` in `sync/src/engine.rs`,
+  // `kademlia_protocol_name` in `network/src/discovery.rs`. A fork keeps the source's genesis
+  // hash, so without a fork id its names are byte-identical to the source's and it can still
+  // reach the source's nodes.
+  //
+  // Only the shipped copy gets one, because the bite has to reach the real network to
+  // warp-sync from it. Every node in the spawned fork must then carry the same value, or the
+  // fork splits into groups that cannot see each other.
+  //
+  // The key is `forkId`, not `fork_id`: a chain spec is camelCase, and an unrecognised key is
+  // ignored rather than rejected.
+  spec.forkId = `ppn-fork-${net.name}`;
+
   const shipped = path.join(out, 'specs', `${chain.spec}.json`);
   fs.writeFileSync(shipped, JSON.stringify(spec));
   const kb = Math.round(fs.statSync(shipped).size / 1024);
-  console.log(`  ${chain.spec}.json (${kb}K, ${bootNodes} bootNodes stripped)`);
+  console.log(
+    `  ${chain.spec}.json (${kb}K, ${sourceBootNodes} source bootNodes dropped, ` +
+      `${spec.bootNodes.length} added, forkId ${spec.forkId})`
+  );
 }
 
 export async function run(args: string[], opts: BiteOptions = {}): Promise<void> {
@@ -466,12 +557,19 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
   ]);
 
   console.log('=== 4/6 biting parachains (parallel) ===');
+  for (const warning of syncSourceWarnings(parachains.map((para) => String(para.paraId)))) {
+    console.log(`  ${warning}, ignoring it`);
+  }
   const relaySpec = path.join(out, 'work', 'specs', `${relay.spec}.json`);
   await Promise.all(
     parachains.map(async (para, i) => {
       const id = String(para.paraId);
       const work = path.join(out, 'work', id);
       fs.mkdirSync(work, { recursive: true });
+      const syncSource = syncSourceArgs(id);
+      if (syncSource.length) {
+        console.log(`  ${para.key}: syncing state from ${SYNC_SOURCE_PREFIX}${id}, no other peer`);
+      }
       // The bite node always exits non-zero: doppelganger ends an essential task to stop
       // the node once the state import is captured. Success is judged by the info file.
       await runBiteNode(
@@ -479,6 +577,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
         [
           '--chain', path.join(out, 'work', 'specs', `${para.spec}.json`),
           '--sync', 'warp',
+          ...syncSource,
           '-d', path.join(work, 'db'),
           '--rpc-port', String(19990 + i),
           '--prometheus-port', String(19890 + i),
