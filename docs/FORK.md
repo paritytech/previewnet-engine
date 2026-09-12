@@ -179,15 +179,13 @@ already does for every relay validator; the relay side of a collator was the one
 getting the default. Measured on macOS arm64 with `1.24.0-2f2eeb2b81d`: default backend → 3–4
 collators dead per start; libp2p → none.
 
-**Fork mode must not restate the collator flags.** It did once, as a hand-copied table, and
-drifted immediately: the copy dropped `--listen-addr=…/webrtc-direct`, which pairs with
-`--experimental-webrtc`. `packages/network-config/src/fork-toml.ts` now imports `CHAIN_ARGS`, `PORTS`, `PARA_IDS`
-and `P2P_PORTS` from `toml-generator.ts` and appends only the flags a fork genuinely adds
-(`--relay-chain-rpc-urls`, `--discover-local`, `--allow-private-ip`, `--state-pruning`,
-`--no-hardware-benchmarks`). Likewise `ppn bite` reads its chain list from the
-network descriptor (`networks/<name>.json`, through `packages/cli/src/fork/chains.ts` and
-the CLI), and the descriptor keys its chains with the same names as the `Parachain`
-type, so a bundle manifest is checked against the descriptor with no mapping table in between.
+**Fork mode must not restate the collator flags.** `packages/network-config/src/fork-toml.ts`
+builds them with `buildArgs()` from `toml-generator.ts` and appends only the flags a fork genuinely
+adds (`--relay-chain-rpc-urls`, `--discover-local`, `--allow-private-ip`, `--state-pruning`,
+`--no-hardware-benchmarks`). Likewise `ppn bite` reads its chain list from the network descriptor
+(`networks/<name>.json`, through `packages/cli/src/fork/chains.ts` and the CLI), and the descriptor
+keys its chains with the same names as the `Parachain` type, so a bundle manifest is checked
+against the descriptor with no mapping table in between.
 
 **Relay nodes must be named `alice`…`eve`, collators `Collator-<paraId>`.** zombienet maps the
 well-known names to the well-known dev keys, which is exactly the authority set the bite installs.

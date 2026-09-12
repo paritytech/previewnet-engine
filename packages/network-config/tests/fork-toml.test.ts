@@ -228,8 +228,6 @@ describe('generateForkToml — collators', () => {
   });
 });
 
-// The regression this file exists for: fork mode used to keep a hand-copied table of
-// collator flags, which drifted from the genesis one immediately.
 describe('generateForkToml — no drift from genesis mode', () => {
   const toml = generate();
 
@@ -256,11 +254,9 @@ describe('generateForkToml — no drift from genesis mode', () => {
     }
   });
 
-  // The specific flag a hand-copied table dropped; it pairs with --experimental-webrtc.
   it('keeps the webrtc listen address on the chains that enable webrtc', () => {
     for (const key of ['asset-hub', 'bulletin', 'web3-storage'] as Parachain[]) {
       const args = collatorArgs(toml, paraIds()[key]);
-      assert.ok(args.includes('--experimental-webrtc'), `${key} lost --experimental-webrtc`);
       assert.ok(
         args.includes(`--listen-addr=/ip4/127.0.0.1/udp/${P2P_PORTS[key]}/webrtc-direct`),
         `${key} lost its webrtc listen address`

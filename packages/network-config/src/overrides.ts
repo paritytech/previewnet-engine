@@ -64,8 +64,8 @@ export function parseOverride(spec: string, what: string): Override {
  * processes with no arguments, and a cloud VM gets env — so both channels exist and the flag
  * wins.
  *
- *   PPN_RELEASES="polkadot-sdk=paritytech/polkadot-sdk@polkadot-stable2606-1"
- *   PPN_BINARIES="polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w33-rc2"
+ *   PPN_RELEASES="polkadot-sdk=paritytech/polkadot-sdk@polkadot-stable2609-rc1"
+ *   PPN_BINARIES="polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w37-rc1"
  */
 export function overridesFromEnv(env: NodeJS.ProcessEnv = process.env): OverrideSet {
   const parse = (value: string | undefined, what: string): Override[] =>

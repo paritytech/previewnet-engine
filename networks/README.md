@@ -63,30 +63,18 @@ worth keeping next to a value — and never block anything.
 ## Where the node binaries come from
 
 Every descriptor's `polkadot-sdk` release points at **`paritytech/release-automation@latest`**,
-not at `paritytech/polkadot-sdk`. That is deliberate, and it is the reason webrtc works.
-
-`CHAIN_ARGS` passes `--experimental-webrtc` to asset-hub, bulletin and web3-storage. That flag
-comes from polkadot-sdk PR #12315, merged to master on 2026-06-23. The `stable2606` line was
-branched off master on 2026-06-02 — three weeks earlier — so the flag is in **no** stable
-release, including `stable2606-1`, and stable patch releases only take backports. An
-omni-node from a stable tag exits immediately with `unexpected argument
-'--experimental-webrtc'`, which kills three of the four collators.
+not at `paritytech/polkadot-sdk`.
 
 `release-automation` cuts a weekly branch from master and publishes the full set of binaries —
 `polkadot`, `polkadot-omni-node`, both PVF workers, `chain-spec-builder`, `eth-rpc` — for
-linux-x86_64 and macos-arm64, under exactly the asset names `ppn fetch` already expects. So
-this is a pins-only change; no fetch code knows the difference.
+linux-x86_64 and macos-arm64, under exactly the asset names `ppn fetch` already expects.
 
 One thing to know:
 
 - **`latest` is a moving tag, and this channel has published partial re-builds** — 1, 4 and 11
   assets against a normal 47. `ppn fetch` now fails, loudly and by name, when the descriptor
   asks for something the release does not have, instead of leaving `bin/` half-populated. If
-  that fires, pin a complete tag here (e.g. `polkadot-weekly2026w33-rc2`) rather than
-  `latest`.
-
-Once the flag reaches a stable release — the next line, `stable2609`, will carry it since it
-is already on master — this can go back to `paritytech/polkadot-sdk` and a fixed tag.
+  that fires, pin a complete tag here (e.g. `polkadot-weekly2026w37-rc1`) rather than `latest`.
 
 ## Forking a shared relay
 

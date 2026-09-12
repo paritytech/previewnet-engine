@@ -55,7 +55,7 @@ candidate and see what breaks.
 ```bash
 ppn start --binary polkadot-omni-node=file:/path/to/your/build
 ppn start --runtime asset-hub=file:/path/to/runtime.wasm
-ppn start --binary polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w33-rc2
+ppn start --binary polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w37-rc1
 ```
 
 **Rehearse a runtime upgrade.** Authorize and apply one against a chain that is already
