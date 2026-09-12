@@ -54,10 +54,15 @@
       "release": "polkadot-sdk"
     },
     "runtime": {
+      "asset": "paseo_runtime.compressed.wasm",
+      "release": "paseo-runtimes",
+      "file": "paseo_runtime.wasm"
+    },
+    "fastRuntime": {
       "asset": "paseo_fast_runtime.compressed.wasm",
       "release": "paseo-runtimes",
-      "file": "paseo_runtime.wasm",
-      "_note": "the _fast build (1-minute epochs) \u2014 on the production relay runtime a parachain's ValidatorGroups do not repopulate until the first session boundary an hour in"
+      "file": "paseo_fast_runtime.wasm",
+      "_note": "1-minute epoch and session, against 1 hour on the production runtime. Parachains start producing blocks a minute after genesis instead of an hour."
     },
     "genesisSpec": {
       "chainId": "paseo-local",

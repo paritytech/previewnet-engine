@@ -18,6 +18,7 @@ import {
   networkBinaries,
   networkRuntimes,
   networkChains,
+  relayRuntime,
   parseOverride,
   mergeOverrides,
   overriddenKeys,
@@ -122,16 +123,17 @@ function showJson(name?: string): void {
         sudo: d.sudo,
         source: d.bite.source,
         binDir: d.name === 'previewnet' ? 'bin' : `bin/${d.name}`,
-        chains: networkChains(d).map((c) => ({
-          key: c.key,
-          paraId: c.paraId,
-          spec: c.spec,
-          // Which binary file this chain execs — the fact consumers were copying by hand.
-          binary: { name: c.binary.name, ...pin(c.binary.release) },
-          ...(c.runtime
-            ? { runtime: { file: c.runtime.file, asset: c.runtime.asset, ...pin(c.runtime.release) } }
-            : {}),
-        })),
+        chains: networkChains(d).map((c) => {
+          const r = c.key === 'relay' ? relayRuntime(d.relay) : c.runtime;
+          return {
+            key: c.key,
+            paraId: c.paraId,
+            spec: c.spec,
+            // Which binary file this chain execs — the fact consumers were copying by hand.
+            binary: { name: c.binary.name, ...pin(c.binary.release) },
+            ...(r ? { runtime: { file: r.file, asset: r.asset, ...pin(r.release) } } : {}),
+          };
+        }),
         services: Object.fromEntries(
           Object.entries(d.services).map(([svc, cfg]) => [
             svc,
@@ -191,7 +193,7 @@ function show(name?: string): void {
   console.log(`source:  ${d.bite.source}`);
   console.log(`bin:     bin${d.name === 'previewnet' ? '' : '/' + d.name}\n`);
 
-  add('relay', d.relay.binary, d.relay.runtime);
+  add('relay', d.relay.binary, relayRuntime(d.relay));
   for (const p of d.parachains) add(`${p.key} (${p.paraId})`, p.binary, p.runtime);
   for (const [svc, cfg] of Object.entries(d.services)) {
     if (cfg && typeof cfg === 'object' && cfg.binary) add(svc, cfg.binary);
@@ -396,7 +398,7 @@ export function buildProgram(): Command {
         'Only a genesis network has these — every other network restores them from a bundle.'
     )
     .addOption(
-      new Option('--profile <name>', 'sudo and funding profile — see docs/PROFILES.md')
+      new Option('--profile <name>', 'profile for sudo, funding and relay runtime — see docs/PROFILES.md')
         .choices(['local', 'deployable'])
         .default('local')
         .env('PPN_PROFILE')
