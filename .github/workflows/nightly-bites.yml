@@ -40,7 +40,7 @@ jobs:
       networks: ${{ steps.list.outputs.networks }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: List pre-bakeable networks
         id: list
         run: |
@@ -71,12 +71,12 @@ jobs:
     runs-on: parity-large
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
 
       - name: Build spawner
         run: make build-spawner
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload bite logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bite-logs-${{ matrix.network }}
           path: bite-logs/
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload fork bundle
         # publish-bundles consumes this and puts it on the rolling tag.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fork-bundle-${{ matrix.network }}
           path: artifacts/fork-bundle-${{ matrix.network }}.tar.gz
@@ -180,10 +180,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download per-network bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: fork-bundle-*

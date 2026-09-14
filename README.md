@@ -18,7 +18,7 @@ npm install -g @parity/ppn
 ppn start
 ```
 
-Needs **Node.js 22+**. No clone: the CLI ships the network definitions, so `ppn start` downloads
+Needs **Node.js 24+**. No clone: the CLI ships the network definitions, so `ppn start` downloads
 what it is missing and spawns. The first run pulls ~500 MB of binaries and runtimes into
 `~/.ppn` and later runs reuse them. `ppn kill` stops everything.
 

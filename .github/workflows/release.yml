@@ -70,7 +70,12 @@ jobs:
       pins: ${{ steps.pins.outputs.pins }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
 
       - name: Validate port configuration
         run: bash scripts/validate-ports.sh
@@ -154,11 +159,11 @@ jobs:
     needs: [prepare]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: "22"
-      - uses: pnpm/action-setup@v4
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: package.json
 
@@ -186,7 +191,7 @@ jobs:
       - name: Upload dist
         # Only create-release consumes this, so a dry run has nothing to hand it.
         if: ${{ needs.prepare.outputs.publish == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ppn-dist
           path: artifacts/ppn-dist-*.tar.gz
@@ -207,12 +212,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "22"
-      - uses: pnpm/action-setup@v4
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: package.json
 
@@ -235,7 +240,7 @@ jobs:
         run: ls -la bin/
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # The image is built whatever happens (a Dockerfile that stopped building is exactly
       # what this job is for); pushing needs credentials, which a fork PR never has and this
@@ -255,7 +260,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: ${{ needs.prepare.outputs.publish == 'true' && steps.creds.outputs.have == 'true' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
@@ -278,7 +283,7 @@ jobs:
       # Built either way — a Dockerfile that no longer builds is exactly what a dry run is
       # for. Only the push is conditional.
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: ${{ needs.prepare.outputs.publish == 'true' && steps.creds.outputs.have == 'true' }}
@@ -336,11 +341,11 @@ jobs:
     env:
       VERSION: ${{ needs.npm-check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
 
       - name: Enable Corepack
         run: corepack enable
@@ -376,13 +381,13 @@ jobs:
 
       # The publisher reads the packs off this run; the npm token lives in
       # paritytech/npm_publish_automation, not here.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-${{ github.sha }}
           path: packs
 
       - name: Trigger npm_publish_automation
-        uses: octokit/request-action@dad4362715b7fb2ddedf9772c8670824af564f0d # v2.4.0
+        uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae # v3.0.0
         with:
           route: POST /repos/paritytech/npm_publish_automation/actions/workflows/publish.yml/dispatches
           ref: main
@@ -431,7 +436,7 @@ jobs:
     steps:
       # What the server installs. Without it a deploy has nothing to pin to.
       - name: Download the deployable build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ppn-dist
           path: release/
@@ -440,7 +445,7 @@ jobs:
         run: ls -la release/
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: Release ${{ needs.prepare.outputs.tag }}

@@ -85,7 +85,7 @@ prints what resolves.
 ### Prerequisites
 
 - **GitHub auth**: Required for fetch - `gh auth login` or set `GITHUB_TOKEN`
-- **Node.js 22+**: Required for tests and startup helper scripts
+- **Node.js 24+**: Required for tests and startup helper scripts
 
 **Mac Users (Apple Silicon)**: Disable IPv6 due to [known bug](https://github.com/paritytech/polkadot-sdk/issues/8918):
 

@@ -50,12 +50,12 @@ jobs:
       DATA: data-fork-${{ inputs.network }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
 
       - name: Build spawner
         run: make build-spawner
@@ -166,7 +166,7 @@ jobs:
 
       - name: Upload spawn logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fork-spawn-logs-${{ inputs.network }}
           path: |
@@ -177,7 +177,7 @@ jobs:
 
       - name: Upload bite logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bite-logs-${{ inputs.network }}
           path: bite-logs/
@@ -188,7 +188,7 @@ jobs:
       # metered where a release's assets are not.
       - name: Upload the bundle
         if: ${{ inputs.keep_bundle && success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BUNDLE }}
           path: ${{ env.BUNDLE }}

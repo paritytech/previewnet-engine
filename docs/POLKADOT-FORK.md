@@ -22,7 +22,7 @@ do not run here and Web3 Storage is not part of it.
 
 ## One-time setup
 
-Linux x86_64 or macOS arm64, Node 22+, pnpm, `gh` authenticated (or `GITHUB_TOKEN`), and the
+Linux x86_64 or macOS arm64, Node.js 24+, pnpm, `gh` authenticated (or `GITHUB_TOKEN`), and the
 usual `make doctor`. Then:
 
 ```bash
