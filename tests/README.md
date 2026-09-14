@@ -18,7 +18,7 @@ This directory contains Zombienet integration tests for the multi-chain preview 
 1. **Zombienet CLI** installed ([GitHub](https://github.com/paritytech/zombienet))
 2. **Binaries downloaded**: `make fetch`
 3. **Chain specs generated**: `make generate`
-4. **Node.js 22+** for custom test scripts
+4. **Node.js 24+** for custom test scripts
 
 ## Running Tests Locally
 

@@ -9,7 +9,7 @@ npm install -g @parity/ppn      # puts `ppn` on your PATH
 ppn start                       # fetch what is missing, then spawn
 ```
 
-Requires Node.js 22+. Nothing else to configure: the packaged networks come with it, previewnet
+Requires Node.js 24+. Nothing else to configure: the packaged networks come with it, previewnet
 by default, and `ppn networks` lists the rest. `ppn kill` stops everything.
 
 ## Point it at your own network
