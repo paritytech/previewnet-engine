@@ -318,21 +318,23 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
       ok(genesisAsset);
     } else missing(genesisAsset, `not in ${versions.DOTNS_REPO} @ ${dotnsRel.tag}`);
 
-    // Addresses come from the canonical manifest at the same tag — the exact file the
-    // genesis's parity check ran against, so the pair cannot disagree. Not the
-    // deployments.json release asset: pre-releases deliberately do not carry it (no live
-    // deploy has happened), and the manifest works for both. Underscore-prefixed keys
-    // (_seed, _deployedFrom) are manifest metadata, not contracts.
+    // Addresses come from deployments/expected.json at the same tag. The genesis is
+    // built by running the dotns deploy pipeline on a fresh chain, so a network booted
+    // from it holds exactly the fresh-deploy address set; expected.json records that
+    // set, and dotns CI parity-checks the genesis against it, so the pair cannot
+    // disagree. Underscore-prefixed keys (manifest-style metadata such as _seed) are
+    // stripped so a consumer of dotns-addresses.json only ever sees contract
+    // addresses.
     const addrDest = path.join(nodeDest, 'dotns-addresses.json');
     if (await downloadRepoFile(versions.DOTNS_REPO, dotnsRel.tag,
-        'deployments/paseo-assethub/420420417.json', addrDest, token)) {
+        'deployments/expected.json', addrDest, token)) {
       const all = JSON.parse(fs.readFileSync(addrDest, 'utf-8'));
       const contracts = Object.fromEntries(
         Object.entries(all).filter(([k]) => !k.startsWith('_'))
       );
       fs.writeFileSync(addrDest, JSON.stringify(contracts, null, 2) + '\n');
       ok('dotns-addresses.json');
-    } else missing('dotns-addresses.json', `no deployments manifest at ${dotnsRel.tag}`);
+    } else missing('dotns-addresses.json', `no deployments/expected.json at ${dotnsRel.tag}`);
   }
   console.log('');
 
