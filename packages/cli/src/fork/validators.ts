@@ -83,10 +83,14 @@ export function relayCandidates(): Record<string, string> {
     // value is `18` + 6x(`04` + u32) = [[0],[1],[2],[3],[4],[5]].
     [keyOf('ParaScheduler', 'ValidatorGroups')]:
       len + VALIDATORS.map((_, i) => compactLen(1) + u32le(i)).join(''),
-    // previewnet's relay runs the paseo runtime, which has no `:UsePreviousValidators:`
-    // hook, so doppelganger's inject for it is inert. Without ForceNone the first session
-    // rotation re-elects production's validators — whose Session::NextKeys doppelganger has
-    // just wiped — leaving Babe::NextAuthorities empty and halting authoring after one epoch.
+    // Without this the relay takes the validator set Asset Hub elects. None of those accounts
+    // holds session keys on a fork, so `pallet_session` queues an empty set and announces the
+    // next BABE epoch with no authorities: nobody can claim a slot, no block enacts the next
+    // rotation, and the chain stops at the session boundary. `Buffered` makes `new_session()`
+    // return `None`, so `pallet_session` keeps the ones in `VALIDATORS`.
+    [keyOf('StakingAhClient', 'Mode')]: '01', // OperatingMode::Buffered
+    // `Buffered` above handles the validator set. This is for `ElectionProviderMultiPhase`,
+    // which runs on the relay whatever mode `StakingAhClient` is in.
     [keyOf('Staking', 'ForceEra')]: '02', // Forcing::ForceNone
   };
 }

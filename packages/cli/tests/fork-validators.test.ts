@@ -95,8 +95,10 @@ describe('relay overrides', () => {
     );
   });
 
-  // Without ForceNone the first session rotation re-elects production's validators, whose
-  // NextKeys doppelganger just wiped, and authoring stops after one epoch.
+  it('puts the Asset Hub staking client in Buffered', () => {
+    assert.equal(candidates[keyOf('StakingAhClient', 'Mode')], '01');
+  });
+
   it('forces staking to ForceNone', () => {
     assert.equal(candidates[keyOf('Staking', 'ForceEra')], '02');
   });
