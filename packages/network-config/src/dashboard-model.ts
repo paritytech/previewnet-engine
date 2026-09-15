@@ -163,7 +163,8 @@ export function dashboardModel(net: NetworkDef, baseUrl: string): DashboardModel
   };
 
   service('eth-rpc', 'Ethereum RPC', '/eth-rpc', 'ETH_RPC_PORT', { kind: 'http', path: '/health' }, {}, 'asset-hub');
-  service('ipfs-daemon', 'IPFS Gateway', '/ipfs', 'IPFS_GATEWAY_PORT', null, {}, 'bulletin');
+  // kubo's gateway doesn't serve /health. /version is its only non-content path.
+  service('ipfs-daemon', 'IPFS Gateway', '/ipfs', 'IPFS_GATEWAY_PORT', { kind: 'http', path: '/version' }, {}, 'bulletin');
   {
     const ipfs = services[services.length - 1];
     if (ipfs && ipfs.id === 'ipfs-daemon') {
