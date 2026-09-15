@@ -184,7 +184,7 @@
     }
   },
   "dotns": {
-    "_note": "Stated here like every other network's, though a genesis network could also derive it: `ppn fetch` writes the same address into bin/dotns-addresses.json from dotns's own manifest, and the import refuses to run if the two disagree. No `gateway` on purpose: unlike paseo-next-v2, whose bite.source is an app rather than a gateway, previewnet's products live wherever it was bitten from — naming production here would make a fork of a staging previewnet fetch from the real one.",
+    "_note": "Stated here like every other network's, though a genesis network could also derive it: `ppn fetch` writes the same address into bin/dotns-addresses.json from dotns's fresh-deploy address set (deployments/expected.json, what a genesis network actually carries), and the import refuses to run if the two disagree. No `gateway` on purpose: unlike paseo-next-v2, whose bite.source is an app rather than a gateway, previewnet's products live wherever it was bitten from — naming production here would make a fork of a staging previewnet fetch from the real one.",
     "resolver": "0x7F74D7CD50f5a834270E2ad395a01b01891AB37d",
     "pinProducts": true
   }
