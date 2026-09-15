@@ -28,6 +28,7 @@ export {
   CHAIN_ARGS,
   PORTS,
   P2P_PORTS,
+  forkRelayBootnode,
   paraIds,
   RELAY_BASE_PORT,
   VALIDATORS,
