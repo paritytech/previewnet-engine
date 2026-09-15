@@ -233,9 +233,9 @@ Each product is a single UnixFS file whose bytes are a CAR archive of the whole 
 the root is the whole product — there are no child objects to chase.
 
 The resolver address comes from the network descriptor (`networks/<name>.json`,
-`dotns.resolver`). `make fetch` also derives one into `bin/dotns-addresses.json` from the dotns
-deployments manifest at the pinned tag, and the two must agree: the import refuses to run when
-they differ, rather than picking one and importing a deployment nobody asked for. Keep `bin/`
+`dotns.resolver`). `make fetch` also derives one into `bin/dotns-addresses.json` from dotns's
+`deployments/expected.json` at the pinned tag, and the two must agree: the import refuses to run
+when they differ, rather than picking one and importing a deployment nobody asked for. Keep `bin/`
 current either way: an outdated one points at a *previous* deployment's resolver, which is still
 a live contract holding zero contenthash records, so the step reports "0 products" and imports
 nothing, with no error. `make fetch` is the fix. Measured on previewnet with a current `bin/`:
