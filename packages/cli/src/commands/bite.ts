@@ -298,6 +298,26 @@ function dirSize(dir: string): number {
 }
 
 /**
+ * The compressor tar is handed, with the flags that select it.
+ *
+ * pigz emits ordinary gzip, so the `.tgz` zombienet restores is unchanged; it just uses every
+ * core instead of one, and these archives are gigabytes. gzip is where a bite's packing time
+ * goes, and it compresses badly here anyway because RocksDB has already compressed its SSTs.
+ *
+ * Spelled in full rather than as GNU's `-I` shorthand. Both tars take the long name; on BSD tar
+ * `-I` is a synonym for `-T`, its files-from flag, so the short form reads "pigz" as a file to
+ * list and dies on "Couldn't open pigz" even when pigz is on PATH.
+ */
+export function compressor(): { name: string; flags: string[] } {
+  try {
+    execFileSync('pigz', ['--version'], { stdio: 'ignore' });
+    return { name: 'pigz', flags: ['--use-compress-program', 'pigz'] };
+  } catch {
+    return { name: 'gzip', flags: ['-z'] };
+  }
+}
+
+/**
  * Pack a node database the way zombie-bite's generate_snap() does: data/ containing chains/.
  *
  * Reports as it goes. A snapshot of a public chain runs to gigabytes — devnet's was 4.9 GB —
@@ -316,7 +336,9 @@ function packSnapshot(dbDir: string, dest: string, label: string): void {
   console.log(`  ${label}: copying ${humanSize(raw)}…`);
   fs.cpSync(source, path.join(stage, 'data', 'chains'), { recursive: true });
 
-  console.log(`  ${label}: compressing…`);
+  const { name, flags } = compressor();
+  console.log(`  ${label}: compressing with ${name}…`);
+
   const started = Date.now();
   // Watch the tarball grow: `tar` says nothing, and compressing gigabytes is where a bite
   // looks most like it has died.
@@ -327,13 +349,14 @@ function packSnapshot(dbDir: string, dest: string, label: string): void {
   }, 60_000);
   ticker.unref?.();
   try {
-    execFileSync('tar', ['-czf', dest, '-C', stage, 'data'], { stdio: 'inherit' });
+    execFileSync('tar', [...flags, '-cf', dest, '-C', stage, 'data'], { stdio: 'inherit' });
   } finally {
     clearInterval(ticker);
   }
 
   const packed = fs.statSync(dest).size;
-  console.log(`  ${label}: ${humanSize(packed)} packed from ${humanSize(raw)}`);
+  const secs = Math.round((Date.now() - started) / 1000);
+  console.log(`  ${label}: ${humanSize(packed)} packed from ${humanSize(raw)} in ${secs}s`);
   fs.rmSync(stage, { recursive: true, force: true });
 }
 
