@@ -59,6 +59,8 @@ describe('dashboardModel — localhost mode', () => {
     const eth = m.services.find((s) => s.id === 'eth-rpc')!;
     assert.equal(eth.directUrl, 'http://127.0.0.1:8545');
     assert.deepEqual(eth.health, { kind: 'http', path: '/health' });
+    const ipfs = m.services.find((s) => s.id === 'ipfs-daemon')!;
+    assert.deepEqual(ipfs.health, { kind: 'http', path: '/version' });
     const dub = m.services.find((s) => s.id === 'dub')!;
     assert.equal(dub.links.docs, 'http://127.0.0.1:8090/dub/docs');
   });
