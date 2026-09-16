@@ -14,8 +14,8 @@
 
 import fs from 'node:fs';
 
-// Same balance as the substrate dev accounts (1,000,000 PAS at 10 decimals).
-const BALANCE = 10000000000000000;
+// 10,000,000 PAS at 10 decimals.
+const BALANCE = 100000000000000000;
 
 // EVM-mapped SS58 addresses for dev accounts (pallet-revive convention). Computed from:
 // DEV_PHRASE → sr25519 derive → keccak256(pubkey) → H160 → [h160 ++ 0xEE*12] → SS58.
