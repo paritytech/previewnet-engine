@@ -77,7 +77,7 @@ COPY bin/ ./bin/
 RUN chmod +x bin/* scripts/*.sh
 
 # The `dot` CLI, used by the services that submit extrinsics.
-RUN npm install -g polkadot-cli@1.1.1
+RUN npm install -g polkadot-cli@latest
 
 # Generate chain specs from the pre-built runtimes
 RUN make generate

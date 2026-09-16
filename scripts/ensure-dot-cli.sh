@@ -12,12 +12,12 @@ if ! command -v npm >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "Installing dot CLI globally (polkadot-cli@1.1.1)..."
-if npm install -g polkadot-cli@1.1.1; then
+echo "Installing dot CLI globally (polkadot-cli@latest)..."
+if npm install -g polkadot-cli@latest; then
     echo "✓ dot CLI installed"
 else
     echo "✗ Failed to install dot CLI"
     echo "Try running manually:"
-    echo "  npm install -g polkadot-cli@1.1.1"
+    echo "  npm install -g polkadot-cli@latest"
     exit 1
 fi
