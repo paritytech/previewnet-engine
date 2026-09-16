@@ -22,7 +22,6 @@ import {
   specSourceUrl,
   asWs,
   readEnvFile,
-  forkRelayBootnode,
   type NetworkDef,
   type NetworkChain,
   repoRoot,
@@ -454,41 +453,17 @@ async function collectSpec(
   }
 
   // Two copies, and only one of them ships. The as-fetched spec keeps the source's
-  // bootNodes, which the bite needs in order to warp-sync. What goes in the bundle drops
-  // them, because a forked node that keeps them rejoins the source network and follows its
-  // longer chain, which looks like success on every metric while not being a fork at all.
-  //
-  // The relay spec ships one bootnode of its own in their place. Dropping the source's
-  // bootNodes without replacing them strands a fork the moment `fork_id` takes it off the
-  // source network's DHT: Kademlia adds peers manually, so a node with no bootnode never fills
-  // its routing table and authority discovery resolves no addresses. See `forkRelayBootnode`.
-  // Parachain specs ship none, because a fork runs a single collator per parachain and has no
-  // parachain peer to find.
+  // bootNodes, which the bite needs in order to warp-sync. What goes in the bundle has
+  // them stripped, because a forked node that keeps them rejoins the source network and
+  // follows its longer chain — which looks like success on every metric while not being a
+  // fork at all.
   const spec = JSON.parse(fs.readFileSync(workSpec, 'utf-8'));
-  const sourceBootNodes = spec.bootNodes?.length ?? 0;
-  spec.bootNodes = chain.paraId === null ? [forkRelayBootnode()] : [];
-
-  // The fork id is what takes it off that DHT. Protocol names are built from the genesis hash
-  // plus the fork id: `block_announces_protocol_name` in `sync/src/engine.rs`,
-  // `kademlia_protocol_name` in `network/src/discovery.rs`. A fork keeps the source's genesis
-  // hash, so without a fork id its names are byte-identical to the source's and it can still
-  // reach the source's nodes.
-  //
-  // Only the shipped copy gets one, because the bite has to reach the real network to
-  // warp-sync from it. Every node in the spawned fork must then carry the same value, or the
-  // fork splits into groups that cannot see each other.
-  //
-  // The key is `forkId`, not `fork_id`: a chain spec is camelCase, and an unrecognised key is
-  // ignored rather than rejected.
-  spec.forkId = `ppn-fork-${net.name}`;
-
+  const bootNodes = spec.bootNodes?.length ?? 0;
+  spec.bootNodes = [];
   const shipped = path.join(out, 'specs', `${chain.spec}.json`);
   fs.writeFileSync(shipped, JSON.stringify(spec));
   const kb = Math.round(fs.statSync(shipped).size / 1024);
-  console.log(
-    `  ${chain.spec}.json (${kb}K, ${sourceBootNodes} source bootNodes dropped, ` +
-      `${spec.bootNodes.length} added, forkId ${spec.forkId})`
-  );
+  console.log(`  ${chain.spec}.json (${kb}K, ${bootNodes} bootNodes stripped)`);
 }
 
 export async function run(args: string[], opts: BiteOptions = {}): Promise<void> {

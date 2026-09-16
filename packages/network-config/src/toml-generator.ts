@@ -129,33 +129,6 @@ const P2P_PORTS: Record<ChainKey, number> = {
   bulletin: requiredPort('BULLETIN_P2P_PORT'),
   'web3-storage': requiredPort('WEB3_STORAGE_P2P_PORT'),
 };
-/**
- * libp2p identity of the first relay node. zombienet derives each well-known node's key from
- * its name, so this is the same in every spawn; re-derive it with `system_localPeerId` on
- * `RELAY_ALICE_PORT` if the pinned zombie-cli ever changes that derivation.
- */
-const RELAY_BOOTNODE_PEER_ID = '12D3KooWQCkBm1BYtkHpocxCwMgR8yjitEeHGx8spzcDLGt2gkBm';
-
-/**
- * The bootnode a bitten relay spec ships, so a fork can find its own nodes.
- *
- * A fork keeps the source chain's genesis hash, so `fork_id` is what keeps it off the source
- * network's protocols, and off the source network's DHT with them. Kademlia inserts peers
- * manually (`BucketInserts::Manual` in `discovery.rs`), so connecting to a peer never adds it
- * to the routing table: the table fills from bootnodes or from identify, and a bitten spec
- * that ships neither leaves every node's table empty and authority discovery resolving no
- * addresses.
- *
- * Only the first relay node can be named ahead of the spawn, because it is the only one whose
- * p2p port the generator pins; the rest take ephemeral ports that change every time. One entry
- * is enough, since Kademlia walks out from it to the rest. Every node then bootstraps through
- * that one, which the fork already depends on anyway: it is the node every collator reaches the
- * relay through.
- */
-function forkRelayBootnode(): string {
-  return `/ip4/127.0.0.1/tcp/${P2P_PORTS.relay}/ws/p2p/${RELAY_BOOTNODE_PEER_ID}`;
-}
-
 // The interface the webrtc-direct collators bind. Loopback on a laptop; a server sets its
 // public IP so browser peers can reach the collators at all — webrtc-direct advertises what
 // it is bound to, so a 127.0.0.1 listener is unreachable from anywhere else. The environment
@@ -603,7 +576,6 @@ export {
   VALID_PARACHAINS,
   CHAIN_ARGS,
   P2P_PORTS,
-  forkRelayBootnode,
   POPULAR_LOG_TARGETS,
   LOG_LEVELS,
   // Shared with fork-toml.ts so that fork mode and genesis mode cannot drift apart.
