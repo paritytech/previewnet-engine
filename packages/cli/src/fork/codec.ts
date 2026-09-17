@@ -31,6 +31,13 @@ export function u32le(n: number): string {
   return b.toString('hex');
 }
 
+/** A u64 as little-endian hex. */
+export function u64le(n: bigint): string {
+  const b = Buffer.alloc(8);
+  b.writeBigUInt64LE(n);
+  return b.toString('hex');
+}
+
 /** Paras::Heads(paraId) storage key, matching zombie-bite's para_head_key(). */
 export function parasHeadKey(paraId: number): string {
   const le = u32le(paraId);

@@ -39,6 +39,12 @@
       "rpc": "wss://polkadot-asset-hub-rpc.polkadot.io",
       "specSource": "builtin:asset-hub-polkadot",
       "aura": "ed25519",
+      "dotnsDispatcher": "0xCC932348606cc1f3318cADeC5A5Cd2CA447f8a4b",
+      "dotnsDeployer": [
+        "0xd498F7BC5bB3cBdd0068c3deEbbd814b69C3F164",
+        "0x4A519C30DA0EC16AA9a73c26EA6CA6F701CcE099"
+      ],
+      "_dotnsNote": "DotnsPopController, the contract pallet-dotns-gateway dispatches into. Every dotNS address is CREATE3(factory, keccak('dotns.create3.v1:<label>:<kind>')) and the factory is CREATE(deployer, nonce 0), so one key fixes the whole set and every address is computable before anything is deployed. This is the address dotns records for paseo-assethub, which previewnet and paseo-next-v2 share, so a client with those addresses hardcoded finds this deployment too. dotnsDeployer lists the factory key first, 0xd498F7BC, which dotns CI names FACTORY_DEPLOYER and whose nonce must be 0 here or the factory lands elsewhere and takes the whole set with it; the second signs the pipeline and becomes the proxy owner. Which contract belongs here follows the dotns release: one still carrying RootGatewayDispatcher wants that instead, at 0xa889CCA3Fb4B07b98a11cc54C10f13dDA20bc3db, which is not a CREATE3 address and so cannot be reproduced from any key. config/versions.env pins DOTNS_TAG at a release that still ships it, so the genesis networks are on the other side of that boundary. Deploy with EXPECTED_CREATE3_FACTORY=0x8533c79E058c5a6489CAFeCA86dc600E029D75f5 so a wrong key aborts rather than silently relocating the protocol away from the address seeded here.",
       "binary": {
         "name": "polkadot-parachain",
         "release": "polkadot-sdk"
@@ -59,6 +65,8 @@
     {
       "key": "bulletin",
       "paraId": 1010,
+      "bulletinAuthorizer": "0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+      "_bulletinNote": "//Alice, the account the bite already endows on every chain. A fork has no genesis, and live Polkadot Bulletin has an empty AllowedAuthorizers because authorizers arrive by governance there, so nothing can store anything without this. paseo-next-v2 carries //Alice, //Eve and an ops key; previewnet carries only //Eve, seeded by the bulletin runtime's genesis preset (Sr25519Keyring::Eve, 100_000 transactions, 100 GiB) which is where the budget below comes from. Alice over Eve because she is funded here and Eve is not, and the authorizer and the account it authorizes may be the same.",
       "spec": "bulletin",
       "rpc": "wss://bulletin-rpc.polkadot.io",
       "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/polkadot/parachain/bulletin/chainspec.json",
@@ -76,5 +84,23 @@
         "release": "polkadot-sdk"
       }
     }
+  },
+  "seedAsset": {
+    "id": 50000413,
+    "owner": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    "minBalance": "1",
+    "isSufficient": true,
+    "name": "CASH",
+    "symbol": "CASH",
+    "decimals": 6,
+    "reserve": "asset-hub",
+    "alsoOn": ["people"],
+    "_note": "Coinage needs an asset on both Asset Hub (the reserve) and People (by location). Assets.force_create and force_set_metadata take ForceOrigin, which is Root on both, and People's by-Location instance has CreateOrigin = EnsureNever, so nothing signed could ever register it there. Id, decimals and min_balance reuse XTRNL from individuality-community's initial-setup so a Coinage instance built the same way behaves the same; the name is CASH for this fork. Owner is //Alice because the bite endows Alice on every chain and nothing else here can pay to mint."
+  },
+  "attestation": {
+    "attester": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    "count": 1000000,
+    "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" },
+    "_note": "//Alice, matching what the bite already endows, and 1000000 to match PEOPLELITE_ATTESTATION_ALLOWANCE and DOTNSGATEWAY_ATTESTATION_ALLOWANCE in individuality-community's initial-setup, which grants both by sudo. Two quotas share the AttestationAllowance name: PeopleLite's counts how many people a verifier may attest, DotnsGateway's how many names an attester may reserve, and the backend needs both. Managers are EnsureRoot and RootOrWhitelist; neither is reachable on a fork after the spawn. attestation.on pairs each chain with the pallet to seed there: both arrive with the runtime the bite authorizes, so they are absent from the bitten chain's metadata and the engine cannot find them itself."
   }
 }

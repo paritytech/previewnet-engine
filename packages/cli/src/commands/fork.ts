@@ -87,6 +87,34 @@ export async function run(args: string[]): Promise<void> {
         shared,
         seeded.relay
       );
+      // The seeded asset is one network-level record; each chain that carries it gets the same
+      // asset, keyed by id on its reserve chain and by location everywhere else.
+      const seedAssetFor = (key: string) => {
+        const a = NETWORK.seedAsset;
+        const reserve = a && PARACHAINS.find((x) => x.key === a.reserve);
+        if (!a || !reserve) return undefined;
+        if (key !== a.reserve && !a.alsoOn.includes(key)) return undefined;
+        return {
+          asset: {
+            id: a.id,
+            owner: a.owner,
+            minBalance: BigInt(a.minBalance),
+            isSufficient: a.isSufficient,
+            name: a.name,
+            symbol: a.symbol,
+            decimals: a.decimals,
+          },
+          assetHubParaId: reserve.paraId,
+          isReserve: key === a.reserve,
+        };
+      };
+      // Which pallet gates attestation on which chain comes from the descriptor: neither pallet
+      // is in the bitten chain's metadata, so the engine cannot work it out.
+      const attestationFor = (key: string) => {
+        const at = NETWORK.attestation;
+        const pallet = at?.on?.[key];
+        return at && pallet ? { attester: at.attester, count: at.count, pallet } : undefined;
+      };
       for (const p of PARACHAINS) {
         await paraOverrides(
           p.paraId,
@@ -94,7 +122,11 @@ export async function run(args: string[]): Promise<void> {
           `${outDir}/${p.paraId}_overrides.json`,
           NETWORK.bite.sharedRelay,
           seeded[p.key],
-          p.aura
+          p.aura,
+          { dispatcher: p.dotnsDispatcher, deployer: p.dotnsDeployer },
+          p.bulletinAuthorizer,
+          seedAssetFor(p.key),
+          attestationFor(p.key)
         );
       }
       return;

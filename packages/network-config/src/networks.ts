@@ -123,6 +123,35 @@ export interface NetworkParachain {
    * is ed25519, and the collator authors nothing at all if the fork guesses wrong.
    */
   aura?: AuraScheme;
+  /**
+   * Contract `pallet-dotns-gateway` dispatches into, written into this chain's state at bite
+   * time. Only a fork of a chain without Sudo needs it: `set_dispatcher_address` takes
+   * `RootOrWhitelist`, and such a fork reaches neither arm, so nothing can set it afterwards
+   * and `reserve_name` and `register_name` fail `DispatcherAddressNotSet`. The DotNS deployment
+   * manifest names it `RootGatewayDispatcher`, or `DotnsPopController` where no separate
+   * dispatcher is deployed.
+   * The `set-dispatcher-address` service makes the same choice from the fetched manifest and
+   * dispatches it through Sudo, which is why a fork without Sudo states the answer here.
+   */
+  dotnsDispatcher?: string;
+  /**
+   * Ethereum wallets that will deploy the dotNS contracts after the spawn. The bite endows each
+   * one's revive fallback account, so the deployment needs no funding step. A signed transfer
+   * after the spawn would work too, but only as a manual step to repeat on every rebite.
+   *
+   * dotNS signs the CREATE3 factory from a single-purpose key and the pipeline from another,
+   * which becomes the proxy owner, so name both to reproduce another network's ownership as
+   * well as its addresses. The factory key must be one nobody has used on the chain being
+   * bitten, or its nonce is not 0 and the factory lands somewhere else.
+   */
+  dotnsDeployer?: string | string[];
+  /**
+   * Account written into this chain's `TransactionStorage::AllowedAuthorizers` at bite time, so
+   * something can authorize Bulletin storage. Only a fork needs it: the bulletin runtime seeds an
+   * authorizer in its genesis preset, and a fork has no genesis, so a bitten Bulletin has none and
+   * every store fails. A 32-byte account id, hex, `0x`-prefixed.
+   */
+  bulletinAuthorizer?: string;
 }
 
 export interface NetworkRelay extends Omit<NetworkParachain, 'key' | 'paraId'> {
@@ -201,6 +230,47 @@ export interface NetworkDef {
      * are not what you are running it for. Override per spawn with PPN_PIN_PRODUCTS.
      */
     pinProducts?: boolean;
+  };
+  /**
+   * Asset registered on this network's chains at bite time, so a Coinage instance has one to
+   * wrap as coins. People's by-`Location` instance has `CreateOrigin = EnsureNever` and
+   * `ForceOrigin` of Root, so on a fork without governance nothing can register it there at all;
+   * Asset Hub is seeded alongside it. Named per network because the id, decimals
+   * and owner are a deployment's choice, not the engine's.
+   */
+  seedAsset?: {
+    id: number;
+    /** Owner, issuer, admin and freezer: hold this key or nothing can mint afterwards. */
+    owner: string;
+    minBalance: string;
+    isSufficient: boolean;
+    name: string;
+    symbol: string;
+    decimals: number;
+    /** Chain keys that carry it. The reserve chain keys it by id, the others by location. */
+    reserve: string;
+    alsoOn: string[];
+  };
+  /**
+   * Attester granted an `AttestationAllowance` on each pallet named in `on`, at bite time.
+   *
+   * The two quotas meter different things: `PeopleLite`'s how many people a verifier may attest,
+   * `DotnsGateway`'s how many names an attester may reserve. Without the first nobody becomes a
+   * lite person, without the second nobody who did can take a username, and the identity backend
+   * needs both.
+   *
+   * `PeopleLite`'s manager is `EnsureRoot` and `DotnsGateway`'s is `RootOrWhitelist`, so a fork
+   * without governance cannot grant either afterwards.
+   *
+   * `on` names the pallet to seed per chain, because neither pallet is in the metadata of the
+   * chain being bitten: both arrive with the runtime the bite authorizes, so the engine cannot
+   * discover where they live and would otherwise write the key onto every chain.
+   */
+  attestation?: {
+    attester: string;
+    count: number;
+    /** Chain key -> the pallet that gates attestation there. */
+    on: Record<string, 'PeopleLite' | 'DotnsGateway'>;
   };
   /** Every `_todo` note found in the file — non-empty means the descriptor is a stub. */
   todos: string[];
@@ -362,6 +432,21 @@ export function loadDescriptor(name: string): NetworkDef {
     if (p.aura !== undefined && p.aura !== 'sr25519' && p.aura !== 'ed25519') {
       bad(`parachain ${p.key}: aura must be "sr25519" or "ed25519"`);
     }
+    if (p.dotnsDispatcher !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(p.dotnsDispatcher)) {
+      bad(`parachain ${p.key}: dotnsDispatcher must be a 0x-prefixed 20-byte address`);
+    }
+    if (p.dotnsDeployer !== undefined) {
+      const deployers = Array.isArray(p.dotnsDeployer) ? p.dotnsDeployer : [p.dotnsDeployer];
+      if (deployers.length === 0) {
+        bad(`parachain ${p.key}: dotnsDeployer must name at least one address`);
+      }
+      if (deployers.some((a: unknown) => typeof a !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(a))) {
+        bad(`parachain ${p.key}: every dotnsDeployer must be a 0x-prefixed 20-byte address`);
+      }
+    }
+    if (p.bulletinAuthorizer !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(p.bulletinAuthorizer)) {
+      bad(`parachain ${p.key}: bulletinAuthorizer must be a 0x-prefixed 32-byte account id`);
+    }
     checkBinary(`parachains.${p.key}`, p.binary);
     checkRuntime(`parachains.${p.key}`, p.runtime);
     if (seen.has(p.key)) bad(`parachain ${p.key} listed twice`);
@@ -369,6 +454,45 @@ export function loadDescriptor(name: string): NetworkDef {
   }
   const ids = raw.parachains.map((p: NetworkParachain) => p.paraId);
   if (new Set(ids).size !== ids.length) bad('duplicate para ids');
+
+  // Every seed names the chains it writes to, and a chain this network does not have is seeded
+  // nowhere and reported nowhere. `what` is the field, so each caller's error names itself.
+  const namesOurChains = (what: string, keys: string[]): void => {
+    for (const k of keys) {
+      if (!seen.has(k)) bad(`${what} names "${k}", which this network does not have`);
+    }
+  };
+
+  if (raw.seedAsset) {
+    const a = raw.seedAsset;
+    const keys = [a.reserve, ...(a.alsoOn ?? [])];
+    if (!Number.isInteger(a.id) || a.id < 0) bad('seedAsset.id must be a non-negative integer');
+    if (!/^[0-9]+$/.test(String(a.minBalance))) bad('seedAsset.minBalance must be a decimal string');
+    if (typeof a.isSufficient !== 'boolean') bad('seedAsset.isSufficient must be true or false');
+    if (!a.owner || !a.name || !a.symbol) bad('seedAsset needs owner, name and symbol');
+    if (!Number.isInteger(a.decimals)) bad('seedAsset.decimals must be an integer');
+    // `assetHubAssetLocation` names the foreign representation with `PalletInstance` 50, the
+    // `Assets` index on Asset Hub, so any other reserve would be keyed at a pallet it lacks.
+    if (a.reserve !== 'asset-hub') bad(`seedAsset.reserve must be "asset-hub", got "${a.reserve}"`);
+    namesOurChains('seedAsset', keys);
+    if (a.alsoOn?.includes(a.reserve)) bad('seedAsset.alsoOn must not repeat the reserve chain');
+  }
+
+  if (raw.attestation) {
+    const at = raw.attestation;
+    if (!at.attester) bad('attestation needs an attester account');
+    if (!Number.isInteger(at.count) || at.count <= 0) {
+      bad('attestation.count must be a positive integer');
+    }
+    const on = Object.entries(at.on ?? {});
+    if (on.length === 0) bad('attestation.on must name at least one chain');
+    namesOurChains('attestation.on', on.map(([k]) => k));
+    for (const [k, pallet] of on) {
+      if (pallet !== 'PeopleLite' && pallet !== 'DotnsGateway') {
+        bad(`attestation.on.${k} must be PeopleLite or DotnsGateway, got "${pallet}"`);
+      }
+    }
+  }
 
   // A genesis network builds its chain specs locally, so every chain needs a runtime to
   // build from and a spec to build into, and the network needs the settings they share.
@@ -443,6 +567,8 @@ export function loadDescriptor(name: string): NetworkDef {
     services,
     tools,
     dotns: raw.dotns,
+    seedAsset: raw.seedAsset,
+    attestation: raw.attestation,
     todos,
   };
 }

@@ -63,11 +63,20 @@ The apply half is a transaction, not state, so it runs after the spawn: the `ena
 custom process submits `apply_authorized_upgrade` for every seeded chain, parachains first and
 the relay last, through the same path `ppn upgrade` uses. It waits for the chains to author,
 retries a chain that does not answer yet, and is a no-op on a chain already running the blob —
-so a resumed fork does nothing here. Enactment itself is slow on a parachain of a real network:
-the code goes live only on the relay's go-ahead, `validation_upgrade_delay` relay blocks after
-the PVF pre-check, which on Polkadot is 600 blocks, an hour. The service waits up to two hours
-per chain. `make runtime-upgrade NETWORK=polkadot CHAIN=people ENACT_TIMEOUT_MIN=70` with no
-`WASM=` does the same for one chain by hand.
+so a resumed fork does nothing here. All parachains are submitted at once and waited for
+together, then the relay.
+
+A parachain's code goes live on the relay's go-ahead, `validation_upgrade_delay` relay blocks
+after the PVF pre-check. Live Polkadot sets that to 600 blocks, an hour, and forbids a second
+upgrade of the same parachain for `validation_upgrade_cooldown` = 14400, a day — sensible for a
+production relay, useless for a fork whose purpose is enacting runtimes under test. A
+shared-relay bite therefore patches both into `Configuration::ActiveConfig`, to 30 and 60 relay
+blocks (`shared-relay.ts`), in the same rebuild that sets `num_cores`. The pre-check and
+go-ahead path is unchanged; only the timers are. So from a fresh bite, all four chains are on
+the new runtime within a few minutes of the spawn. A bundle bitten before this patch still
+carries the live values, which is why the service waits up to two hours per chain.
+`make runtime-upgrade NETWORK=polkadot CHAIN=people` with no `WASM=` does the same for one
+chain by hand.
 
 Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
 `upgrades/<chain>.wasm`, recording it in `manifest.json` as `seededUpgrades`. Add
@@ -84,6 +93,121 @@ This mirrors zombie-bite's `--rc-upgrade`/`--para-upgrade`
 ([paritytech/zombie-bite#127](https://github.com/paritytech/zombie-bite/issues/127)) and is
 meant to be deleted along with the rest of `packages/cli/src/fork/` once PPN calls zombie-bite
 instead of driving doppelganger itself ([#120](https://github.com/paritytech/zombie-bite/issues/120)).
+
+## What the bite seeds
+
+A fork inherits live state and no governance, so anything a running network sets by Root, by
+sudo or by a transaction from an account we hold has to be written into state at import instead.
+Five things are. Four are named by a descriptor field; the first is not, and everything else
+here depends on it:
+
+- `//Alice` is endowed on the relay and on every parachain, by writing her `System::Account`
+  directly. Nothing below can pay a fee without it: a fork of a public network has no dev
+  account holding funds and no way to fund one. This is the seed with no descriptor field,
+  because there is nothing to decide. It happens whenever `bite.sharedRelay` is true, and that
+  flag says the relay is somebody else's, which is exactly the case where the funds are missing.
+- `dotnsDispatcher` and `dotnsDeployer`, the gateway's contract address and the deploying
+  wallets' revive accounts. Below, "Seeding what dotNS needs".
+- `bulletinAuthorizer`, an entry in Bulletin's `AllowedAuthorizers`. Under "Bulletin content",
+  because a fork's relation to Bulletin's stored bytes is the same discussion.
+- `seedAsset`, the `Assets` registration and metadata. Below, "Seeding the asset Coinage wraps".
+- `attestation`, the two `AttestationAllowance` quotas the identity backend spends. Below,
+  "Seeding the attestation allowances".
+
+Add a seed and add a line here, or the next reader asking what a bite writes has to find it by
+reading `paraOverrides`.
+
+## Seeding what dotNS needs
+
+The same problem as the runtime upgrade, and the same answer. `pallet-dotns-gateway` will not
+call its contract until `DispatcherAddress` is set, and `set_dispatcher_address` takes
+`RootOrWhitelist` — governance on a real network, and nothing at all on a fork of one without
+Sudo. Until it is set, `reserve_name` and `register_name` fail `DispatcherAddressNotSet`: they
+are the two calls that reach the contract. No origin on the fork can ever set it.
+
+A network that has Sudo needs none of this: the `set-dispatcher-address` service reads the
+same choice out of the fetched dotNS manifest and dispatches it after the spawn. A fork
+without Sudo cannot, so its descriptor states the answer and the bite writes it into state:
+
+```json
+{ "key": "asset-hub", "dotnsDispatcher": "0xCC93…8a4b", "dotnsDeployer": ["0xd498…f164"] }
+```
+
+Deploying the contracts is not blocked by origin, but the wallet that signs it needs money.
+`pallet-revive` is live on Polkadot Asset Hub today, so the deploy needs only a funded Ethereum
+wallet, and on a fork of a real chain no wallet we hold has funds. `//Alice` does, and can send
+them: she cannot sign the deploy, but the account the wallet spends from is an ordinary one she
+can transfer to.
+
+A secp256k1 wallet owns no `AccountId32` either, so `pallet-revive` spends from a fallback
+account, the twenty address bytes followed by twelve `0xEE`. The bite endows that account for
+every wallet `dotnsDeployer` names, so the deploy pays for itself and nobody has to remember
+the transfer on the next rebite. Name more than one where the deploy uses more than one key:
+dotNS signs the CREATE3 factory from a single-purpose key and the pipeline from another, which
+becomes the proxy owner.
+
+Ordering looks circular and is not. dotNS derives every address through CREATE3 from a factory
+deployed at nonce 0 of a single-purpose key, so the addresses are the same on any fresh chain —
+`DotnsContentResolver` is one address on both previewnet and paseo-next-v2 — and the value is
+therefore known before anything is deployed. Seed it, spawn, upgrade, then deploy with the same
+factory key and the contracts land where the seed points. If you would rather not predict:
+bite, spawn, deploy, read the address off the chain, then re-bite with it.
+
+The bite reports this one as a skipped inject, because the live metadata has no `DotnsGateway`
+to check it against. It is written regardless; `dotnsDispatcherInject` in `validators.ts` says
+why, and why the descriptor rather than the runtime is what guards it.
+
+What this does not give you is a working personhood flow. `PopRules` reads the precompile over
+`AliasAccounts`, fed by ring roots from People's `MembersNotifier`, and a fork of a chain whose
+individuality pallets arrive with the upgrade carries no rings to read.
+
+## Seeding the asset Coinage wraps
+
+A Coinage instance wraps one asset as coins, so the asset has to exist before any instance can
+be created, and the chain being bitten does not carry it. People is what forces the seed:
+`CreateOrigin` for its by-`Location` instance is `EnsureNever`, so no signed origin can register
+the foreign representation whatever deposit it offers, and `force_create` takes Root, which on a
+fork of Polkadot is a 28-day referendum. Asset Hub would take a signed `create` against a
+deposit; the bite seeds both so there is one mechanism and no step to repeat after every rebite.
+
+The descriptor states the asset. `reserve` names the chain that keys it by id, and must be
+`asset-hub`: the foreign location the other chains are keyed by hardcodes `PalletInstance` 50,
+which is the `Assets` index there. `alsoOn` lists the chains holding it by location.
+
+```json
+{ "seedAsset": { "id": 50000413, "reserve": "asset-hub", "alsoOn": ["people"] } }
+```
+
+Only the registration is seeded, not any balance. Minting, the conversion pool and the Coinage
+instance are ordinary signed calls that run after the spawn and compute their own state, which
+is also what keeps the extrinsics the fork exists to test in the path. `seedAssetInjects` in
+`overrides.ts` says what the entry holds.
+
+## Seeding the attestation allowances
+
+Two of them, one per pallet, sharing a storage name and metering different things.
+`PeopleLite::AttestationAllowance` is how many people a verifier may attest, spent by `attest`.
+`DotnsGateway::AttestationAllowance` is how many names an attester may reserve, spent by
+`reserve_name`. The identity backend needs both: without the first nobody becomes a lite
+person, and without the second nobody gets a username.
+
+Both pallets that gate attestation take an origin a fork cannot raise: `PeopleLite`'s
+`AttestationAllowanceManager` is `EnsureRoot`, and `DotnsGateway`'s is `RootOrWhitelist`, whose
+second arm is an OpenGov track.
+
+The count and the pair both come from individuality-community's initial-setup, which grants
+`PeopleLite` on People and `DotnsGateway` on Asset Hub by sudo, at
+`PEOPLELITE_ATTESTATION_ALLOWANCE` and `DOTNSGATEWAY_ATTESTATION_ALLOWANCE`, both a million.
+
+```json
+{ "attestation": { "attester": "5Grwva…", "count": 1000000,
+                   "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" } } }
+```
+
+`on` has to name the pallet per chain because neither is in the metadata of the chain being
+bitten: both arrive with the runtime the bite authorizes. Deriving the location from that
+metadata finds nothing on exactly the chains this is for, and writing the key unconditionally
+puts it on every chain including Bulletin.
 
 ## What you get, and what you don't
 
@@ -206,6 +330,12 @@ too few, `Failed to submit collation err=Erasure(NotEnoughValidators)`, and the 
 its unincluded segment fills — exactly three blocks in.
 
 ## Bulletin content
+
+Nothing can be stored at all until an authorizer exists. Live Polkadot Bulletin's
+`AllowedAuthorizers` is empty, because authorizers arrive by governance there, and a fork has no
+genesis to seed one, so `bulletinAutoAuthorize` fails `BadSigner`. The `bulletinAuthorizer`
+descriptor field names the account the bite writes in; `bulletinAuthorizerInjects` in
+`validators.ts` says what the entry holds and which reference it deliberately leaves out.
 
 A fork carries chain state but not bulletin's stored bytes: those live in block bodies, and the
 bite is a warp sync. So a forked bulletin *lists* content it does not hold, and anything published
