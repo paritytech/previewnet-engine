@@ -199,6 +199,15 @@ describe('network descriptors', () => {
     assert.ok(net.parachains.every((p) => p.binary.name === 'polkadot-parachain'));
   });
 
+  // Every consumer of the field reads it off the loaded descriptor: the fetcher picks the
+  // asset by it and dubCustomProcesses picks the roles by it, and both fall back to `testnet`.
+  // A descriptor that parses the field and then drops it is a fork running the wrong binary
+  // with the wrong roles, reported nowhere.
+  it('carries dubBuild through from the descriptor', () => {
+    assert.equal(loadNetwork('polkadot').dubBuild, 'polkadot');
+    assert.equal(loadNetwork('previewnet').dubBuild, undefined);
+  });
+
   it('pins the bite tool per network, since it must run that network\'s runtimes', () => {
     for (const name of listNetworks()) {
       const dg = loadNetwork(name).bite.doppelganger;

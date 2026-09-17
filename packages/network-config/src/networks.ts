@@ -614,6 +614,7 @@ export function loadDescriptor(name: string): NetworkDef {
     })),
     services,
     tools,
+    dubBuild: raw.dubBuild,
     dotns: raw.dotns,
     seedAsset: raw.seedAsset,
     attestation: raw.attestation,
