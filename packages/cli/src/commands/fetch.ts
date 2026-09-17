@@ -354,13 +354,20 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
     missing(IDENTITY_BINARY, 'DUB_TAG is not set in config/versions.env');
   } else {
     const identityRelease = await release(versions.DUB_REPO, identityTag);
-    // The asset embeds the version without its leading `v`: tag v0.3.0 -> dub-0.3.0-<triple>.
-    const asset = `${IDENTITY_BINARY}-${identityTag.replace(/^v/, '')}-${plat.triple}.tar.gz`;
+    // The asset embeds the version without its leading `v`, and since v0.6.0 the build it was
+    // compiled for: tag v0.6.0 -> dub-0.6.0-polkadot-<triple>. The People runtime is fixed at
+    // build time, so the two builds are different binaries sharing one name, and net.dubBuild
+    // is what decides which this network needs.
+    const dubBuild = net.dubBuild ?? 'testnet';
+    const asset = `${IDENTITY_BINARY}-${identityTag.replace(/^v/, '')}-${dubBuild}-${plat.triple}.tar.gz`;
     const archivePath = path.join(sharedDest, asset);
     // Stamped whatever happens below: writeProvenance drops entries whose file is absent, so
     // a failed download leaves no stamp rather than a false one.
+    // The build belongs in the stamp, not only the tag: bin/dub is shared across networks, so
+    // without it a polkadot binary left by the fork reads as current when previewnet fetches,
+    // and the wrong runtime's metadata is used with nothing on screen to say so.
     const haveDub = stamp({ kind: 'toolchain', name: IDENTITY_BINARY, repo: versions.DUB_REPO,
-      pinned: identityTag, resolved: identityRelease.tag,
+      pinned: `${identityTag} ${dubBuild}`, resolved: `${identityRelease.tag} ${dubBuild}`,
       file: path.join(sharedDest, IDENTITY_BINARY) });
     if (haveDub) current(IDENTITY_BINARY);
     else if (await downloadAsset(identityRelease, asset, archivePath, token)) {
@@ -371,10 +378,16 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
           missing(IDENTITY_BINARY, `not found inside ${asset}`);
           return;
         }
+        // Copy beside the destination and rename over it. The rename is atomic, so an
+        // interrupted fetch leaves the previous binary rather than a truncated one that
+        // still carries a stamp — and it replaces a running binary without ETXTBSY, which
+        // is why the old copy had to unlink first.
         const dest = path.join(sharedDest, IDENTITY_BINARY);
-        fs.rmSync(dest, { force: true });
-        fs.copyFileSync(found, dest);
-        makeExecutable(dest);
+        const staged = `${dest}.incoming`;
+        fs.rmSync(staged, { force: true });
+        fs.copyFileSync(found, staged);
+        makeExecutable(staged);
+        fs.renameSync(staged, dest);
         ok(`${IDENTITY_BINARY} (from ${asset})`);
       });
       fs.rmSync(archivePath, { force: true });

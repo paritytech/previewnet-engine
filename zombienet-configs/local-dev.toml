@@ -168,6 +168,9 @@ command = "{{SCRIPTS}}/grant-invites.sh"
 [[custom_processes]]
 name = "dub-postgres"
 command = "{{SCRIPTS}}/dub/postgres.sh"
+env = [
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
+]
 
 [[custom_processes]]
 name = "dub-api"
@@ -177,14 +180,15 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
   { name = "PEOPLE_NETWORK", value = "paseo" },
   { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "ASSET_HUB_RPC_URL", value = "ws://127.0.0.1:10020" },
   { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
   { name = "BIND_ADDR", value = "127.0.0.1:8092" },
-  { name = "ASSET_HUB_RPC_URL", value = "ws://127.0.0.1:10020" },
   { name = "TURN_REALM", value = "previewnet.local" },
 ]
 
@@ -196,11 +200,13 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
   { name = "PEOPLE_NETWORK", value = "paseo" },
   { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "ASSET_HUB_RPC_URL", value = "ws://127.0.0.1:10020" },
   { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
 ]
 
@@ -212,11 +218,13 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
   { name = "PEOPLE_NETWORK", value = "paseo" },
   { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "ASSET_HUB_RPC_URL", value = "ws://127.0.0.1:10020" },
   { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
 ]
 
@@ -228,11 +236,13 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
   { name = "PEOPLE_NETWORK", value = "paseo" },
   { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
+  { name = "ASSET_HUB_RPC_URL", value = "ws://127.0.0.1:10020" },
   { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
 ]
 

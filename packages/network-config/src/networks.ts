@@ -25,6 +25,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultHome, packageRoot, networksDirs } from './repo-root.js';
 
+/**
+ * Which People runtime a dub binary was built against. Since v0.6.0 every asset ships twice
+ * and the runtime is fixed at build time: it selects the vendored metadata and whether the
+ * invite-tickets roles exist. `dub --help` prints the build a binary carries.
+ */
+export type DubBuild = 'testnet' | 'polkadot';
+
 /** The parachain keys PPN knows: what its port and per-chain flag tables are keyed by. */
 export type Parachain = 'asset-hub' | 'people' | 'bulletin' | 'web3-storage';
 export type ChainKey = 'relay' | Parachain;
@@ -203,6 +210,16 @@ export interface NetworkDef {
      */
     sharedRelay?: boolean;
   };
+  /**
+   * Which dub build this network needs, `testnet` (the default) or `polkadot`.
+   *
+   * Since dub v0.6.0 every asset ships twice, one per People runtime, and the runtime is
+   * fixed at build time: it selects the vendored metadata and whether the invite-tickets
+   * roles exist. A fork of Polkadot needs `polkadot`, whose People runtime carries neither
+   * Game nor ProofOfInk; everything else needs `testnet`. Naming a role the binary does not
+   * have is a boot failure, so this decides the services as well as the download.
+   */
+  dubBuild?: DubBuild;
   /** Named releases every binary/runtime reference points into. */
   releases: Record<string, ReleasePin>;
   /** Genesis-wide chain-spec settings. Present on a genesis network. */
@@ -347,6 +364,10 @@ export function loadDescriptor(name: string): NetworkDef {
     bad('relay needs chain, spec, rpc and specSource');
   }
   if (!raw.bite?.source) bad('bite.source is required');
+  // A typo here would otherwise surface as a 404 on an asset name, long after generate.
+  if (raw.dubBuild !== undefined && raw.dubBuild !== 'testnet' && raw.dubBuild !== 'polkadot') {
+    bad(`dubBuild is "${String(raw.dubBuild)}", expected "testnet" or "polkadot"`);
+  }
   if (!Array.isArray(raw.parachains) || raw.parachains.length === 0) {
     bad('at least one parachain is required');
   }

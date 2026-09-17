@@ -564,12 +564,18 @@ command = "{{SCRIPTS}}/grant-invites.sh"
 `
 )}${section(
   has('people') && serviceEnabled('dub'),
-  dubCustomProcesses({
-    postgres: requiredPort('DUB_POSTGRES_PORT'),
-    people: PORTS.people,
-    assetHub: PORTS['asset-hub'],
-    gateway: requiredPort('DUB_PORT'),
-  }, undefined, undefined, serviceEnabled('turn'))
+  dubCustomProcesses(
+    {
+      postgres: requiredPort('DUB_POSTGRES_PORT'),
+      people: PORTS.people,
+      assetHub: PORTS['asset-hub'],
+      gateway: requiredPort('DUB_PORT'),
+    },
+    undefined,
+    undefined,
+    genesisNet().dubBuild,
+    serviceEnabled('turn')
+  )
 )}
 ${section(serviceEnabled('patch-bootnodes'), `
 [[custom_processes]]

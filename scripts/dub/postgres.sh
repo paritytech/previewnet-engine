@@ -33,7 +33,18 @@ PGDATA="${DUB_POSTGRES_DATA_DIR:-${DATA_DIR:-$PPN_WS/data}/identity-pgdata}"
 # DEVICE_ATTESTATION_DATABASE_URL in v0.3.0, but nothing upstream reads the database's name, and
 # renaming it would strand every cluster already initialised under the old one. `dim_tickets` is
 # gone with the service that owned it — an existing cluster keeps the database, unread.
-DATABASES=(identity username_indexer invite_tickets)
+# Supplied by the generated TOML (see dubDatabases in packages/network-config/src/dub.ts),
+# because which databases exist depends on the dub build: the polkadot one has no
+# invite-tickets service and so never owns `invite_tickets`. No default: one that is right
+# for a testnet cluster is silently wrong for a polkadot one, and the cost lands later.
+if [[ -z "${DUB_DATABASES:-}" ]]; then
+    echo "Error: DUB_DATABASES is not set." >&2
+    echo "       The generated TOML supplies it; which databases exist depends on the dub" >&2
+    echo "       build, so there is no default that is right for both. Run through a" >&2
+    echo "       generated network, or set it: DUB_DATABASES=\"identity username_indexer\"" >&2
+    exit 1
+fi
+read -r -a DATABASES <<< "$DUB_DATABASES"
 
 PG_USER=identity
 

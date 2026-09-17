@@ -1,3 +1,5 @@
+import type { DubBuild } from './networks.js';
+
 // Device uniqueness backend wiring for the generated zombienet config.
 //
 // device-uniqueness-backend v0.2.0 replaced its ten binaries with one, selected by `--role`,
@@ -81,7 +83,15 @@ export interface DubService {
  * old names as the no-downtime path — whereas renaming it would hand every existing cluster a
  * choice between an authentication failure and losing the rows already in it.
  */
-export const DUB_DATABASES = ['identity', 'username_indexer', 'invite_tickets'] as const;
+/**
+ * The databases each build owns. `invite_tickets` belongs to the invite-tickets service, which
+ * the polkadot build does not have, so that build never creates it.
+ */
+export function dubDatabases(build: DubBuild): readonly string[] {
+  return build === 'polkadot'
+    ? ['identity', 'username_indexer']
+    : ['identity', 'username_indexer', 'invite_tickets'];
+}
 
 /**
  * Postgres connection string for one service's database.
@@ -125,10 +135,12 @@ export function peopleRpcUrl(peoplePort: number): string {
 export function dubServices(
   ports: DubPorts,
   attesterAccount: string = ALICE_SS58,
+  build: DubBuild = 'testnet',
   inviterAccount: string = BOB_SS58
 ): DubService[] {
   const rpc = peopleRpcUrl(ports.people);
-  const db = (name: (typeof DUB_DATABASES)[number]) => dubDatabaseUrl(name, ports.postgres);
+  const db = (name: string) => dubDatabaseUrl(name, ports.postgres);
+  const tickets = build !== 'polkadot';
 
   // Every role reads its own database key, and all-in-one reads all of them, so the whole set
   // is given to every process. Cheaper than three near-identical env blocks, and it means
@@ -140,7 +152,7 @@ export function dubServices(
   const databases = {
     DEVICE_ATTESTATION_DATABASE_URL: db('identity'),
     INDEXER_DATABASE_URL: db('username_indexer'),
-    INVITE_TICKETS_DATABASE_URL: db('invite_tickets'),
+    ...(tickets ? { INVITE_TICKETS_DATABASE_URL: db('invite_tickets') } : {}),
   };
 
   // The Prometheus exporter binds before config validation, so leaving it on means five
@@ -148,6 +160,10 @@ export function dubServices(
   // scrapes them locally.
   const common = {
     ...databases,
+    // service.sh waits for every database to exist before starting its role, and waiting for
+    // one this build never creates costs its whole timeout at each start. Same list the
+    // dub-postgres process creates from, for the same reason: they cannot disagree.
+    DUB_DATABASES: dubDatabases(build).join(' '),
     METRICS_ENABLED: 'false',
     RUST_LOG: 'info',
     PEOPLE_RPC_URL: rpc,
@@ -155,11 +171,15 @@ export function dubServices(
     // than defaulted — a wrong one would have the ticket services address another network.
     PEOPLE_NETWORK: 'paseo',
     ATTESTER_ACCOUNT: attesterAccount,
+    // The chain writer submits DotnsGateway.reserve_name on Asset Hub and aborts at startup
+    // without this, so it is given to every role rather than to all-in-one alone. v0.6.0 made
+    // it required and removed DOTNS_GATEWAY_ENABLED: the dotNS lane is now unconditional.
+    ASSET_HUB_RPC_URL: `ws://127.0.0.1:${ports.assetHub}`,
     // Public counterpart of INVITER_SIGNER_SURI, which service.sh supplies. Equal to that
     // signing key's own account on purpose: the ticket services wrap a batch in
     // Proxy.proxy(real = INVITER_ADDRESS) only when the two differ. See BOB_SS58 for why it
-    // is not the attester.
-    INVITER_ADDRESS: inviterAccount,
+    // is not the attester. Absent on the polkadot build, which has no ticket services.
+    ...(tickets ? { INVITER_ADDRESS: inviterAccount } : {}),
   };
 
   return [
@@ -174,7 +194,6 @@ export function dubServices(
       env: {
         ...common,
         BIND_ADDR: `127.0.0.1:${ports.gateway}`,
-        ASSET_HUB_RPC_URL: `ws://127.0.0.1:${ports.assetHub}`,
         // turn-api requires a realm and has no default. Public, so it belongs here; the
         // signing secret and ICE_SERVERS depend on the host, so service.sh supplies them.
         TURN_REALM,
@@ -192,7 +211,11 @@ export function dubServices(
       role: 'registration-queue',
       env: { ...common },
     },
-    { name: 'invite-tickets-pool', role: 'invite-tickets-pool', env: { ...common } },
+    // Naming a role the binary does not have is a boot failure, not a no-op, so this is
+    // omitted rather than left idle on the polkadot build.
+    ...(tickets
+      ? [{ name: 'invite-tickets-pool', role: 'invite-tickets-pool', env: { ...common } }]
+      : []),
   ];
 }
 
@@ -226,6 +249,7 @@ export function dubCustomProcesses(
   // Genesis mode emits the {{SCRIPTS}} placeholder that zombie-compat expands;
   // fork mode writes a standalone TOML with absolute paths already resolved.
   scriptsDir: string = '{{SCRIPTS}}',
+  build: DubBuild = 'testnet',
   // The TURN/STUN relay whose credentials turn-api mints (docs/TURN.md).
   turn: boolean = true
 ): string {
@@ -233,7 +257,7 @@ export function dubCustomProcesses(
 
   // zombienet validates custom_process args as CLI arguments — each must parse
   // as a flag or --key=value, so bare positionals are rejected outright.
-  const blocks = dubServices(ports, attesterAccount).map(
+  const blocks = dubServices(ports, attesterAccount, build).map(
     (svc) => `
 [[custom_processes]]
 name = "${svc.name}"
@@ -251,9 +275,13 @@ command = "${scriptsDir}/turn.sh"
 `
     : '';
 
+  // postgres.sh creates one database per service, and which services exist depends on the
+  // build. Passed rather than duplicated in the script, so the two cannot disagree about
+  // whether `invite_tickets` should be there.
   return `
 [[custom_processes]]
 name = "dub-postgres"
 command = "${scriptsDir}/dub/postgres.sh"
+${tomlEnv({ DUB_DATABASES: dubDatabases(build).join(' ') })}
 ${blocks.join('')}${relay}`;
 }
