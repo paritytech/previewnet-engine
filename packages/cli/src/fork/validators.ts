@@ -124,7 +124,7 @@ export function sudoEndowInjects(): Record<string, string> {
     '00000000' + // consumers
     '01000000' + // providers: the balance provides for the account
     '00000000' + // sufficients
-    u128le(10n ** 16n) + // free: 1M units at 10 decimals — clears any fee on these chains
+    u128le(10n ** 17n) + // free: 10M units at 10 decimals — clears any fee on these chains
     u128le(0n) + // reserved
     u128le(0n) + // frozen
     u128le(1n << 127n); // flags: the new-logic marker every current account carries
