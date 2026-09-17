@@ -393,6 +393,28 @@ describe('generateForkToml — non-previewnet bundles', () => {
     );
   });
 
+  // dub ships one build per People runtime, and the polkadot one has no invite-tickets roles:
+  // naming a role the binary lacks is a boot failure. Which build a network wants is a
+  // descriptor field, so this asserts on the generated toml. Calling dubCustomProcesses with
+  // the build passed in would test the function and miss what reaches it, which is where the
+  // field went missing once already.
+  it('leaves the invite-tickets service out of a polkadot fork', () => {
+    const toml = generateForkToml({
+      repoDir: REPO,
+      bundleDir: makeNetBundle('polkadot', {
+        relay: { paraId: null, spec: 'polkadot', specId: 'polkadot' },
+        'asset-hub': { paraId: 1000, spec: 'asset-hub', specId: 'asset-hub' },
+        people: { paraId: 1004, spec: 'people', specId: 'people' },
+        bulletin: { paraId: 1010, spec: 'bulletin', specId: 'bulletin' },
+      }),
+    });
+    for (const absent of ['invite-tickets', 'INVITE_TICKETS_DATABASE_URL', 'INVITER_ADDRESS']) {
+      assert.ok(!toml.includes(absent), `${absent} must not reach a polkadot fork`);
+    }
+    assert.ok(toml.includes('name = "dub-api"'), 'the rest of the backend still runs');
+    assert.ok(devnetToml().includes('invite-tickets'), 'every other network keeps the role');
+  });
+
   it('picks the descriptor collator binary via the wrapper env', () => {
     const toml = generateForkToml({
       repoDir: REPO,
