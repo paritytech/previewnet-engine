@@ -33,6 +33,9 @@ SIGNER=alice
 RPC_PEOPLE="ws://127.0.0.1:${PEOPLE_PORT}"
 dot chain add people --rpc "$RPC_PEOPLE" >/dev/null 2>&1 || true
 
+RPC_ASSET_HUB="ws://127.0.0.1:${ASSET_HUB_PORT}"
+dot chain add asset-hub --rpc "$RPC_ASSET_HUB" >/dev/null 2>&1 || true
+
 # Integer >= comparison that handles arbitrary-precision positive integers.
 # Needed because bash's [ -ge ] silently breaks past int64 (~9.2e18), and on-chain
 # balances routinely exceed that (e.g. a 21M supply of a 18-decimal asset is ~2.1e25).
@@ -44,6 +47,12 @@ int_ge() {
 people_foreign_location() {
   local asset_id="$1"
   echo '{"parents":1,"interior":{"type":"X3","value":[{"type":"Parachain","value":'"$PARACHAIN_ID_ASSET_HUB"'},{"type":"PalletInstance","value":50},{"type":"GeneralIndex","value":"'"$asset_id"'"}]}}'
+}
+
+# Echoes an asset's location on Asset Hub, where it lives in the Assets pallet by id.
+asset_hub_local_location() {
+  local asset_id="$1"
+  echo '{"parents":0,"interior":{"type":"X2","value":[{"type":"PalletInstance","value":50},{"type":"GeneralIndex","value":"'"$asset_id"'"}]}}'
 }
 
 # Echoes an account's balance of an asset on a chain, or 0 if it holds none.
