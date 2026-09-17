@@ -98,7 +98,7 @@ instead of driving doppelganger itself ([#120](https://github.com/paritytech/zom
 
 A fork inherits live state and no governance, so anything a running network sets by Root, by
 sudo or by a transaction from an account we hold has to be written into state at import instead.
-Five things are. Four are named by a descriptor field; the first is not, and everything else
+Six things are. Five are named by a descriptor field; the first is not, and everything else
 here depends on it:
 
 - `//Alice` is endowed on the relay and on every parachain, by writing her `System::Account`
@@ -113,6 +113,8 @@ here depends on it:
 - `seedAsset`, the `Assets` registration and metadata. Below, "Seeding the asset Coinage wraps".
 - `attestation`, the two `AttestationAllowance` quotas the identity backend spends. Below,
   "Seeding the attestation allowances".
+- `onboarding`, the onboarding size of one `Members` collection. Below, "Seeding the onboarding
+  size".
 
 Add a seed and add a line here, or the next reader asking what a bite writes has to find it by
 reading `paraOverrides`.
@@ -208,6 +210,31 @@ The count and the pair both come from individuality-community's initial-setup, w
 bitten: both arrive with the runtime the bite authorizes. Deriving the location from that
 metadata finds nothing on exactly the chains this is for, and writing the key unconditionally
 puts it on every chain including Bulletin.
+
+## Seeding the onboarding size
+
+`Members::OnboardingSize` is how many queued keys a ring takes at once, so it decides how long
+somebody who has just registered waits before a ring holds them. people-polkadot creates
+the lite collection at `LitePeopleOnboardingSize`, which is 3, and a fork inherits that value
+with the collection.
+
+```json
+{ "onboarding": { "on": "people", "collection": "pop:polkadot.network/people-lite", "size": 1 } }
+```
+
+At 1 each registration onboards on its own, so nobody has to wait for two more before a ring
+holds them.
+
+`set_onboarding_size` takes `ManagerOrigin`, `RootOrTechnicalMaintenance` on people-polkadot,
+whose second arm is an OpenGov track on Asset Hub. Neither is reachable after the spawn.
+
+This is the one seed that replaces a value rather than supplying a missing one. The collection
+exists on the chain being bitten, so `Members` is in its metadata and the bite decode-checks the
+entry against that runtime. The attestation allowances can only be reported skipped.
+
+`collection` is the identifier as the runtime spells it: `Identifier` is `[u8; 32]` and each one
+is a byte-string literal padded to that length, so the descriptor carries the name rather than
+its hex.
 
 ## What you get, and what you don't
 

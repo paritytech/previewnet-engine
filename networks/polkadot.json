@@ -104,5 +104,11 @@
     "count": 1000000,
     "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" },
     "_note": "//Alice, matching what the bite already endows, and 1000000 to match PEOPLELITE_ATTESTATION_ALLOWANCE and DOTNSGATEWAY_ATTESTATION_ALLOWANCE in individuality-community's initial-setup, which grants both by sudo. Two quotas share the AttestationAllowance name: PeopleLite's counts how many people a verifier may attest, DotnsGateway's how many names an attester may reserve, and the backend needs both. Managers are EnsureRoot and RootOrWhitelist; neither is reachable on a fork after the spawn. attestation.on pairs each chain with the pallet to seed there: both arrive with the runtime the bite authorizes, so they are absent from the bitten chain's metadata and the engine cannot find them itself."
+  },
+  "onboarding": {
+    "on": "people",
+    "collection": "pop:polkadot.network/people-lite",
+    "size": 1,
+    "_note": "Onboard each lite person into a ring on their own, rather than holding the first two until a third registers. Unlike the other seeds this one replaces a value rather than supplying a missing one: live Polkadot People already carries the collection, created at LitePeopleOnboardingSize = 3, and the fork inherits that. set_onboarding_size takes ManagerOrigin, which is RootOrTechnicalMaintenance on people-polkadot, and a fork can raise neither arm. The people collection keeps the 10 it inherits; only the lite one was asked for."
   }
 }

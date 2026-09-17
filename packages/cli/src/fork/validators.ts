@@ -274,6 +274,29 @@ export function attestationAllowanceInjects(
 }
 
 /**
+ * The onboarding size of one `Members` collection.
+ *
+ * `OnboardingSize` is `StorageMap<_, Identity, Identifier, u32, ValueQuery>` and
+ * `set_onboarding_size` only inserts, so the size is the whole state the call writes. The
+ * `Identity` hasher leaves the key as the identifier's own bytes.
+ *
+ * The collection has to exist on the chain being bitten. `create_collection` writes this entry
+ * too, so a collection the runtime upgrade creates gets the runtime's size, not this one.
+ */
+export function onboardingSizeInject(collection: string, size: number): Record<string, string> {
+  if (!Number.isInteger(size) || size <= 0) {
+    throw new Error(`onboarding size must be a positive integer, got ${size}`);
+  }
+  // `Identifier` is `[u8; 32]`, and the runtime spells each one as a byte-string literal padded
+  // to that length. A name of any other length names no collection the runtime knows.
+  const id = Buffer.from(collection, 'utf8');
+  if (id.length !== 32) {
+    throw new Error(`collection "${collection}" must be 32 bytes, got ${id.length}`);
+  }
+  return { [keyOf('Members', 'OnboardingSize') + id.toString('hex')]: u32le(size) };
+}
+
+/**
  * The collator key for a parachain.
  *
  * zombie-bite derives it from the seed "//Collator-<paraId>" and names the collator
