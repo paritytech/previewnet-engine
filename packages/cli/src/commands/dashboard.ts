@@ -222,8 +222,17 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
     '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png',
   };
 
+  const parseRequestUrl = (input: string | undefined): URL | null => {
+    try {
+      return new URL(input || '/', baseUrl);
+    } catch {
+      return null;
+    }
+  };
+
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url || '/', baseUrl);
+    const url = parseRequestUrl(req.url);
+    if (!url) return json(res, 400, { error: 'invalid url' });
     const p = url.pathname;
 
     // ---- API ----
@@ -255,7 +264,7 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
         'access-control-allow-origin': '*',
         'content-disposition': `attachment; filename="${name}.json"`,
       });
-      fs.createReadStream(specFile(name)).pipe(res);
+      fs.createReadStream(specFile(name)).on('error', () => res.destroy()).pipe(res);
       return;
     }
 
@@ -344,8 +353,13 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
       });
       req.on('end', async () => {
         if (size === 0 || size > limit) return json(res, 400, { error: 'expected a WASM body up to 16 MB' });
-        const wasmPath = path.join(fs.mkdtempSync(path.join(dataDir, '.upgrade-')), 'runtime.wasm');
-        fs.writeFileSync(wasmPath, Buffer.concat(parts));
+        let wasmPath: string;
+        try {
+          wasmPath = path.join(fs.mkdtempSync(path.join(dataDir, '.upgrade-')), 'runtime.wasm');
+          fs.writeFileSync(wasmPath, Buffer.concat(parts));
+        } catch (err) {
+          return json(res, 500, { error: `could not stage the runtime: ${(err as Error).message}` });
+        }
         const action = { id: nextActionId++, chain, lines: [] as string[], done: false as boolean, error: undefined as string | undefined };
         running = action;
         json(res, 202, { id: action.id, events: `/api/actions/${action.id}/events` });
@@ -396,9 +410,16 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
             path: route.target.keepPrefix ? route.matched + route.rest : (route.rest || '/'),
             method: req.method,
             headers: { ...req.headers, host: `127.0.0.1:${route.target.port}` } },
-          (up) => { res.writeHead(up.statusCode || 502, up.headers); up.pipe(res); }
+          (up) => {
+            res.writeHead(up.statusCode || 502, up.headers);
+            up.on('error', () => res.destroy()).pipe(res);
+          }
         );
-        upstream.on('error', () => json(res, 502, { error: 'upstream unreachable' }));
+        upstream.on('error', () => {
+          if (res.headersSent) return res.destroy();
+          json(res, 502, { error: 'upstream unreachable' });
+        });
+        req.on('error', () => upstream.destroy());
         req.pipe(upstream);
         return;
       }
@@ -409,7 +430,7 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
     const file = path.join(uiDir, path.normalize(rel).replace(/^([.][.][/\\])+/, ''));
     if (file.startsWith(uiDir) && fs.existsSync(file) && fs.statSync(file).isFile()) {
       res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
-      fs.createReadStream(file).pipe(res);
+      fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
       return;
     }
     json(res, 404, { error: 'not found' });
@@ -419,7 +440,9 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
   // does not speak the WS protocol — it only moves bytes, which is all a proxy needs.
   server.on('upgrade', (req, socket, head) => {
     if (!proxyEnabled) return socket.destroy();
-    const route = matchRoute(routes, new URL(req.url || '/', baseUrl).pathname);
+    const url = parseRequestUrl(req.url);
+    if (!url) return socket.destroy();
+    const route = matchRoute(routes, url.pathname);
     if (!route || !route.target.ws) return socket.destroy();
     const upstream = net.connect(route.target.port, '127.0.0.1', () => {
       const headers = Object.entries({ ...req.headers, host: `127.0.0.1:${route.target.port}` })

@@ -168,6 +168,11 @@ describe('dashboard API', () => {
     assert.equal((await get('/api/logs/eth-rpc%2F..%2F..')).status, 404);
   });
 
+  it('answers an invalid url instead of crashing', async () => {
+    assert.equal((await get('//%2F.env')).status, 400);
+    assert.equal((await get('/api/network')).status, 200);
+  });
+
   it('streams a log over SSE, replaying existing content', async () => {
     const res = await fetch(`${BASE}/api/logs/eth-rpc`);
     assert.equal(res.headers.get('content-type'), 'text/event-stream');
