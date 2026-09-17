@@ -12,10 +12,12 @@ coinage_asset_unit=10000
 coinage_pot_funding=$(( 1000 * 10**NATIVE_DECIMALS ))
 
 asset_foreign=$(people_foreign_location "$SEED_ASSET_ID")
-native_max=$(( 1000 * 10**NATIVE_DECIMALS ))
-native_min=$(( 500 * 10**NATIVE_DECIMALS ))
-asset_max=$(( 4000 * 10**SEED_ASSET_DECIMALS ))
-asset_min=$(( 2000 * 10**SEED_ASSET_DECIMALS ))
+# 10000 of each side, so the pool opens at 1:1. Coinage converts its fees at whatever rate the
+# pool holds, and on a fork that rate does not have to be the market's.
+native_max=$(( 10000 * 10**NATIVE_DECIMALS ))
+native_min=$(( 5000 * 10**NATIVE_DECIMALS ))
+asset_max=$(( 10000 * 10**SEED_ASSET_DECIMALS ))
+asset_min=$(( 5000 * 10**SEED_ASSET_DECIMALS ))
 asset_fund=$(( asset_max + SEED_ASSET_MIN_BALANCE ))
 
 echo "-> Create native/asset liquidity pool on People"
@@ -47,7 +49,7 @@ else
     echo "Minting $shortfall units to asset owner $SEED_ASSET_OWNER"
     dot people.tx.Assets.mint "$asset_foreign" "$SEED_ASSET_OWNER" "$shortfall" --from "$SIGNER"
   fi
-  echo "Pool has no liquidity, adding liquidity (1:4 ratio)"
+  echo "Pool has no liquidity, adding liquidity (1:1 ratio)"
   dot people.tx.AssetConversion.add_liquidity "$NATIVE_TOKEN" "$asset_foreign" "$native_max" "$asset_max" "$native_min" "$asset_min" "$SEED_ASSET_OWNER" --from "$SIGNER"
 fi
 
