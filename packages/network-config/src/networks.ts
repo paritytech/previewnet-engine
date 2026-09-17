@@ -289,6 +289,22 @@ export interface NetworkDef {
     /** Chain key -> the pallet that gates attestation there. */
     on: Record<string, 'PeopleLite' | 'DotnsGateway'>;
   };
+  /**
+   * Onboarding size of one `Members` collection, written at bite time.
+   *
+   * It is how many queued keys a ring takes at once, so it decides how long somebody who has
+   * just registered waits before a ring holds them. `set_onboarding_size` takes
+   * `ManagerOrigin`, which is `RootOrTechnicalMaintenance` on people-polkadot, and a fork can
+   * raise neither arm.
+   *
+   * `collection` is the identifier as the runtime spells it, 32 bytes.
+   */
+  onboarding?: {
+    /** Chain key of the chain holding the collection. */
+    on: string;
+    collection: string;
+    size: number;
+  };
   /** Every `_todo` note found in the file — non-empty means the descriptor is a stub. */
   todos: string[];
 }
@@ -515,6 +531,17 @@ export function loadDescriptor(name: string): NetworkDef {
     }
   }
 
+  if (raw.onboarding) {
+    const o = raw.onboarding;
+    namesOurChains('onboarding.on', [o.on]);
+    // `Identifier` is `[u8; 32]` and the runtime writes it as a byte-string literal, so a
+    // shorter name is padded there and would be a different collection here.
+    if (Buffer.byteLength(o.collection ?? '', 'utf8') !== 32) {
+      bad(`onboarding.collection must be 32 bytes, got "${o.collection}"`);
+    }
+    if (!Number.isInteger(o.size) || o.size <= 0) bad('onboarding.size must be a positive integer');
+  }
+
   // A genesis network builds its chain specs locally, so every chain needs a runtime to
   // build from and a spec to build into, and the network needs the settings they share.
   if (raw.genesis === true) {
@@ -590,6 +617,7 @@ export function loadDescriptor(name: string): NetworkDef {
     dotns: raw.dotns,
     seedAsset: raw.seedAsset,
     attestation: raw.attestation,
+    onboarding: raw.onboarding,
     todos,
   };
 }

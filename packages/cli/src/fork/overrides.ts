@@ -33,6 +33,7 @@ import {
   bulletinAuthorizerInjects,
   dotnsDispatcherInject,
   evmDeployerEndowInjects,
+  onboardingSizeInject,
   paraInjects,
   relayCandidates,
   relayInjects,
@@ -582,7 +583,8 @@ export async function paraOverrides(
   dotns?: { dispatcher?: string; deployer?: string | string[] },
   bulletinAuthorizer?: string,
   seedAsset?: { asset: SeededAsset; assetHubParaId: number; isReserve: boolean },
-  attestation?: { attester: string; count: number; pallet: 'PeopleLite' | 'DotnsGateway' }
+  attestation?: { attester: string; count: number; pallet: 'PeopleLite' | 'DotnsGateway' },
+  onboarding?: { collection: string; size: number }
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collator = await collatorKey(paraId, scheme);
@@ -638,6 +640,9 @@ export async function paraOverrides(
     ...(attestation
       ? attestationAllowanceInjects(attestation.pallet, attestation.attester, attestation.count)
       : {}),
+    // The collection already exists on the chain being bitten, so this replaces the size the
+    // fork inherits rather than supplying one it lacks. See onboardingSizeInject.
+    ...(onboarding ? onboardingSizeInject(onboarding.collection, onboarding.size) : {}),
     ...seededUpgradeInject(index, upgrade),
   };
   write(outFile, { overrides, injects }, index);

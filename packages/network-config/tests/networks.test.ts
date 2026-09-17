@@ -344,6 +344,45 @@ describe('network descriptors', () => {
       );
     });
   });
+
+  describe('the onboarding descriptor', () => {
+    const ON = { on: 'people', collection: 'pop:polkadot.network/people-lite', size: 1 };
+
+    it('names a collection of a chain this network has', () => {
+      const net = loadNetwork('polkadot');
+      assert.equal(net.onboarding?.collection, 'pop:polkadot.network/people-lite');
+      assert.equal(net.onboarding?.size, 1);
+      assert.ok(net.parachains.some((p) => p.key === net.onboarding?.on));
+    });
+
+    it('refuses a chain this network does not have', () => {
+      assert.throws(
+        withNetwork({ onboarding: { ...ON, on: 'web3-storage' } }),
+        /onboarding.on names "web3-storage", which this network does not have/
+      );
+    });
+
+    // A shorter name is a different 32 bytes once the runtime pads it, and the seed would land
+    // on a collection nothing reads.
+    it('refuses an identifier that is not 32 bytes', () => {
+      const wrong = ['pop:polkadot.network/people', 'pop:polkadot.network/people-lite!'];
+      for (const collection of wrong) {
+        assert.throws(
+          withNetwork({ onboarding: { ...ON, collection } }),
+          /onboarding.collection must be 32 bytes/
+        );
+      }
+    });
+
+    it('refuses a size that would onboard nobody', () => {
+      for (const size of [0, -1, 1.5]) {
+        assert.throws(
+          withNetwork({ onboarding: { ...ON, size } }),
+          /onboarding.size must be a positive integer/
+        );
+      }
+    });
+  });
 });
 
 describe('network selection and URL helpers', () => {

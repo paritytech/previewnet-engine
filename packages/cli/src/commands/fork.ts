@@ -115,6 +115,12 @@ export async function run(args: string[]): Promise<void> {
         const pallet = at?.on?.[key];
         return at && pallet ? { attester: at.attester, count: at.count, pallet } : undefined;
       };
+      // The collection lives on one chain, named by the descriptor, and its identifier says
+      // nothing about which.
+      const onboardingFor = (key: string) => {
+        const o = NETWORK.onboarding;
+        return o && o.on === key ? { collection: o.collection, size: o.size } : undefined;
+      };
       for (const p of PARACHAINS) {
         await paraOverrides(
           p.paraId,
@@ -126,7 +132,8 @@ export async function run(args: string[]): Promise<void> {
           { dispatcher: p.dotnsDispatcher, deployer: p.dotnsDeployer },
           p.bulletinAuthorizer,
           seedAssetFor(p.key),
-          attestationFor(p.key)
+          attestationFor(p.key),
+          onboardingFor(p.key)
         );
       }
       return;

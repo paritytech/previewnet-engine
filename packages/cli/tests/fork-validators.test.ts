@@ -20,6 +20,7 @@ import {
   bulletinAuthorizerInjects,
   dotnsDispatcherInject,
   evmDeployerEndowInjects,
+  onboardingSizeInject,
   sudoEndowInjects,
 } from '../src/fork/validators.js';
 import {
@@ -650,5 +651,36 @@ describe('the attestation allowance seeds', () => {
       () => attestationAllowanceInjects('PeopleLite', 'not-an-account', COUNT),
       /attester "not-an-account" is not an account: Decoding/
     );
+  });
+});
+
+// `Members::OnboardingSize` is how many queued keys a ring takes at once, so on the lite
+// collection it decides how long a new registration waits. Live Polkadot People carries that
+// collection at 3 and a fork inherits it; `set_onboarding_size` takes
+// `RootOrTechnicalMaintenance`, which a fork cannot raise.
+describe('the onboarding size seed', () => {
+  // What devops' initial-setup names PEOPLE_LITE_IDENTIFIER, and what the runtime writes as
+  // `b"pop:polkadot.network/people-lite"`.
+  const LITE = 'pop:polkadot.network/people-lite';
+  const LITE_HEX = '706f703a706f6c6b61646f742e6e6574776f726b2f70656f706c652d6c697465';
+
+  it('keys the entry by the identifier itself, which the Identity hasher leaves alone', () => {
+    assert.deepEqual(onboardingSizeInject(LITE, 1), {
+      [keyOf('Members', 'OnboardingSize') + LITE_HEX]: u32le(1),
+    });
+  });
+
+  it('refuses a size that would onboard nobody', () => {
+    for (const bad of [0, -1, 1.5]) {
+      assert.throws(() => onboardingSizeInject(LITE, bad), /positive integer/);
+    }
+  });
+
+  // `Identifier` is `[u8; 32]`. A name of any other length is a collection the runtime does not
+  // have, and the seed would sit at a key nothing reads. The second is 32 characters and 33
+  // bytes, which is the case a length in characters would let through.
+  it('refuses an identifier that is not 32 bytes', () => {
+    assert.throws(() => onboardingSizeInject('pop:polkadot.network/people', 1), /got 27/);
+    assert.throws(() => onboardingSizeInject('pop:polkadot.network/people-lit\u00e9', 1), /got 33/);
   });
 });
