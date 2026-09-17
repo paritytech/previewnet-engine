@@ -9,6 +9,7 @@ import {
   BOB_SS58,
   dubCustomProcesses,
   dubDatabaseUrl,
+  dubDatabases,
   dubServices,
   peopleRpcUrl,
 } from '../src/dub.js';
@@ -208,5 +209,61 @@ describe('dubCustomProcesses', () => {
     assert.ok(!toml.includes('identity-gateway'), 'the gateway process should be gone');
     assert.ok(!toml.includes('gateway.mjs'), 'nothing should exec the deleted gateway');
     assert.match(toml, /name = "dub-api"/);
+  });
+});
+
+describe('dub builds', () => {
+  // The runtime a dub binary was built against decides whether the invite-tickets roles
+  // exist. Naming one the binary does not have fails its role gate at boot, so a polkadot
+  // build must not be handed that process.
+  it('drops the invite-tickets role on the polkadot build and keeps it on testnet', () => {
+    assert.deepEqual(
+      dubServices(PORTS, undefined, 'polkadot').map((s) => s.role),
+      ['all-in-one', 'device-attestation-chain-writer', 'registration-queue']
+    );
+    assert.ok(
+      dubServices(PORTS, undefined, 'testnet').some((s) => s.role === 'invite-tickets-pool')
+    );
+  });
+
+  // The keys go with the service. INVITER_ADDRESS is half of a pair with the signing key
+  // service.sh supplies, and nothing reads either once the role is gone.
+  it('omits the invite-tickets keys on the polkadot build', () => {
+    for (const svc of dubServices(PORTS, undefined, 'polkadot')) {
+      assert.ok(!('INVITER_ADDRESS' in svc.env), `${svc.name} sets INVITER_ADDRESS`);
+      assert.ok(!('INVITE_TICKETS_DATABASE_URL' in svc.env), `${svc.name} sets the tickets DB`);
+    }
+    const testnet = dubServices(PORTS, undefined, 'testnet')[0];
+    assert.equal(testnet.env.INVITER_ADDRESS, BOB_SS58);
+  });
+
+  // v0.6.0 requires it on the chain writer, which 0.5.0 read optionally, and it is the one
+  // key whose absence aborts that role at startup rather than at first use.
+  it('gives every role the Asset Hub RPC, on both builds', () => {
+    for (const build of ['testnet', 'polkadot'] as const) {
+      for (const svc of dubServices(PORTS, undefined, build)) {
+        assert.equal(svc.env.ASSET_HUB_RPC_URL, `ws://127.0.0.1:${PORTS.assetHub}`);
+      }
+    }
+  });
+
+  // postgres.sh creates exactly these, and reads the list out of the generated TOML so the
+  // two cannot disagree.
+  it('creates the tickets database only where the service exists', () => {
+    assert.deepEqual(dubDatabases('polkadot'), ['identity', 'username_indexer']);
+    assert.deepEqual(dubDatabases('testnet'), ['identity', 'username_indexer', 'invite_tickets']);
+    assert.match(dubCustomProcesses(PORTS, undefined, '{{SCRIPTS}}', 'polkadot'),
+      /DUB_DATABASES", value = "identity username_indexer"/);
+  });
+
+  // service.sh blocks on each of these existing before it starts its role, so a role given a
+  // longer list than postgres.sh creates waits out its whole timeout at every start.
+  it('gives the services the same list postgres.sh creates', () => {
+    for (const build of ['testnet', 'polkadot'] as const) {
+      const expected = dubDatabases(build).join(' ');
+      for (const svc of dubServices(PORTS, undefined, build)) {
+        assert.equal(svc.env.DUB_DATABASES, expected, `${svc.name} on ${build}`);
+      }
+    }
   });
 });

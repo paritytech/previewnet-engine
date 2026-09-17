@@ -129,8 +129,12 @@ DUB_REPO=paritytech/device-uniqueness-backend-community
 DUB_TAG=v0.2.0
 ```
 
-`ppn fetch` downloads `dub-<version>-<triple>.tar.gz` (the tag without its leading `v`)
-and extracts the single `dub` into `bin/`. PPN no longer builds it: the
+`ppn fetch` downloads `dub-<version>-<build>-<triple>.tar.gz` (the tag without its leading
+`v`) and extracts the single `dub` into `bin/`. Since v0.6.0 every asset ships twice, one
+build per People runtime: `testnet` for previewnet and paseo-next-v2, `polkadot` for a fork
+of Polkadot, whose People runtime carries neither Game nor ProofOfInk and whose build
+therefore has no invite-tickets roles. A network picks its build with `dubBuild` in its
+descriptor, defaulting to testnet, and `dub --help` prints the build a binary carries. PPN no longer builds it: the
 `build-identity-backend` job is gone from `.github/workflows/release.yml`, along with the
 GitHub App token it needed to clone a private repo, the pinned Rust toolchain and roughly
 ten minutes of every release.
