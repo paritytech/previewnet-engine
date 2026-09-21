@@ -26,6 +26,7 @@ import {
   type NetworkDef,
   type OverrideSet,
 } from '@parity/ppn-network-config';
+import { shortVersion } from './lib/version.js';
 
 function die(message: string): never {
   console.error(`ppn: ${message}`);
@@ -233,6 +234,7 @@ export function buildProgram(): Command {
       'Product Preview Network. Which network everything applies to comes from\n' +
         '$PPN_NETWORK (default previewnet) — see networks/README.md.'
     )
+    .version(shortVersion(), '-V, --version', 'print the version and exit')
     .configureHelp({ sortSubcommands: true })
     .showHelpAfterError('(run `ppn --help`)')
     // The one question every [network] argument raises. Resolved when the help is printed,
@@ -282,6 +284,20 @@ export function buildProgram(): Command {
     });
 
   program
+    .command('version')
+    .summary('which ppn this is, and where it came from')
+    .description(
+      'The version, how it was installed, and the roots it resolved — what a bug report needs\n' +
+        'and what `--version` alone cannot say, since a checkout carries the placeholder the\n' +
+        'release rewrites at publish.'
+    )
+    .option('--json', 'machine-readable output')
+    .action(async (opts: { json?: boolean }) => {
+      const { versionInfo, formatVersion } = await import('./lib/version.js');
+      const info = versionInfo();
+      console.log(opts.json ? JSON.stringify(info, null, 2) : formatVersion(info));
+    });
+
   withOverrides(
     program
       .command('show')
