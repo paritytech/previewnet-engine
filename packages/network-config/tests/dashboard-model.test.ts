@@ -81,11 +81,20 @@ describe('dashboardModel — localhost mode', () => {
     assert.match(dub.links.jwks, /\/dub\/\.well-known\/jwks\.json$/);
   });
 
-  it('the log whitelist is exactly the chains and services', () => {
+  it('the log whitelist is exactly the chains, services and the TURN relay', () => {
     assert.deepEqual(
       [...m.logs].sort(),
-      [...m.chains.map((c) => c.id), ...m.services.map((s) => s.id)].sort()
+      [...m.chains.map((c) => c.id), ...m.services.map((s) => s.id), 'turn'].sort()
     );
+  });
+
+  it('advertises STUN and TURN on loopback, with no TLS', () => {
+    assert.deepEqual(m.ice?.servers.map((s) => s.url), [
+      'stun:127.0.0.1:3478',
+      'turn:127.0.0.1:3478?transport=udp',
+      'turn:127.0.0.1:3478?transport=tcp',
+    ]);
+    assert.equal(m.ice?.credentialsUrl, 'http://127.0.0.1:8090/dub/api/v1/turn/issue');
   });
 });
 
@@ -101,6 +110,15 @@ describe('dashboardModel — domain mode', () => {
   it('direct URLs stay loopback — they are the on-box address, whatever the domain', () => {
     const ah = m.chains.find((c) => c.id === 'asset-hub')!;
     assert.equal(ah.directUrl, 'ws://127.0.0.1:10020');
+  });
+
+  it('advertises TURN on the domain, plus turns: through nginx', () => {
+    assert.deepEqual(m.ice?.servers.map((s) => s.url), [
+      'stun:previewnet.substrate.dev:3478',
+      'turn:previewnet.substrate.dev:3478?transport=udp',
+      'turn:previewnet.substrate.dev:3478?transport=tcp',
+      'turns:previewnet.substrate.dev:5349?transport=tcp',
+    ]);
   });
 });
 
@@ -132,6 +150,17 @@ describe('dashboardModel — descriptor is the authority', () => {
     assert.equal(m.services.find((s) => s.id === 'eth-rpc'), undefined);
     // and therefore not in the log whitelist either
     assert.ok(!m.logs.includes('eth-rpc'));
+  });
+
+  it('no DUB, or services.turn: false, means no relay', () => {
+    const noDub = net();
+    (noDub.services as Record<string, unknown>)['dub'] = false;
+    assert.equal(dashboardModel(noDub, 'http://127.0.0.1:8090').ice, null);
+    const noTurn = net();
+    (noTurn.services as Record<string, unknown>)['turn'] = false;
+    const m = dashboardModel(noTurn, 'http://127.0.0.1:8090');
+    assert.equal(m.ice, null);
+    assert.ok(!m.logs.includes('turn'));
   });
 
   it('a relay running fewer validators emits fewer relay entries', () => {

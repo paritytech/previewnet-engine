@@ -306,6 +306,12 @@ doctor:
 	else \
 		echo "✗ GitHub auth (run: gh auth login)"; \
 	fi
+	@if [ "$$(uname)" = Darwin ]; then \
+		brew list --versions eturnal 2>/dev/null | sed 's/^/✓ /' | grep . \
+			|| echo "✗ eturnal (brew tap processone/eturnal https://github.com/processone/eturnal && brew install processone/eturnal/eturnal)"; \
+	else \
+		[ -x "$(CURDIR)/bin/eturnal/bin/eturnalctl" ] && echo "✓ eturnal" || echo "✗ eturnal (run: make fetch)"; \
+	fi
 	@command -v docker >/dev/null && echo "✓ docker" || echo "- docker (optional, for DOCKER=1 mode)"
 	@echo ""
 
