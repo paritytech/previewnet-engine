@@ -86,6 +86,7 @@ prints what resolves.
 
 - **GitHub auth**: Required for fetch - `gh auth login` or set `GITHUB_TOKEN`
 - **Node.js 24+**: Required for tests and startup helper scripts
+- **eturnal (macOS only)**: `brew tap processone/eturnal https://github.com/processone/eturnal && brew install processone/eturnal/eturnal`. Linux gets it from `make fetch` (see `docs/TURN.md`)
 
 **Mac Users (Apple Silicon)**: Disable IPv6 due to [known bug](https://github.com/paritytech/polkadot-sdk/issues/8918):
 

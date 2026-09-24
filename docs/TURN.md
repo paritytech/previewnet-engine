@@ -70,5 +70,8 @@ The secret never goes into `eturnal.yml`. eturnal reads it from `ETURNAL_SECRET`
   `ssl_certificate_key` for the domain at that level. When the network runs the relay, the
   marker is required.
 
+Under `DOCKER=1` the relay runs but cannot be reached from the host: it binds the
+container's loopback, and the TURN ports are not published.
+
 A descriptor can switch the relay off with `"services": { "turn": false }`. DUB still runs,
 and its credentials then point at nothing.
