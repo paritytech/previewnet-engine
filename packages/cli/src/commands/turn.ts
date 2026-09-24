@@ -97,8 +97,8 @@ export async function turn(ctx: ServiceContext): Promise<void> {
       });
     });
     child = null;
-    if (stopping || code === null) return;
-    console.log(`turn: eturnal exited (code ${code}), restarting in 5s...`);
+    if (stopping) return;
+    console.log(`turn: eturnal exited (${code === null ? 'killed by a signal' : `code ${code}`}), restarting in 5s...`);
     await new Promise((r) => setTimeout(r, 5000));
   }
 }
