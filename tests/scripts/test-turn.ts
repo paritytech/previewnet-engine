@@ -139,8 +139,17 @@ export async function run(nodeName: string, _networkInfo: NetworkInfo, _args: st
   try {
     console.log(`[TEST] TURN relay on ${HOST}:${PORT}, credentials via ${DUB_BASE} (from ${nodeName})`);
 
-    const binding = request(BINDING, []);
-    const mapped = (await withSocket((send) => send(binding.msg, binding.txid))).attrs.get(ATTR.XOR_MAPPED_ADDRESS);
+    // UDP: a dropped datagram, or eturnal inside its 5s restart backoff, is not a failure yet.
+    let mapped: Buffer | undefined;
+    for (let attempt = 1; !mapped; attempt++) {
+      const binding = request(BINDING, []);
+      try {
+        mapped = (await withSocket((send) => send(binding.msg, binding.txid))).attrs.get(ATTR.XOR_MAPPED_ADDRESS);
+      } catch (err) {
+        if (attempt === 10) throw err;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
     if (!mapped) {
       console.error("[TEST] FAIL STUN Binding returned no XOR-MAPPED-ADDRESS");
       return FAILURE;
