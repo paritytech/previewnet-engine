@@ -4,8 +4,9 @@ import { sr25519CreateDerive } from "@polkadot-labs/hdkd";
 import { entropyToMiniSecret } from "@polkadot-labs/hdkd-helpers";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { AccountId } from "polkadot-api";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { waitForDubReady } from "./dub-ready";
+import { dubToken } from "./dub-auth";
 
 // Registers a brand-new person end to end and waits for the username to land on
 // People Chain and appear in the indexer's projection.
@@ -74,9 +75,7 @@ const LANDING_TIMEOUT_MS = 420_000;
 const POLL_MS = 5_000;
 
 const accountId = AccountId();
-const b64 = (u8: Uint8Array) => Buffer.from(u8).toString("base64");
 const toHex = (u8: Uint8Array) => "0x" + Buffer.from(u8).toString("hex");
-const sha256 = (b: Uint8Array) => new Uint8Array(createHash("sha256").update(b).digest());
 const blake2b256 = (b: Uint8Array) => blake2b(b, { dkLen: 32 });
 const cat = (...arrs: Uint8Array[]) => new Uint8Array(Buffer.concat(arrs.map(Buffer.from)));
 
@@ -133,33 +132,13 @@ export async function run(
     console.log(`[TEST] candidate ${address} username ${username}`);
 
     // --- auth: challenge -> signed proof -> JWT ----------------------------
-    const chRes = await fetch(`${BASE}/api/v1/auth/challenges`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
-    const { challenge } = (await chRes.json()) as { challenge: string };
-
-    // proof = sr25519(SHA256(challenge || clientId || SHA256(body)))
-    const clientProof = keyPair.sign(
-      sha256(cat(new Uint8Array(Buffer.from(challenge, "base64")), publicKey, sha256(new Uint8Array(Buffer.from("{}")))))
-    );
-    const tokenRes = await fetch(`${BASE}/api/v1/auth/token`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "Auth-ClientId": b64(publicKey),
-        "Auth-Challenge": challenge,
-        "Auth-ClientProof": b64(clientProof),
-        "Auth-Attestation-Type": "none",
-      },
-      body: "{}",
-    });
-    if (tokenRes.status !== 200) {
-      console.error(`[TEST] FAIL auth token: ${tokenRes.status} ${await tokenRes.text()}`);
+    let token: string;
+    try {
+      token = await dubToken(keyPair, BASE);
+    } catch (err) {
+      console.error(`[TEST] FAIL ${(err as Error).message}`);
       return FAILURE;
     }
-    const { token } = (await tokenRes.json()) as { token: string };
     const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
     console.log("[TEST] ok JWT issued");
 
