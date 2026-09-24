@@ -112,6 +112,7 @@ TESTS=("${SELECTED[@]}")
     "08-dub.zndsl"
     "09-dub-registration.zndsl"
     "10-network-suffix.zndsl"
+    "11-turn.zndsl"
     "13-runtime-upgrade.zndsl"
 )
 

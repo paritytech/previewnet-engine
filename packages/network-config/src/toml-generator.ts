@@ -542,7 +542,7 @@ command = "{{SCRIPTS}}/grant-invites.sh"
     people: PORTS.people,
     assetHub: PORTS['asset-hub'],
     gateway: requiredPort('DUB_PORT'),
-  })
+  }, undefined, undefined, serviceEnabled('turn'))
 )}
 ${section(serviceEnabled('patch-bootnodes'), `
 [[custom_processes]]

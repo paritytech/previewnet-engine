@@ -3,6 +3,7 @@
   import type { Chain, Endpoint } from './api';
   import EndpointRow from './EndpointRow.svelte';
   import Contracts from './Contracts.svelte';
+  import Ice from './Ice.svelte';
 
   const relays = $derived(app.model?.chains.filter((c) => c.paraId === null) ?? []);
   const parachains = $derived(app.model?.chains.filter((c) => c.paraId !== null) ?? []);
@@ -31,4 +32,5 @@
   {/each}
 {/if}
 
+<Ice />
 <Contracts />

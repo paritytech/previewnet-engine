@@ -48,14 +48,14 @@ The five surfaces behind the one port, all live:
 | `/api/v1/usernames` (POST, `/available`, `/payment-status`), `/api/v1/attester`, `/.well-known/jwks.json` | device-attestation-api | challenge → attestation → JWT → registration |
 | `/api/v1/usernames/search` (GET) | username-indexer | finalized-chain projection + prefix search |
 | `/api/v1/invitation-ticket/claim` | invite-tickets-api | |
-| `/api/v1/turn/issue` | turn-api | short-lived TURN credentials; needs `TURN_SECRET` (base64) + `TURN_REALM` |
+| `/api/v1/turn/issue` | turn-api | short-lived credentials for the eturnal relay, with `ICE_SERVERS`; see [TURN.md](TURN.md) |
 | `/api/v1/notify` | notify-relay | pushes report provider failure until APNs/FCM credentials are set |
 | `/readyz`, `/livez`, `/healthcheck`, `/docs` | all-in-one | `/readyz` aggregates every merged service's dependencies |
 
-Two of these work without operator credentials only in the local sense: `turn-api` mints
-credentials against a dev secret nothing outside this machine honours, and `notify-relay`
-accepts requests and reports a provider failure. They are up, and they answer — that is
-enough for a client to develop against, and not enough to deliver a push.
+`notify-relay` works without operator credentials only in the local sense: it accepts
+requests and reports a provider failure. That is enough for a client to develop against, and
+not enough to deliver a push. `turn-api` is backed by a real relay, eturnal (see
+[TURN.md](TURN.md)).
 
 ### Two signing accounts, not one
 
@@ -259,8 +259,9 @@ TURN_REALM=previewnet.local
 
 And the secrets, in `scripts/dub/service.sh` rather than the TOML (see
 `docs/PROFILES.md`): `CHAIN_WRITER_SIGNER_SURI`, `INVITER_SIGNER_SURI`,
-`JWT_ED25519_SECRET` with `JWT_ED25519_PUBLIC_KEY` derived from it, and `TURN_SECRET` —
-which must be **base64**; hex is rejected with `invalid base64 encoding`.
+`JWT_ED25519_SECRET` with `JWT_ED25519_PUBLIC_KEY` derived from it, and `TURN_SECRET` with
+`ICE_SERVERS`, which `ppn service dub-turn-env` resolves together with the eturnal config
+(see [TURN.md](TURN.md)).
 
 The rest stay dormant under the dev defaults: `PAYMENT_MASTER_ACCOUNT` /
 `PAYMENT_AMOUNT_PLANCK` are only read when `PAYMENT_LANE_ENABLED=true` (default false,
@@ -415,8 +416,8 @@ namespaced URL. Scratch databases for the suites would be additional.
   a deliberate edit.
 - The repo is private, so `ppn fetch` needs a token that can read it. Nothing else PPN
   fetches has that requirement any more.
-- `turn-api` and `notify-relay` are up but not usable for real delivery: no coturn, no
-  APNs/FCM credentials. Requests are accepted and answered; a push does not arrive.
+- `notify-relay` is up but not usable for real delivery: no APNs/FCM credentials. Requests
+  are accepted and answered; a push does not arrive.
 - **A killed cluster leaks a shared-memory segment, and macOS allows 32.** Postgres takes a
   SysV segment at startup and releases it on shutdown, so anything that SIGKILLs it — a crash,
   or a `ppn kill` before the SIGTERM it now sends first — leaves one behind. Once

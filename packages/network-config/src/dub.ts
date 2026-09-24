@@ -44,6 +44,9 @@ export const ALICE_SS58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
  */
 export const BOB_SS58 = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
 
+/** Shared by turn-api and eturnal (turn.ts). Public: eturnal sends it in every 401. */
+export const TURN_REALM = 'previewnet.local';
+
 export interface DubPorts {
   postgres: number;
   people: number;
@@ -173,8 +176,8 @@ export function dubServices(
         BIND_ADDR: `127.0.0.1:${ports.gateway}`,
         ASSET_HUB_RPC_URL: `ws://127.0.0.1:${ports.assetHub}`,
         // turn-api requires a realm and has no default. Public, so it belongs here; the
-        // signing secret it pairs with comes from service.sh.
-        TURN_REALM: 'previewnet.local',
+        // signing secret and ICE_SERVERS depend on the host, so service.sh supplies them.
+        TURN_REALM,
       },
     },
     {
@@ -222,7 +225,9 @@ export function dubCustomProcesses(
   attesterAccount?: string,
   // Genesis mode emits the {{SCRIPTS}} placeholder that zombie-compat expands;
   // fork mode writes a standalone TOML with absolute paths already resolved.
-  scriptsDir: string = '{{SCRIPTS}}'
+  scriptsDir: string = '{{SCRIPTS}}',
+  // The TURN/STUN relay whose credentials turn-api mints (docs/TURN.md).
+  turn: boolean = true
 ): string {
   const wait = `127.0.0.1:${ports.postgres}`;
 
@@ -238,9 +243,17 @@ ${tomlEnv(svc.env)}
 `
   );
 
+  const relay = turn
+    ? `
+[[custom_processes]]
+name = "turn"
+command = "${scriptsDir}/turn.sh"
+`
+    : '';
+
   return `
 [[custom_processes]]
 name = "dub-postgres"
 command = "${scriptsDir}/dub/postgres.sh"
-${blocks.join('')}`;
+${blocks.join('')}${relay}`;
 }

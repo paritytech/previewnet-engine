@@ -462,6 +462,14 @@ jobs:
             ./tests/10-network-suffix.zndsl \
             ${{ env.ZOMBIE_DIR }}/zombie.json
 
+      - name: Run TURN Relay Tests
+        if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '11-turn.zndsl' || github.event.inputs.test_file == '' }}
+        run: |
+          node bin/ppn.mjs zombie-compat ${{ env.ZOMBIE_DIR }}/zombie.json
+          BIN="${{ env.BIN }}" zombienet -p native test \
+            ./tests/11-turn.zndsl \
+            ${{ env.ZOMBIE_DIR }}/zombie.json
+
       - name: Run Runtime Upgrade Tests
         if: ${{ github.event.inputs.test_file == 'all' || github.event.inputs.test_file == '13-runtime-upgrade.zndsl' || github.event.inputs.test_file == '' }}
         run: |
