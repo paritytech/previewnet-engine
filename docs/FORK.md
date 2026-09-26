@@ -89,7 +89,31 @@ instead of driving doppelganger itself ([#120](https://github.com/paritytech/zom
 
 The fork resumes at the bite block and diverges from there — it is a real fork, not a mirror. It
 runs six relay validators and one collator per parachain, on PPN's normal ports, with Asset Hub's
-2-second elastic scaling intact.
+2-second elastic scaling intact — unless the bite was asked for a different layout, below.
+
+### Cores and collators
+
+```bash
+make start FORK=1 FRESH_BITE=1 CORES=people=3 COLLATORS=people=5
+make bite CORES="people=3 asset-hub=1" COLLATORS=people=5
+```
+
+`CORES=<chain>=<n>` lays a parachain out on that many cores (Asset Hub defaults to three, the
+rest to one); `COLLATORS=<chain>=<n>` installs that many collators as its authorities. Both are
+**bite-time** settings: the collator authority sets and the relay's core layout are state inside
+the snapshots, so a published bundle — bitten with the defaults — cannot take them. `ppn start`
+refuses a bundle whose recorded layout differs from what it was asked for and says how to re-bite.
+The bundle's `manifest.json` carries the layout under `topology`, and the fork TOML follows it.
+
+The relay grows to one validator per core, because a core with no validator group backs nothing:
+previewnet with `people=3` is 3 + 3 + 1 + 1 = 8 cores, so 8 validators. Past the well-known six
+they are named `Validator-7`, `Validator-8`, … and their keys derived from those names, the same
+way zombienet does it; the cap is 10, where the relay RPC ports (`10000 + i`) would run into
+People's. Extra collators are `Collator-<paraId>-2` … and restore the same snapshot as the first;
+only the first holds the documented ports.
+
+What the parachain does with its cores is the runtime's business: People authors at 2 seconds on
+three cores only if its runtime is built for that velocity. The bite provides the cores.
 
 **There is no block history before the bite point.** Warp sync delivers finality proofs plus the
 state at the target, not the chain. Block *numbers* continue from the bite block, but querying an
@@ -187,10 +211,13 @@ adds (`--relay-chain-rpc-urls`, `--discover-local`, `--allow-private-ip`, `--sta
 keys its chains with the same names as the `Parachain` type, so a bundle manifest is checked
 against the descriptor with no mapping table in between.
 
-**Relay nodes must be named `alice`…`eve`, collators `Collator-<paraId>`.** zombienet maps the
+**Relay nodes must be named `alice`…`ferdie`, collators `Collator-<paraId>`.** zombienet maps the
 well-known names to the well-known dev keys, which is exactly the authority set the bite installs.
 PPN's genesis-mode names (`alice-paseo-validator`, …) get generated keys instead, and the network
 cannot author. This is why fork mode has its own config rather than overlaying `local-dev.toml`.
+Any node past those (`Validator-7`, `Collator-1502-2`) gets keys zombienet derives from `//<Name>`,
+and the bite derives the same — `relayNodeName()`/`collatorNodeName()` in `toml-generator.ts` are
+the one place both read the name from.
 
 **Every relay node needs `ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION=1`.** A warp-synced
 database has no ancestry before the bite block, so the dispute scrape fails,

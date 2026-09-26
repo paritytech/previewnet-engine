@@ -319,6 +319,8 @@ export function buildProgram(): Command {
         'with a bite: authorize a runtime at import, for a fork without sudo (see `ppn bite`)'
       )
       .option('--upgrade-same-spec', 'with --upgrade: authorize a runtime whose spec_version is not bumped')
+      .option('--cores <chain=n...>', 'with a bite: lay a parachain out on this many cores (see `ppn bite`)')
+      .option('--collators <chain=n...>', 'with a bite: install this many collators on a parachain')
       .option('--data-dir <path>', 'where chain state goes; default data/ (suffixed per network and mode)')
       .option('--toml <path>', 'use this zombienet config instead of the generated one')
       // Tri-state on purpose: unset leaves the decision to the descriptor's dotns.pinProducts,
@@ -346,6 +348,8 @@ export function buildProgram(): Command {
         freshBite: Boolean(opts.freshBite),
         upgrades: opts.upgrade as string[] | undefined,
         upgradeSameSpec: Boolean(opts.upgradeSameSpec),
+        cores: opts.cores as string[] | undefined,
+        collators: opts.collators as string[] | undefined,
         dataDir: opts.dataDir as string | undefined,
         toml: opts.toml as string | undefined,
       });
@@ -451,16 +455,24 @@ export function buildProgram(): Command {
       '--upgrade-same-spec',
       'authorize even a runtime whose spec_version is not bumped (replaying production\'s own)'
     )
+    .option(
+      '--cores <chain=n...>',
+      'lay a parachain out on this many cores (the relay gets a validator per core):\n' +
+        '                            --cores people=3'
+    )
+    .option('--collators <chain=n...>', 'install this many collators as a parachain\'s authorities')
     .action(
       async (
         outDir: string | undefined,
-        opts: { source?: string; upgrade?: string[]; upgradeSameSpec?: boolean }
+        opts: { source?: string; upgrade?: string[]; upgradeSameSpec?: boolean; cores?: string[]; collators?: string[] }
       ) => {
         const { run } = await import('./commands/bite.js');
         await run(outDir ? [outDir] : [], {
           source: opts.source,
           upgrades: opts.upgrade,
           upgradeCheckVersion: !opts.upgradeSameSpec,
+          cores: opts.cores,
+          collators: opts.collators,
         });
       }
     );
@@ -588,8 +600,15 @@ export function buildProgram(): Command {
   forkCmd('overrides <outDir> <baseUrl>', 'build the storage overrides the bite applies')
     // `ppn bite` passes what it staged; a hand-run needs neither the flag nor a value.
     .option('--upgrades <json>', 'runtimes to authorize at import, as {"<chain>":{codeHash,checkVersion}}')
-    .action((outDir: string, baseUrl: string, opts: { upgrades?: string }) =>
-      runFork(['overrides', outDir, baseUrl, ...(opts.upgrades ? ['--upgrades', opts.upgrades] : [])])
+    .option('--topology <json>', 'cores and collators the bite was asked for, as {validators,cores,collators}')
+    .action((outDir: string, baseUrl: string, opts: { upgrades?: string; topology?: string }) =>
+      runFork([
+        'overrides',
+        outDir,
+        baseUrl,
+        ...(opts.upgrades ? ['--upgrades', opts.upgrades] : []),
+        ...(opts.topology ? ['--topology', opts.topology] : []),
+      ])
     );
 
   forkCmd('head-env <workDir>', 'the parachain heads to inject into the relay bite')
