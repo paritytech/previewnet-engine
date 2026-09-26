@@ -31,6 +31,7 @@ import { blake2AsHex } from '@polkadot/util-crypto';
 import { githubToken, downloadUrl } from '../lib/github.js';
 import { extractTarGz, extractZip, withTempDir } from '../lib/archive.js';
 import { forkBundleName, forkBundleAsset } from '../lib/fork-bundle-name.js';
+import { resolveTopology, topologyFlags } from '../fork/topology.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
@@ -209,6 +210,10 @@ export interface BiteOptions {
   upgrades?: string[];
   /** false authorizes a runtime whose spec_version is not bumped. Default true. */
   upgradeCheckVersion?: boolean;
+  /** `<chain key>=<n>`, cores to lay the parachain out on. See fork/topology.ts. */
+  cores?: string[];
+  /** `<chain key>=<n>`, collators to install as the parachain's authorities. */
+  collators?: string[];
 }
 
 /**
@@ -511,6 +516,8 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
   // Before the first network call: a mistyped chain or a missing file should fail now, not
   // after minutes of syncing.
   const staged = stageUpgrades(opts.upgrades, chains, out, opts.upgradeCheckVersion ?? true);
+  const topology = resolveTopology(opts, net);
+  if (topology) console.log(`  topology: ${topologyFlags(topology)} → ${topology.validators} validators`);
 
   console.log(`=== 1/6 collecting chain specs (network: ${net.name}) ===`);
   for (const chain of chains) await collectSpec(chain, net, out, baseUrl, dgDir);
@@ -529,6 +536,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
     path.join(out, 'overrides'),
     baseUrl,
     ...(Object.keys(staged).length ? ['--upgrades', JSON.stringify(staged)] : []),
+    ...(topology ? ['--topology', JSON.stringify(topology)] : []),
   ]);
 
   console.log('=== 4/6 biting parachains (parallel) ===');
@@ -662,6 +670,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
         biteBlocks,
         snapshotBytes,
         ...(Object.keys(staged).length ? { seededUpgrades: staged } : {}),
+        ...(topology ? { topology } : {}),
       },
       null,
       2

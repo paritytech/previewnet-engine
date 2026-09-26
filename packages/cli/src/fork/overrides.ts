@@ -13,6 +13,7 @@ import { keyOf } from './codec.js';
 import {
   channelsTouching,
   coreDescriptorsValue,
+  coresFor,
   dmpWipes,
   hrmpChannelKey,
   hrmpContentsWipes,
@@ -24,7 +25,8 @@ import {
   type PlannedPara,
 } from './shared-relay.js';
 import {
-  collatorKey,
+  collatorKeys,
+  devValidators,
   paraCandidates,
   paraInjects,
   relayCandidates,
@@ -231,19 +233,30 @@ function patchNumCores(
   return { value, before };
 }
 
+/** What a relay bite is asked to lay out — see relayOverrides(). */
+export interface RelayLayout {
+  paras: PlannedPara[];
+  validators: number;
+  /** Cores per parachain key where they differ from coresFor()'s default. */
+  cores?: Record<string, number>;
+  /** The relay carries parachains we do not run: reset its messaging state too. */
+  sharedRelay: boolean;
+}
+
 /**
- * The extra overrides a shared relay needs: our parachains registered alone, laid out on cores
- * from 0 with validator groups to match, `num_cores` cut to fit, and the inherited messaging
- * state cleared. See ./shared-relay.ts for why each one is here.
+ * Our parachains laid out on cores from 0 with validator groups to match and `num_cores` cut
+ * to fit. A shared relay always needs this (see ./shared-relay.ts); previewnet's own relay
+ * only when the bite asks for a core count production does not have.
  */
-async function sharedRelayCandidates(
+async function coreLayoutCandidates(
   index: StorageIndex,
   relayUrl: string,
-  paras: PlannedPara[],
-  validators: number
-): Promise<{ overrides: Record<string, string>; injects: Record<string, string> }> {
-  const plan = planCores(paras);
-  const paraIds = paras.map((p) => p.paraId);
+  { paras, validators, cores }: RelayLayout
+): Promise<Record<string, string>> {
+  const plan = planCores(paras, cores);
+  if (plan.length > validators) {
+    throw new Error(`${plan.length} cores need at least ${plan.length} validators, and the bite has ${validators}`);
+  }
 
   // Read production's own HostConfiguration and change exactly one field in it.
   const liveConfig = await rpc<`0x${string}` | null>(relayUrl, 'state_getStorage', [
@@ -253,24 +266,33 @@ async function sharedRelayCandidates(
   const config = patchNumCores(index, liveConfig, plan.length);
 
   console.log(
-    `  shared relay: ${paraIds.join(', ')} on cores 0-${plan.length - 1}, ` +
-      `num_cores ${config.before} -> ${plan.length}`
+    `  cores: ${paras.map((p) => `${p.key}=${coresFor(p.key, cores)}`).join(', ')} on cores 0-${plan.length - 1}, ` +
+      `num_cores ${config.before} -> ${plan.length}, ${validators} validators`
   );
 
   return {
-    overrides: {
-      [keyOf('ParaScheduler', 'ValidatorGroups')]: validatorGroups(plan.length, validators),
-      [keyOf('ParaScheduler', 'CoreDescriptors')]: encode(
-        index,
-        'ParaScheduler',
-        'CoreDescriptors',
-        coreDescriptorsValue(plan)
-      ),
-      [keyOf('Configuration', 'ActiveConfig')]: config.value,
-    },
-    // Storage map entries, so injects.
-    injects: { ...dmpWipes(paraIds), ...(await hrmpResets(index, relayUrl, paraIds)) },
+    [keyOf('ParaScheduler', 'ValidatorGroups')]: validatorGroups(plan.length, validators),
+    [keyOf('ParaScheduler', 'CoreDescriptors')]: encode(
+      index,
+      'ParaScheduler',
+      'CoreDescriptors',
+      coreDescriptorsValue(plan)
+    ),
+    [keyOf('Configuration', 'ActiveConfig')]: config.value,
   };
+}
+
+/**
+ * The inherited messaging state a shared relay carries, cleared. See ./shared-relay.ts for
+ * why. Storage map entries, so injects.
+ */
+async function sharedRelayInjects(
+  index: StorageIndex,
+  relayUrl: string,
+  paras: PlannedPara[]
+): Promise<Record<string, string>> {
+  const paraIds = paras.map((p) => p.paraId);
+  return { ...dmpWipes(paraIds), ...(await hrmpResets(index, relayUrl, paraIds)) };
 }
 
 /**
@@ -362,18 +384,22 @@ export interface SeededUpgrade {
 export async function relayOverrides(
   relayUrl: string,
   outFile: string,
-  shared?: { paras: PlannedPara[]; validators: number },
+  layout: RelayLayout,
   upgrade?: SeededUpgrade
 ): Promise<void> {
   const index = await storageIndex(relayUrl);
+  const validators = await devValidators(layout.validators);
   console.log('relay:');
 
-  // Order matters: the shared-relay values replace the ones relayCandidates() sets for a relay
-  // that is ours (ValidatorGroups above all), so they come second.
-  const extra = shared
-    ? await sharedRelayCandidates(index, relayUrl, shared.paras, shared.validators)
-    : { overrides: {}, injects: {} };
-  const candidates = { ...relayCandidates(), ...extra.overrides };
+  // Production's own core layout is kept unless it has to move: a shared relay's is wrong for
+  // us, and a bite asked for cores is asking for a layout production does not have. Order
+  // matters: these values replace the ones relayCandidates() sets (ValidatorGroups above all),
+  // so they come second.
+  const relaid = layout.sharedRelay || Object.keys(layout.cores ?? {}).length > 0;
+  const candidates = {
+    ...relayCandidates(validators),
+    ...(relaid ? await coreLayoutCandidates(index, relayUrl, layout) : {}),
+  };
 
   const overrides = report('relay overrides', verify(index, candidates), candidates);
   write(outFile, {
@@ -381,9 +407,9 @@ export async function relayOverrides(
     // On a shared relay the dev accounts hold nothing — endow sudo at import so its
     // first transaction (a runtime upgrade's fees) is payable.
     injects: {
-      ...relayInjects(),
-      ...(shared ? sudoEndowInjects() : {}),
-      ...extra.injects,
+      ...relayInjects(validators),
+      ...(layout.sharedRelay ? sudoEndowInjects() : {}),
+      ...(layout.sharedRelay ? await sharedRelayInjects(index, relayUrl, layout.paras) : {}),
       ...seededUpgradeInject(index, upgrade),
     },
   }, index);
@@ -411,10 +437,11 @@ export async function paraOverrides(
   outFile: string,
   sharedRelay = false,
   upgrade?: SeededUpgrade,
-  scheme: AuraScheme = 'sr25519'
+  scheme: AuraScheme = 'sr25519',
+  collatorCount = 1
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
-  const collator = await collatorKey(paraId, scheme);
+  const collators = await collatorKeys(paraId, collatorCount, scheme);
   // On a shared relay the inherited messaging state is reset on both sides at once — see
   // ./shared-relay.ts. On our own relay it is preserved on both sides, which is what keeps
   // previewnet's HRMP channels and its XCM tests working.
@@ -424,17 +451,20 @@ export async function paraOverrides(
   // proof check panics "Storage proof must be checked once in the block" and the chain
   // wedges one block in — reproduced on the published previewnet bundle 2026-08-19.
   const candidates = {
-    ...paraCandidates(collator),
+    ...paraCandidates(collators),
     ...(sharedRelay ? paraMessagingWipes() : {}),
     ...(index.pallets.has('TransactionStorage') ? transactionStorageWipes() : {}),
   };
 
-  console.log(`para ${paraId} (collator //Collator-${paraId} ${scheme} = ${collator.slice(0, 16)}…):`);
+  console.log(
+    `para ${paraId} (${collators.length} collator${collators.length === 1 ? '' : 's'} from //Collator-${paraId} ` +
+      `${scheme} = ${collators.map((c) => c.slice(0, 16) + '…').join(', ')}):`
+  );
   const overrides = report(`para ${paraId} overrides`, verify(index, candidates), candidates);
 
   // A parachain without a Session pallet manages authorities through Aura alone.
   const injects = {
-    ...(index.pallets.has('Session') ? paraInjects(collator) : {}),
+    ...(index.pallets.has('Session') ? paraInjects(collators) : {}),
     // Parachains of a shared relay are live public chains: no dev account holds
     // funds there, so sudo is endowed at import (see sudoEndowInjects).
     ...(sharedRelay ? sudoEndowInjects() : {}),
