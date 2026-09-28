@@ -239,7 +239,7 @@ export interface RelayLayout {
   validators: number;
   /** Cores per parachain key where they differ from coresFor()'s default. */
   cores?: Record<string, number>;
-  /** The relay carries parachains we do not run: reset its messaging state too. */
+  /** The relay carries parachains we do not run: remap its cores and endow sudo too. */
   sharedRelay: boolean;
 }
 
@@ -286,7 +286,7 @@ async function coreLayoutCandidates(
  * The inherited messaging state a shared relay carries, cleared. See ./shared-relay.ts for
  * why. Storage map entries, so injects.
  */
-async function sharedRelayInjects(
+async function messagingResets(
   index: StorageIndex,
   relayUrl: string,
   paras: PlannedPara[]
@@ -409,7 +409,7 @@ export async function relayOverrides(
     injects: {
       ...relayInjects(validators),
       ...(layout.sharedRelay ? sudoEndowInjects() : {}),
-      ...(layout.sharedRelay ? await sharedRelayInjects(index, relayUrl, layout.paras) : {}),
+      ...(await messagingResets(index, relayUrl, layout.paras)),
       ...seededUpgradeInject(index, upgrade),
     },
   }, index);
@@ -442,9 +442,8 @@ export async function paraOverrides(
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
   const collators = await collatorKeys(paraId, collatorCount, scheme);
-  // On a shared relay the inherited messaging state is reset on both sides at once — see
-  // ./shared-relay.ts. On our own relay it is preserved on both sides, which is what keeps
-  // previewnet's HRMP channels and its XCM tests working.
+  // The inherited messaging state is reset on every bite, matching the relay half in
+  // messagingResets() — see ./shared-relay.ts. The channels stay open, so XCM keeps working.
   // The transaction-storage wipe applies on EVERY bite of a chain with that pallet, not
   // just shared relays: no bite carries the stored data blocks, so once the source chain
   // has an active proof schedule (previewnet's bulletin since v0.0.24), the fork's next
@@ -452,7 +451,7 @@ export async function paraOverrides(
   // wedges one block in — reproduced on the published previewnet bundle 2026-08-19.
   const candidates = {
     ...paraCandidates(collators),
-    ...(sharedRelay ? paraMessagingWipes() : {}),
+    ...paraMessagingWipes(),
     ...(index.pallets.has('TransactionStorage') ? transactionStorageWipes() : {}),
   };
 

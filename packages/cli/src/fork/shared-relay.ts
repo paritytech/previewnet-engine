@@ -1,9 +1,11 @@
-// Extra bite overrides for a fork of a *shared* relay — one carrying parachains we do not run.
+// Extra bite overrides for a fork of a *shared* relay — one carrying parachains we do not run —
+// and the messaging reset every bite needs.
 //
 // previewnet's relay is ours end to end: the only parachains registered on it are the five we
-// spawn, so production's inherited state is exactly what we want and the bite leaves it alone
+// spawn, so its core layout is exactly what we want and the bite leaves it alone
 // (docs/FORK.md, "Deliberately not overridden"). paseo-next-v2, kusama and polkadot are forks of
-// a relay shared with everybody else, and there two pieces of that state are actively wrong:
+// a relay shared with everybody else, and there the cores are actively wrong. HRMP is wrong on
+// any network, shared or not, whenever messages land between the snapshots:
 //
 //   cores  Every registered parachain occupies a core, and the relay splits its validator set
 //          into one group per core. Paseo has 18 cores; a fork runs 6 dev validators, so the
