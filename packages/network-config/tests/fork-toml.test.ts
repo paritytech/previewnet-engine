@@ -171,6 +171,58 @@ describe('generateForkToml — relay chain', () => {
   });
 });
 
+// `ppn bite --cores people=3 --collators people=5` writes the layout it installed into the
+// manifest, and the spawn has to match it: the bite installed keys for exactly these nodes.
+describe('generateForkToml — topology from the bundle', () => {
+  const topology = { validators: 8, cores: { people: 3 }, collators: { people: 5 } };
+  const toml = generate((m) => (m.topology = topology));
+
+  it('runs as many relay validators as the bite installed keys for', () => {
+    assert.equal(toml.split('[[relaychain.nodes]]').length - 1, 8);
+    for (const [i, name] of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'Validator-7', 'Validator-8'].entries()) {
+      assert.ok(toml.includes(`name = "${name}"\nvalidator = true\nrpc_port = ${RELAY_BASE_PORT + i}`),
+        `${name} missing or on the wrong port`);
+    }
+    assert.equal(toml.split('ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION').length - 1, 8);
+  });
+
+  it('runs as many collators as the bite installed as authorities, all off the one snapshot', () => {
+    const people = paraIds().people;
+    const names = [...toml.matchAll(/name = "(Collator-[\d-]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(
+      names.filter((n) => n.startsWith(`Collator-${people}`)),
+      [`Collator-${people}`, `Collator-${people}-2`, `Collator-${people}-3`, `Collator-${people}-4`, `Collator-${people}-5`]
+    );
+    assert.equal(toml.split(`db_snapshot = "`).length - 1, 1 + 4 + 4, 'relay default + 4 first collators + 4 extra');
+    assert.equal(toml.split(`snapshots/${people}.tgz`).length - 1, 5);
+    // The other chains keep the one collator every bundle has had.
+    assert.equal(names.filter((n) => n.startsWith(`Collator-${paraIds().bulletin}`)).length, 1);
+  });
+
+  it('gives the documented ports to the first collator only', () => {
+    assert.equal(toml.split(`rpc_port = ${PORTS.people}`).length - 1, 1);
+    assert.equal(toml.split(`p2p_port = ${P2P_PORTS.people}`).length - 1, 1);
+    const extra = toml.split(`name = "Collator-${paraIds().people}-2"`)[1].split('[[')[0];
+    assert.doesNotMatch(extra, /rpc_port|p2p_port/);
+  });
+
+  // Asset Hub binds a fixed webrtc listen address; a second collator on the same port would
+  // fail to bind, so the extras go without and let zombienet pick.
+  it('drops a fixed listen address from the extra collators', () => {
+    const ah = generate((m) => (m.topology = { validators: 6, cores: {}, collators: { 'asset-hub': 2 } }));
+    const first = collatorArgs(ah, paraIds()['asset-hub']);
+    assert.ok(first.some((a) => a.startsWith('--listen-addr=')), 'the first keeps it');
+    const extra = ah.split(`name = "Collator-${paraIds()['asset-hub']}-2"`)[1].split('[[')[0];
+    assert.doesNotMatch(extra, /--listen-addr=/);
+    assert.match(extra, /--relay-chain-rpc-urls=/, 'every other flag stays');
+  });
+
+  it('records the topology in the header', () => {
+    assert.ok(toml.includes(`# Topology: ${JSON.stringify(topology)}`));
+    assert.ok(!generate().includes('# Topology:'), 'no line when the bundle has none');
+  });
+});
+
 describe('generateForkToml — collators', () => {
   const toml = generate();
 

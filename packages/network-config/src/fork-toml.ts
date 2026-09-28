@@ -39,7 +39,8 @@
 
 import fs from 'node:fs';
 import {
-  VALIDATORS,
+  relayNodeName,
+  collatorNodeName,
   PORTS,
   P2P_PORTS,
   RELAY_BASE_PORT,
@@ -58,7 +59,7 @@ import { dubCustomProcesses } from './dub.js';
 // Bundle manifest — built by ./fork/manifest.ts, extended with biteBlocks by bite.sh
 // ---------------------------------------------------------------------------
 
-export type { ForkManifest, ForkManifestChain } from './bundle.js';
+export type { ForkManifest, ForkManifestChain, ForkTopology } from './bundle.js';
 
 // Services, data loading, and spec publishing — see note 4 above.
 //
@@ -192,11 +193,14 @@ function chainIdOf(specPath: string): string {
   return JSON.parse(fs.readFileSync(specPath, 'utf-8')).id;
 }
 
+// As many as the bite installed keys for: the well-known six, then names zombienet derives
+// keys from (see relayNodeName). One RPC port each, counting up from the relay base port.
 function relayNodes(count: number): string {
-  return VALIDATORS.slice(0, count).map(
-    (name, i) => `
+  return Array.from(
+    { length: count },
+    (_, i) => `
 [[relaychain.nodes]]
-name = "${name}"
+name = "${relayNodeName(i)}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
 env = [{ name = "ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION", value = "1" }]`
@@ -245,6 +249,30 @@ function parachainSection(
   }
   const envLine = env.length ? `\nenv = [${env.join(', ')}]` : '';
 
+  // As many collators as the bite installed as authorities (manifest.topology), every one
+  // restoring the same snapshot. Only the first holds the documented ports; the rest take
+  // whatever zombienet hands out, and drop a fixed listen address that would collide.
+  const count = manifest.topology?.collators[key] ?? 1;
+  const collators = Array.from({ length: count }, (_, i) =>
+    i === 0
+      ? `
+[[parachains.collators]]
+name = "${collatorNodeName(paraId, i)}"
+rpc_port = ${PORTS[key]}
+p2p_port = ${P2P_PORTS[key]}
+command = "${scriptsDir}/omni-node.sh"
+db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"${envLine}
+args = ${tomlArgs(args)}
+`
+      : `
+[[parachains.collators]]
+name = "${collatorNodeName(paraId, i)}"
+command = "${scriptsDir}/omni-node.sh"
+db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"${envLine}
+args = ${tomlArgs(args.filter((a) => !a.startsWith('--listen-addr=')))}
+`
+  );
+
   return `
 ## ${chain.specName} (${paraId}) — bitten at block ${manifest.biteBlocks[paraId]}
 [[parachains]]
@@ -252,15 +280,7 @@ id = ${paraId}
 cumulus_based = true
 chain = "${chainIdOf(specPath)}"
 chain_spec_path = "${specPath}"
-
-[[parachains.collators]]
-name = "Collator-${paraId}"
-rpc_port = ${PORTS[key]}
-p2p_port = ${P2P_PORTS[key]}
-command = "${scriptsDir}/omni-node.sh"
-db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"${envLine}
-args = ${tomlArgs(args)}
-`;
+${collators.join('')}`;
 }
 
 /**
@@ -362,7 +382,9 @@ export function generateForkToml(options: GenerateForkTomlOptions): string {
 # DO NOT EDIT — regenerate with: ppn fork toml <bundle> <out>
 # Forked ${net.name}, bitten ${manifest.bittenAt} from ${manifest.source}
 # Production node version at bite time: ${manifest.nodeVersion}
-# Bite blocks: ${JSON.stringify(manifest.biteBlocks)}
+# Bite blocks: ${JSON.stringify(manifest.biteBlocks)}${
+    manifest.topology ? `\n# Topology: ${JSON.stringify(manifest.topology)}` : ''
+  }
 
 [settings]
 timeout = 1200
@@ -374,7 +396,7 @@ chain_spec_path = "${relaySpecPath}"
 default_command = "${binDir}/${net.relay.binary.name}"
 default_db_snapshot = "${bundleDir}/snapshots/relay.tgz"
 default_args = ${tomlArgs(relayArgs)}
-${relayNodes(net.relay.validators)}
+${relayNodes(manifest.topology?.validators ?? net.relay.validators)}
 ${parachains
     .map((p) => parachainSection(p, manifest, bundleDir, scriptsDir, enableHop, net, options.binDir))
     .join('')}

@@ -53,10 +53,10 @@ export interface PlannedPara {
  *
  * Asset Hub keeps three: that is what gives it 2-second blocks through elastic scaling, and it
  * is the one place where the number is a property of the network rather than a default. The
- * rest get one each.
+ * rest get one each — unless the bite was asked for more (`ppn bite --cores people=3`).
  */
-export function coresFor(key: string): number {
-  return key === 'asset-hub' ? 3 : 1;
+export function coresFor(key: string, cores: Record<string, number> = {}): number {
+  return cores[key] ?? (key === 'asset-hub' ? 3 : 1);
 }
 
 /**
@@ -66,11 +66,11 @@ export function coresFor(key: string): number {
  * fills groups in order, so with `num_cores` set to exactly what we plan here, every core in
  * the plan is staffed and none of the plan depends on rotation luck.
  */
-export function planCores(paras: PlannedPara[]): CoreAssignment[] {
+export function planCores(paras: PlannedPara[], cores: Record<string, number> = {}): CoreAssignment[] {
   const plan: CoreAssignment[] = [];
   let core = 0;
   for (const para of paras) {
-    for (let i = 0; i < coresFor(para.key); i++) plan.push({ core: core++, paraId: para.paraId });
+    for (let i = 0; i < coresFor(para.key, cores); i++) plan.push({ core: core++, paraId: para.paraId });
   }
   return plan;
 }

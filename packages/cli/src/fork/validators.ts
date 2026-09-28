@@ -11,7 +11,7 @@
 import { Keyring } from '@polkadot/keyring';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le } from './codec.js';
-import type { AuraScheme } from '@parity/ppn-network-config';
+import { collatorNodeName, relayNodeName, type AuraScheme } from '@parity/ppn-network-config';
 
 export const ALICE_SR = 'd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
 
@@ -25,26 +25,51 @@ export interface DevValidator {
   authorityDiscovery: string;
 }
 
-const mk = (stash: string, babe: string, grandpa: string, beefy: string): DevValidator => ({
-  stash, babe, grandpa, beefy,
-  paraValidator: babe, paraAssignment: babe, authorityDiscovery: babe,
-});
+/** Relay RPC ports are `RELAY_BASE_PORT + i`, and the eleventh would land on People's. */
+export const MAX_VALIDATORS = 10;
 
 /**
- * Well-known dev keys, verbatim from zombie-bite src/utils.rs.
+ * The names the relay's dev keys derive from, in the order the authority set lists them.
  *
- * Order matters: it must match get_validator_keys() — ALICE, BOB, CHARLIE, DAVE, FERDIE,
- * EVE (note FERDIE before EVE) — because ActiveValidatorIndices and ValidatorGroups index
- * into it positionally.
+ * The first six are zombie-bite's get_validator_keys() order — ALICE, BOB, CHARLIE, DAVE,
+ * FERDIE, EVE (note FERDIE before EVE) — because ActiveValidatorIndices and ValidatorGroups
+ * index into the list positionally, and a bundle bitten with the old hard-coded keys had that
+ * order. The names beyond them are whatever the fork TOML calls the extra nodes: zombienet
+ * derives a non-well-known node's keys from `//<Name>`, exactly as done here.
  */
-export const VALIDATORS: DevValidator[] = [
-  mk('be5ddb1579b72e84524fc29e78609e3caf42e85aa118ebfe0b0ad404b5bdd25f', ALICE_SR, '88dc3417d5058ec4b4503e0c12ea1a0a89be200fe98922423d4334014fa6b0ee', '020a1091341fe5664bfa1782d5e04779689068c916b04cb365ec3153755684d9a1'),
-  mk('fe65717dad0447d715f660a0a58411de509b42e6efb8375f562f58a554d5860e', '8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48', 'd17c2d7823ebf260fd138f2d7e27d114c0145d968b5ff5006125f2414fadae69', '0390084fdbf27d2b79d26a4f13f0ccd982cb755a661969143c37cbc49ef5b91f27'),
-  mk('1e07379407fecc4b89eb7dbd287c2c781cfb1907a96947a3eb18e4f8e7198625', '90b5ab205c6974c9ea841be688864633dc9ca8a357843eeacf2314649965fe22', '439660b36c6c03afafca027b910b4fecf99801834c62a5e6006f27d978de234f', '020e7446f3910e15fed2b2db1e71a01c57f3dd85cc2e65f30680220e09f8bbbc79'),
-  mk('e860f1b1c7227f7c22602f53f15af80747814dffd839719731ee3bba6edc126c', '306721211d5404bd9da88e0204360a1a9ab8b87c66c1bc2fcdd37f3c2222cc20', '5e639b43e0052c47447dac87d6fd2b6ec50bdd4d0f614e4299c665249bbd09d9', '0227e2b139697b04eb01f4eef7e8f3724431b795c45ce6ef7b8e23a4e93f4abd26'),
-  mk('101191192fc877c24d725b337120fa3edc63d227bbc92705db1e2cb65f56981a', '1cbd2d43530a44705ad088af313e18f80b53ef16b36177cd4b77b846f2a5f07c', '568cb4a574c6d178feb39c27dfc8b3f789e5f5423e19c71633c748b9acf086b5', '0291f1217d5a04cb83312ee3d88a6e6b33284e053e6ccfc3a90339a0299d12967c'),
-  mk('8ac59e11963af19174d0b94d5d78041c233f55d2e19324665bafdfb62925af2d', 'e659a7a1628cdd93febc04a4e0646ea20e9f5f0ce097d9a05290d4a9e054df4e', '1dfe3e22cc0d45c70779c1095f7489a8ef3cf52d62fbd8c2fa38c9f1723502b5', '031d10105e323c4afce225208f71a6441ee327a65b9e646e772500c74d31f669aa'),
-];
+function validatorNames(count: number): string[] {
+  const wellKnown = ['Alice', 'Bob', 'Charlie', 'Dave', 'Ferdie', 'Eve'];
+  return Array.from({ length: count }, (_, i) => wellKnown[i] ?? relayNodeName(i));
+}
+
+/**
+ * The dev keys for `count` relay validators, derived the way zombienet writes them into a
+ * node's keystore: stash `//<Name>//stash`, BABE and the parachain keys sr25519 `//<Name>`,
+ * GRANDPA the ed25519 key of that seed and BEEFY its ecdsa key. For the first six this is
+ * byte-identical to the keys zombie-bite hard-codes in src/utils.rs (pinned by test), except
+ * Charlie's and Dave's BEEFY keys, which zombie-bite has as bytes no seed derives to; the
+ * keystore holds the derived ones, so those are what the session keys name here.
+ */
+export async function devValidators(count: number): Promise<DevValidator[]> {
+  if (!Number.isInteger(count) || count < 1 || count > MAX_VALIDATORS) {
+    throw new Error(`a fork runs 1..${MAX_VALIDATORS} relay validators, not ${count}`);
+  }
+  await cryptoWaitReady();
+  const hex = (scheme: 'sr25519' | 'ed25519' | 'ecdsa', suri: string) =>
+    Buffer.from(new Keyring({ type: scheme }).addFromUri(suri).publicKey).toString('hex');
+  return validatorNames(count).map((name) => {
+    const babe = hex('sr25519', `//${name}`);
+    return {
+      stash: hex('sr25519', `//${name}//stash`),
+      babe,
+      grandpa: hex('ed25519', `//${name}`),
+      beefy: hex('ecdsa', `//${name}`),
+      paraValidator: babe,
+      paraAssignment: babe,
+      authorityDiscovery: babe,
+    };
+  });
+}
 
 export const sessionKeys = (v: DevValidator): string =>
   v.grandpa + v.babe + v.paraValidator + v.paraAssignment + v.authorityDiscovery + v.beefy;
@@ -63,9 +88,9 @@ export const sessionKeys = (v: DevValidator): string =>
  *   Hrmp::* / Dmp::*             keeps the four HRMP channels
  *   Paras::Parachains            keeps all four parachains registered
  */
-export function relayCandidates(): Record<string, string> {
-  const len = compactLen(VALIDATORS.length);
-  const each = (f: (v: DevValidator) => string) => VALIDATORS.map(f).join('');
+export function relayCandidates(validators: DevValidator[]): Record<string, string> {
+  const len = compactLen(validators.length);
+  const each = (f: (v: DevValidator) => string) => validators.map(f).join('');
 
   return {
     [keyOf('Session', 'Validators')]: len + each((v) => v.stash),
@@ -74,7 +99,7 @@ export function relayCandidates(): Record<string, string> {
     [keyOf('Babe', 'NextAuthorities')]: len + each((v) => v.babe + '0100000000000000'),
     [keyOf('Grandpa', 'Authorities')]: len + each((v) => v.grandpa + '0100000000000000'),
     [keyOf('Staking', 'Invulnerables')]: len + each((v) => v.stash),
-    [keyOf('ParasShared', 'ActiveValidatorIndices')]: len + VALIDATORS.map((_, i) => u32le(i)).join(''),
+    [keyOf('ParasShared', 'ActiveValidatorIndices')]: len + validators.map((_, i) => u32le(i)).join(''),
     [keyOf('ParasShared', 'ActiveValidatorKeys')]: len + each((v) => v.paraValidator),
     [keyOf('AuthorityDiscovery', 'Keys')]: len + each((v) => v.authorityDiscovery),
     [keyOf('AuthorityDiscovery', 'NextKeys')]: len + each((v) => v.authorityDiscovery),
@@ -82,7 +107,7 @@ export function relayCandidates(): Record<string, string> {
     // Each group carries its own compact length. Verified against production, whose real
     // value is `18` + 6x(`04` + u32) = [[0],[1],[2],[3],[4],[5]].
     [keyOf('ParaScheduler', 'ValidatorGroups')]:
-      len + VALIDATORS.map((_, i) => compactLen(1) + u32le(i)).join(''),
+      len + validators.map((_, i) => compactLen(1) + u32le(i)).join(''),
     // Without this the relay takes the validator set Asset Hub elects. None of those accounts
     // holds session keys on a fork, so `pallet_session` queues an empty set and announces the
     // next BABE epoch with no authorities: nobody can claim a slot, no block enacts the next
@@ -96,11 +121,11 @@ export function relayCandidates(): Record<string, string> {
 }
 
 /** Session::NextKeys is a map, so our validators' entries are injects, not overrides. */
-export function relayInjects(): Record<string, string> {
+export function relayInjects(validators: DevValidator[]): Record<string, string> {
   // twox128(":UsePreviousValidators:")
   const injects: Record<string, string> = { c57d82d01f0fc18afc048ca20ac460dd: '01' };
   const nextKeys = keyOf('Session', 'NextKeys');
-  for (const v of VALIDATORS) {
+  for (const v of validators) {
     injects[nextKeys + twox64Concat(v.stash)] = sessionKeys(v);
   }
   return injects;
@@ -132,19 +157,32 @@ export function sudoEndowInjects(): Record<string, string> {
 }
 
 /**
- * The collator key for a parachain.
+ * The collator keys for a parachain, one per collator node.
  *
- * zombie-bite derives it from the seed "//Collator-<paraId>" and names the collator
+ * zombie-bite derives the first from the seed "//Collator-<paraId>" and names the collator
  * Collator-<paraId>; zombienet derives non-well-known node keys the same way, so the two
- * agree. Verified byte-identical against a real `bite -r paseo` run.
+ * agree. Verified byte-identical against a real `bite -r paseo` run. Further collators follow
+ * the node names collatorNodeName() gives them, for the same reason.
  *
  * The curve is the chain's, not ours: see auraScheme(). The same seed on the other curve
  * is a different key, and zombienet already writes it — under `gran`, not `aura`.
  */
-export async function collatorKey(paraId: number, scheme: AuraScheme = 'sr25519'): Promise<string> {
+export async function collatorKeys(
+  paraId: number,
+  count: number,
+  scheme: AuraScheme = 'sr25519'
+): Promise<string[]> {
+  if (!Number.isInteger(count) || count < 1) throw new Error(`a parachain runs at least one collator, not ${count}`);
   await cryptoWaitReady();
-  const pair = new Keyring({ type: scheme }).addFromUri(`//Collator-${paraId}`);
-  return Buffer.from(pair.publicKey).toString('hex');
+  const keyring = new Keyring({ type: scheme });
+  return Array.from({ length: count }, (_, i) =>
+    Buffer.from(keyring.addFromUri(`//${collatorNodeName(paraId, i)}`).publicKey).toString('hex')
+  );
+}
+
+/** The one collator every bite before collator counts installed. */
+export async function collatorKey(paraId: number, scheme: AuraScheme = 'sr25519'): Promise<string> {
+  return (await collatorKeys(paraId, 1, scheme))[0];
 }
 
 /**
@@ -174,26 +212,36 @@ export function authorizedUpgradeCandidate(codeHash: string, checkVersion: boole
   return { [keyOf('System', 'AuthorizedUpgrade')]: hash + (checkVersion ? '01' : '00') };
 }
 
-export function paraCandidates(collator: string): Record<string, string> {
-  const one = compactLen(1);
+/**
+ * Parachain storage values that install the collators as its authority set. One key serves as
+ * both the account and the Aura key: the seed is the same and the account is the sr25519 public
+ * key, which is what CollatorSelection and Session hold.
+ */
+export function paraCandidates(collators: string[]): Record<string, string> {
+  const len = compactLen(collators.length);
+  const all = collators.join('');
   return {
-    [keyOf('CollatorSelection', 'DesiredCandidates')]: '01000000',
-    [keyOf('CollatorSelection', 'Invulnerables')]: one + collator,
-    [keyOf('AuraExt', 'Authorities')]: one + collator,
-    [keyOf('Aura', 'Authorities')]: one + collator,
-    [keyOf('Session', 'Validators')]: one + collator,
-    [keyOf('Session', 'QueuedKeys')]: one + collator + collator,
+    [keyOf('CollatorSelection', 'DesiredCandidates')]: u32le(collators.length),
+    [keyOf('CollatorSelection', 'Invulnerables')]: len + all,
+    [keyOf('AuraExt', 'Authorities')]: len + all,
+    [keyOf('Aura', 'Authorities')]: len + all,
+    [keyOf('Session', 'Validators')]: len + all,
+    [keyOf('Session', 'QueuedKeys')]: len + collators.map((c) => c + c).join(''),
     [keyOf('Sudo', 'Key')]: ALICE_SR,
     // ParachainSystem::LastDmqMqcHead is left alone: zeroing it (as zombie-bite does)
     // desyncs the parachain from the relay's preserved Dmp state.
   };
 }
 
-export function paraInjects(collator: string): Record<string, string> {
-  return {
-    [keyOf('Session', 'NextKeys') + twox64Concat(collator)]: collator,
+export function paraInjects(collators: string[]): Record<string, string> {
+  const injects: Record<string, string> = {};
+  for (const collator of collators) {
+    injects[keyOf('Session', 'NextKeys') + twox64Concat(collator)] = collator;
     // Session::KeyOwner(("aura", collatorKey))
-    ['cec5070d609dd3497f72bde07fc96ba0726380404683fc89e8233450c8aa1950eab3d4a1675d3d746175726180' +
-      collator]: collator,
-  };
+    injects[
+      'cec5070d609dd3497f72bde07fc96ba0726380404683fc89e8233450c8aa1950eab3d4a1675d3d746175726180' +
+        collator
+    ] = collator;
+  }
+  return injects;
 }

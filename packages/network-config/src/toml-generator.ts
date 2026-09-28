@@ -20,6 +20,24 @@ import { dubCustomProcesses } from './dub.js';
 
 const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'] as const;
 
+/**
+ * The name of the i-th relay node in fork mode. The first six are the well-known names, which
+ * zombienet maps to the well-known dev keys; past them zombienet derives a node's keys from
+ * `//<Name>` — the same rule that makes `Collator-<paraId>` work — so any name serves, as long
+ * as the bite installs the keys derived from it (cli fork/validators.ts).
+ */
+function relayNodeName(i: number): string {
+  return VALIDATORS[i] ?? `Validator-${i + 1}`;
+}
+
+/**
+ * The name of the i-th collator of a parachain. The first keeps the name every bite has used,
+ * so a bundle bitten before collator counts existed still spawns; the rest are numbered from 2.
+ */
+function collatorNodeName(paraId: number, i: number): string {
+  return i === 0 ? `Collator-${paraId}` : `Collator-${paraId}-${i + 1}`;
+}
+
 const VALID_PARACHAINS: Parachain[] = PARACHAIN_KEYS;
 
 // Genesis is previewnet-only by design (see networks/README.md), but everything about
@@ -580,6 +598,8 @@ export {
   LOG_LEVELS,
   // Shared with fork-toml.ts so that fork mode and genesis mode cannot drift apart.
   VALIDATORS,
+  relayNodeName,
+  collatorNodeName,
   PORTS,
   paraIds,
   RELAY_BASE_PORT,

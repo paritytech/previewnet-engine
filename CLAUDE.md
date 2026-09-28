@@ -64,7 +64,11 @@ make start FORK=1 NETWORK=devnet  # Fork a different network (networks/*.json)
 make start FORK=1 FRESH_BITE=1  # Fork, biting production now instead of using a bundle
 make start FORK=1 CLEAN=1       # Fork, back at its bite block (a stopped fork otherwise resumes)
 make bite NETWORK=polkadot UPGRADES="people=<wasm>"  # Bite with a runtime authorized at import (no-sudo networks)
+make start FORK=1 FRESH_BITE=1 CORES=people=3 COLLATORS=people=5  # Bite with People on 3 cores and 5 collators
 ```
+
+`CORES`/`COLLATORS` are bite-time: the authority sets and the core layout are state inside the
+bundle, so they need a fresh bite, and the relay grows to one validator per core (max 10).
 
 Fork mode continues from a real block rather than resetting to genesis, so contracts,
 registrations and balances are already present. A fork that is started again resumes where it

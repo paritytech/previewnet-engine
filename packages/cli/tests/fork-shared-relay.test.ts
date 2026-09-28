@@ -51,10 +51,27 @@ describe('planCores', () => {
     ]);
   });
 
-  // 5 cores + 1 = 6 validators, which is exactly the number of dev keys a fork runs. If this
-  // ever exceeds them, groups start coming out empty again and blocks stop being backed.
-  it('plans no more cores than six validators can staff', () => {
+  // 5 cores + 1 = 6 validators, which is exactly the number of dev keys a fork runs by
+  // default. If this ever exceeds them, groups start coming out empty again and blocks stop
+  // being backed — which is why a bite asked for more cores grows the validator set to match.
+  it('plans no more cores than six validators can staff, by default', () => {
     assert.ok(planCores(PNV2).length < 6, 'a fork has six dev validators');
+  });
+
+  // `ppn bite --cores people=3`: the asked-for count replaces the default for that chain only.
+  it('lays a parachain out on as many cores as the bite asked for', () => {
+    assert.equal(coresFor('people', { people: 3 }), 3);
+    assert.equal(coresFor('asset-hub', { people: 3 }), 3, 'the default stays for the others');
+    assert.equal(coresFor('asset-hub', { 'asset-hub': 1 }), 1, 'and can be cut too');
+    assert.deepEqual(planCores(PNV2, { people: 3 }), [
+      { core: 0, paraId: 1500 },
+      { core: 1, paraId: 1500 },
+      { core: 2, paraId: 1500 },
+      { core: 3, paraId: 1502 },
+      { core: 4, paraId: 1502 },
+      { core: 5, paraId: 1502 },
+      { core: 6, paraId: 1501 },
+    ]);
   });
 });
 

@@ -6,7 +6,7 @@
 // need no compiled code and `make bite` should not have to build first to read them.
 //
 //   ppn fork manifest <baseUrl> <outFile>
-//   ppn fork overrides <outDir> <baseUrl>
+//   ppn fork overrides <outDir> <baseUrl> [--upgrades <json>] [--topology <json>]
 //   ppn fork head-env <workDir>
 //   ppn fork toml <bundleDir> <outFile>
 //   ppn fork products <assetHubRpc> <bulletinRpc> <resolverAddr>
@@ -22,7 +22,7 @@ import { PORTS, RELAY_BASE_PORT, repoRoot,
   workspaceRoot} from '@parity/ppn-network-config';
 import { writeManifest, headEnvLines } from '../fork/manifest.js';
 import { relayOverrides, paraOverrides } from '../fork/overrides.js';
-import { generateForkToml, type ForkManifest } from '@parity/ppn-network-config';
+import { generateForkToml, type ForkManifest, type ForkTopology } from '@parity/ppn-network-config';
 import { scanProducts } from '../fork/products.js';
 import {
   targetsFromManifest,
@@ -68,23 +68,27 @@ export async function run(args: string[]): Promise<void> {
       need(baseUrl, 'baseUrl');
       // Runtimes `ppn bite --upgrade` staged, keyed by chain. Passed as JSON rather than
       // read off disk so this subcommand stays a pure function of its arguments.
-      const flag = rest.indexOf('--upgrades');
+      const flagValue = (flag: string) => {
+        const at = rest.indexOf(flag);
+        return at === -1 ? undefined : need(rest[at + 1], flag);
+      };
       const seeded: Record<string, { codeHash: string; checkVersion: boolean }> =
-        flag === -1 ? {} : JSON.parse(need(rest[flag + 1], '--upgrades'));
+        JSON.parse(flagValue('--upgrades') ?? '{}');
+      // What `ppn bite --cores/--collators` settled on (fork/topology.ts); absent = defaults.
+      const topology: ForkTopology | undefined = JSON.parse(flagValue('--topology') ?? 'null') ?? undefined;
       fs.mkdirSync(outDir, { recursive: true });
       const relay = CHAINS.find((c) => c.key === 'relay')!;
       // A shared relay carries parachains this network does not run, and its inherited core
       // layout and messaging state are then wrong for us — see fork/shared-relay.ts.
-      const shared = NETWORK.bite.sharedRelay
-        ? {
-            paras: PARACHAINS.map((p) => ({ key: p.key, paraId: p.paraId })),
-            validators: NETWORK.relay.validators,
-          }
-        : undefined;
       await relayOverrides(
         endpointOf(relay, NETWORK, baseUrl),
         `${outDir}/rc_overrides.json`,
-        shared,
+        {
+          paras: PARACHAINS.map((p) => ({ key: p.key, paraId: p.paraId })),
+          validators: topology?.validators ?? NETWORK.relay.validators,
+          cores: topology?.cores,
+          sharedRelay: NETWORK.bite.sharedRelay === true,
+        },
         seeded.relay
       );
       for (const p of PARACHAINS) {
@@ -94,7 +98,8 @@ export async function run(args: string[]): Promise<void> {
           `${outDir}/${p.paraId}_overrides.json`,
           NETWORK.bite.sharedRelay,
           seeded[p.key],
-          p.aura
+          p.aura,
+          topology?.collators[p.key] ?? 1
         );
       }
       return;

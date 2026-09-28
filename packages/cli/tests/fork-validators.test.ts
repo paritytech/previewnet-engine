@@ -7,14 +7,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   ALICE_SR,
-  VALIDATORS,
+  MAX_VALIDATORS,
   collatorKey,
+  collatorKeys,
+  devValidators,
   paraCandidates,
   paraInjects,
   relayCandidates,
   relayInjects,
   sessionKeys,
   authorizedUpgradeCandidate,
+  type DevValidator,
 } from '../src/fork/validators.js';
 import { verify, verifyInjects } from '../src/fork/overrides.js';
 import { compactLen, keyOf, u32le } from '../src/fork/codec.js';
@@ -27,14 +30,36 @@ const GOLDEN = JSON.parse(
   fs.readFileSync(path.join(import.meta.dirname, 'fixtures/overrides.golden.json'), 'utf-8')
 ) as Record<string, { overrides: Record<string, string>; injects: Record<string, string> }>;
 
+// Well-known dev keys as zombie-bite src/utils.rs hard-codes them, in get_validator_keys()
+// order. The keys used to be hard-coded from this list; now they are derived from the names,
+// and the derivation must land on these exact bytes or every bundle's authority set silently
+// changes. One deliberate difference: zombie-bite's BEEFY keys for Charlie and Dave
+// (020e7446…, 0227e2b1…) derive from no seed at all, while zombienet writes the ecdsa key of
+// `//Charlie` (0389…) and `//Dave` (03bc…) into the keystore — so those two are pinned to what
+// the nodes actually hold.
+const mk = (stash: string, babe: string, grandpa: string, beefy: string): DevValidator => ({
+  stash, babe, grandpa, beefy,
+  paraValidator: babe, paraAssignment: babe, authorityDiscovery: babe,
+});
+const ZOMBIE_BITE_KEYS: DevValidator[] = [
+  mk('be5ddb1579b72e84524fc29e78609e3caf42e85aa118ebfe0b0ad404b5bdd25f', ALICE_SR, '88dc3417d5058ec4b4503e0c12ea1a0a89be200fe98922423d4334014fa6b0ee', '020a1091341fe5664bfa1782d5e04779689068c916b04cb365ec3153755684d9a1'),
+  mk('fe65717dad0447d715f660a0a58411de509b42e6efb8375f562f58a554d5860e', '8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48', 'd17c2d7823ebf260fd138f2d7e27d114c0145d968b5ff5006125f2414fadae69', '0390084fdbf27d2b79d26a4f13f0ccd982cb755a661969143c37cbc49ef5b91f27'),
+  mk('1e07379407fecc4b89eb7dbd287c2c781cfb1907a96947a3eb18e4f8e7198625', '90b5ab205c6974c9ea841be688864633dc9ca8a357843eeacf2314649965fe22', '439660b36c6c03afafca027b910b4fecf99801834c62a5e6006f27d978de234f', '0389411795514af1627765eceffcbd002719f031604fadd7d188e2dc585b4e1afb'),
+  mk('e860f1b1c7227f7c22602f53f15af80747814dffd839719731ee3bba6edc126c', '306721211d5404bd9da88e0204360a1a9ab8b87c66c1bc2fcdd37f3c2222cc20', '5e639b43e0052c47447dac87d6fd2b6ec50bdd4d0f614e4299c665249bbd09d9', '03bc9d0ca094bd5b8b3225d7651eac5d18c1c04bf8ae8f8b263eebca4e1410ed0c'),
+  mk('101191192fc877c24d725b337120fa3edc63d227bbc92705db1e2cb65f56981a', '1cbd2d43530a44705ad088af313e18f80b53ef16b36177cd4b77b846f2a5f07c', '568cb4a574c6d178feb39c27dfc8b3f789e5f5423e19c71633c748b9acf086b5', '0291f1217d5a04cb83312ee3d88a6e6b33284e053e6ccfc3a90339a0299d12967c'),
+  mk('8ac59e11963af19174d0b94d5d78041c233f55d2e19324665bafdfb62925af2d', 'e659a7a1628cdd93febc04a4e0646ea20e9f5f0ce097d9a05290d4a9e054df4e', '1dfe3e22cc0d45c70779c1095f7489a8ef3cf52d62fbd8c2fa38c9f1723502b5', '031d10105e323c4afce225208f71a6441ee327a65b9e646e772500c74d31f669aa'),
+];
+
+const VALIDATORS = await devValidators(6);
+
 describe('the dev authority set', () => {
-  it('has six validators', () => {
-    assert.equal(VALIDATORS.length, 6);
+  it('derives the six well-known keys byte-for-byte as zombie-bite hard-codes them', () => {
+    assert.deepEqual(VALIDATORS, ZOMBIE_BITE_KEYS);
   });
 
   it('starts with Alice, whose babe key is also the sudo key', () => {
     assert.equal(VALIDATORS[0].babe, ALICE_SR);
-    assert.equal(relayCandidates()[keyOf('Sudo', 'Key')], ALICE_SR);
+    assert.equal(relayCandidates(VALIDATORS)[keyOf('Sudo', 'Key')], ALICE_SR);
   });
 
   // ActiveValidatorIndices and ValidatorGroups index into this list positionally, so the
@@ -46,11 +71,33 @@ describe('the dev authority set', () => {
     assert.equal(VALIDATORS[5].babe, ferdie, 'index 5 should be Ferdie');
   });
 
-  it('has no duplicate keys', () => {
+  // Past the well-known six, a validator is named for its position and zombienet derives its
+  // keystore from that name — the keys here must be the same derivation, or the node holds
+  // keys no authority entry mentions and never authors.
+  it('extends past the well-known six with keys derived from the node names', async () => {
+    const eight = await devValidators(8);
+    assert.deepEqual(eight.slice(0, 6), ZOMBIE_BITE_KEYS, 'the first six do not move');
+    const { Keyring } = await import('@polkadot/keyring');
+    const hex = (k: Uint8Array) => Buffer.from(k).toString('hex');
+    assert.equal(eight[6].babe, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Validator-7').publicKey));
+    assert.equal(eight[6].stash, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Validator-7//stash').publicKey));
+    assert.equal(eight[6].grandpa, hex(new Keyring({ type: 'ed25519' }).addFromUri('//Validator-7').publicKey));
+    assert.equal(eight[6].beefy, hex(new Keyring({ type: 'ecdsa' }).addFromUri('//Validator-7').publicKey));
+    assert.equal(eight[7].babe, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Validator-8').publicKey));
+  });
+
+  it('has no duplicate keys, however many', async () => {
+    const all = await devValidators(MAX_VALIDATORS);
     for (const field of ['stash', 'babe', 'grandpa', 'beefy'] as const) {
-      const values = VALIDATORS.map((v) => v[field]);
-      assert.equal(new Set(values).size, 6, `duplicate ${field}`);
+      const values = all.map((v) => v[field]);
+      assert.equal(new Set(values).size, MAX_VALIDATORS, `duplicate ${field}`);
     }
+  });
+
+  // The eleventh relay RPC port is People's.
+  it('refuses more validators than the relay has ports for', async () => {
+    await assert.rejects(devValidators(MAX_VALIDATORS + 1), /at most|1\.\.10/);
+    await assert.rejects(devValidators(0), /1\.\.10/);
   });
 
   it('composes session keys as grandpa+babe+paraValidator+paraAssignment+discovery+beefy', () => {
@@ -62,15 +109,26 @@ describe('the dev authority set', () => {
 });
 
 describe('relay overrides', () => {
-  const candidates = relayCandidates();
+  const candidates = relayCandidates(VALIDATORS);
 
   it('matches the values a verified bite produced', () => {
     for (const [key, value] of Object.entries(GOLDEN.relay.overrides)) {
       assert.equal(candidates[key], value, `override ${key} changed`);
     }
     for (const [key, value] of Object.entries(GOLDEN.relay.injects)) {
-      assert.equal(relayInjects()[key], value, `inject ${key} changed`);
+      assert.equal(relayInjects(VALIDATORS)[key], value, `inject ${key} changed`);
     }
+  });
+
+  it('lists every validator it is given, in order', async () => {
+    const eight = await devValidators(8);
+    const c = relayCandidates(eight);
+    assert.equal(
+      c[keyOf('ParasShared', 'ActiveValidatorIndices')],
+      compactLen(8) + [0, 1, 2, 3, 4, 5, 6, 7].map(u32le).join('')
+    );
+    assert.equal(c[keyOf('Session', 'Validators')], compactLen(8) + eight.map((v) => v.stash).join(''));
+    assert.equal(Object.keys(relayInjects(eight)).length, 9);
   });
 
   // The bug this guards: without the inner compact length each group encoded as empty, the
@@ -118,7 +176,7 @@ describe('relay overrides', () => {
   });
 
   it('injects session keys for all six validators plus the UsePreviousValidators flag', () => {
-    const injects = relayInjects();
+    const injects = relayInjects(VALIDATORS);
     assert.equal(injects['c57d82d01f0fc18afc048ca20ac460dd'], '01');
     assert.equal(Object.keys(injects).length, 7);
   });
@@ -136,8 +194,8 @@ describe('para overrides', () => {
   it('matches the values a verified bite produced, for every parachain', async () => {
     for (const { paraId } of PARACHAINS) {
       const collator = await collatorKey(paraId);
-      const candidates = paraCandidates(collator);
-      const injects = paraInjects(collator);
+      const candidates = paraCandidates([collator]);
+      const injects = paraInjects([collator]);
       for (const [key, value] of Object.entries(GOLDEN[paraId].overrides)) {
         assert.equal(candidates[key], value, `para ${paraId} override ${key} changed`);
       }
@@ -147,18 +205,45 @@ describe('para overrides', () => {
     }
   });
 
-  it('installs exactly one collator as the authority', async () => {
+  it('installs exactly one collator as the authority by default', async () => {
     const collator = await collatorKey(1500);
-    const candidates = paraCandidates(collator);
+    const candidates = paraCandidates([collator]);
     assert.equal(candidates[keyOf('CollatorSelection', 'DesiredCandidates')], '01000000');
     for (const [pallet, item] of [['Aura', 'Authorities'], ['AuraExt', 'Authorities'], ['Session', 'Validators']]) {
       assert.equal(candidates[keyOf(pallet, item)], compactLen(1) + collator, `${pallet}::${item}`);
     }
   });
 
+  // The first key is the one every existing bundle was bitten with; the rest follow the node
+  // names the fork TOML gives the extra collators, which is where zombienet derives them from.
+  it('derives further collator keys from Collator-<paraId>-<n>, keeping the first', async () => {
+    const five = await collatorKeys(1502, 5);
+    assert.equal(five.length, 5);
+    assert.equal(five[0], await collatorKey(1502));
+    assert.equal(new Set(five).size, 5, 'duplicate collator keys');
+    const { Keyring } = await import('@polkadot/keyring');
+    assert.equal(
+      five[1],
+      Buffer.from(new Keyring({ type: 'sr25519' }).addFromUri('//Collator-1502-2').publicKey).toString('hex')
+    );
+    await assert.rejects(collatorKeys(1502, 0), /at least one collator/);
+  });
+
+  it('installs every collator it is given as an authority', async () => {
+    const five = await collatorKeys(1502, 5);
+    const candidates = paraCandidates(five);
+    assert.equal(candidates[keyOf('CollatorSelection', 'DesiredCandidates')], u32le(5));
+    for (const [pallet, item] of [['Aura', 'Authorities'], ['AuraExt', 'Authorities'], ['Session', 'Validators'], ['CollatorSelection', 'Invulnerables']]) {
+      assert.equal(candidates[keyOf(pallet, item)], compactLen(5) + five.join(''), `${pallet}::${item}`);
+    }
+    assert.equal(candidates[keyOf('Session', 'QueuedKeys')], compactLen(5) + five.map((c) => c + c).join(''));
+    // One NextKeys entry and one KeyOwner entry per collator.
+    assert.equal(Object.keys(paraInjects(five)).length, 10);
+  });
+
   // Zeroing it, as zombie-bite does, desyncs the parachain from the relay's preserved Dmp.
   it('leaves ParachainSystem::LastDmqMqcHead alone', async () => {
-    const candidates = paraCandidates(await collatorKey(1500));
+    const candidates = paraCandidates([await collatorKey(1500)]);
     assert.equal(candidates[keyOf('ParachainSystem', 'LastDmqMqcHead')], undefined);
   });
 });

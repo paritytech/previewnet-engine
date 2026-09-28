@@ -31,6 +31,8 @@ export {
   paraIds,
   RELAY_BASE_PORT,
   VALIDATORS,
+  relayNodeName,
+  collatorNodeName,
   POPULAR_LOG_TARGETS,
   LOG_LEVELS,
   buildArgs,
