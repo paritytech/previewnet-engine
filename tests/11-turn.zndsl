@@ -1,0 +1,22 @@
+Description: TURN/STUN relay - eturnal answers, DUB issues credentials it accepts
+Network: ../zombienet-configs/local-dev.toml
+Creds: config
+
+# ============================================
+# Prerequisites
+# ============================================
+
+# DUB does not bind its HTTP port until People Chain answers.
+people-collator1: is up
+
+alice-paseo-validator: parachain 1502 is registered within 400 seconds
+alice-paseo-validator: parachain 1502 block height is at least 5 within 500 seconds
+
+# ============================================
+# Relay
+# ============================================
+
+# STUN Binding, then a JWT -> POST /api/v1/turn/issue, then a TURN Allocate with those
+# credentials. The allocation is the assertion that turn-api and eturnal agree on the
+# secret and realm; a wrong password must still be refused.
+people-collator1: js-script ./scripts/dist/test-turn.js return is equal to 1 within 600 seconds

@@ -237,6 +237,10 @@ env = [
 ]
 
 [[custom_processes]]
+name = "turn"
+command = "{{SCRIPTS}}/turn.sh"
+
+[[custom_processes]]
 name = "patch-bootnodes"
 command = "{{SCRIPTS}}/patch-bootnodes.sh"
 
