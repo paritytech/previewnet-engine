@@ -22,6 +22,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   loadCurrentNetwork,
+  runsTurnRelay,
   networkBinaries,
   networkRuntimes,
   readEnvFile,
@@ -40,6 +41,7 @@ import {
 } from '../lib/github.js';
 import { extractTarGz, extractZip, findFile, withTempDir } from '../lib/archive.js';
 import { writeProvenance, readProvenance, reusable, type StampInput } from '../lib/provenance.js';
+import { ETURNAL_BREW_INSTALL, brewEturnalVersion, eturnalCtl, eturnalDist } from '../lib/eturnal.js';
 
 /**
  * A `file:` pin is a path, not a repo: `--binary polkadot=file:/build/polkadot`, or
@@ -483,6 +485,40 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
   }
   console.log('');
 
+  // TURN/STUN relay for DUB's turn-api (docs/TURN.md). Unpacked whole: the release bundles
+  // its own Erlang runtime and resolves it relative to bin/.
+  console.log(`eturnal (${versions.ETURNAL_VERSION}):`);
+  if (!runsTurnRelay(net)) {
+    console.log(`  - not needed: ${net.name} runs no TURN relay`);
+  } else if (process.platform === 'darwin') {
+    // eturnal.net publishes no macOS binary; the processone tap builds the same release.
+    const brewed = brewEturnalVersion();
+    if (!eturnalCtl(sharedDest)) {
+      missing('eturnal', `not installed; run: ${ETURNAL_BREW_INSTALL}`);
+    } else if (brewed !== versions.ETURNAL_VERSION) {
+      console.log(`  ! eturnal ${brewed} from Homebrew, ${versions.ETURNAL_VERSION} pinned (brew upgrade eturnal)`);
+    } else {
+      ok(`eturnal ${brewed} (Homebrew)`);
+    }
+  } else {
+    const etArchive = `eturnal-${versions.ETURNAL_VERSION}-linux-glibc-x64.tar.gz`;
+    const etPath = path.join(sharedDest, etArchive);
+    const etDist = eturnalDist(sharedDest);
+    const haveEt = stamp({ kind: 'toolchain', name: 'eturnal', repo: 'eturnal.net',
+      pinned: versions.ETURNAL_VERSION, resolved: versions.ETURNAL_VERSION,
+      // Not bin/eturnalctl: a script that survives a truncated extract. The boot file is
+      // what the release needs to start.
+      file: path.join(etDist, 'releases', versions.ETURNAL_VERSION, 'start.boot') });
+    if (haveEt) current('eturnal');
+    else if (await downloadUrl(`https://eturnal.net/download/linux/${etArchive}`, etPath)) {
+      fs.rmSync(etDist, { recursive: true, force: true });
+      extractTarGz(etPath, etDist, { strip: 1 });
+      fs.rmSync(etPath);
+      ok('eturnal');
+    } else missing('eturnal', `https://eturnal.net/download/linux/${etArchive}`);
+  }
+  console.log('');
+
   // The provider binary is a declared service above; this is the dev fallback.
   const provider = path.join(nodeDest, 'storage-provider-node');
   const declaresProvider = (() => {
@@ -558,6 +594,7 @@ function whatIsMissing(
   if (gone(sharedDest, 'zombie-cli')) out.push('zombie-cli');
   // One binary now, so its absence is one entry rather than four.
   if (gone(sharedDest, IDENTITY_BINARY)) out.push(IDENTITY_BINARY);
+  if (runsTurnRelay(net) && !eturnalCtl(sharedDest)) out.push('eturnal');
   if (!fs.existsSync(path.join(WS, 'design-families'))) out.push('design-families/');
   return out;
 }

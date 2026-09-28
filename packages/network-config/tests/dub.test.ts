@@ -204,6 +204,11 @@ describe('dubCustomProcesses', () => {
   // The gateway process is gone: all-in-one carries the route table upstream compiles in, so
   // PPN no longer mirrors their Caddyfile by hand — which is what scripts/dub/routes.mjs
   // was, along with a standing risk of drifting from it.
+  it('runs the TURN relay beside the API, unless switched off', () => {
+    assert.match(toml, /name = "turn"\ncommand = "\{\{SCRIPTS\}\}\/turn\.sh"/);
+    assert.ok(!dubCustomProcesses(PORTS, undefined, undefined, false).includes('name = "turn"'));
+  });
+
   it('runs no hand-written gateway', () => {
     assert.ok(!toml.includes('identity-gateway'), 'the gateway process should be gone');
     assert.ok(!toml.includes('gateway.mjs'), 'nothing should exec the deleted gateway');

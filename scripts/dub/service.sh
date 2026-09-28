@@ -112,9 +112,14 @@ export CHAIN_WRITER_SIGNER_SURI="${PPN_DUB_ATTESTER_URI:-${PPN_IDENTITY_ATTESTER
 # signing into a proxy call that People Chain has no registration for.
 export INVITER_SIGNER_SURI="${PPN_INVITER_SURI:-//Bob}"
 
-# turn-api signs short-lived TURN credentials. Base64, not hex — it rejects hex with "invalid
-# base64 encoding". Local-only: nothing outside this machine can use a credential minted here.
-export TURN_SECRET="${TURN_SECRET:-AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=}"
+# turn-api signs credentials for the eturnal relay and returns ICE_SERVERS with them. Resolved
+# by the same code that configures eturnal, so the secret and hosts match (docs/TURN.md).
+if [[ "$ROLE" == "all-in-one" ]]; then
+    ENTRY="$PROJECT_DIR/bin/ppn.mjs"
+    [[ -f "$ENTRY" ]] || ENTRY="$PROJECT_DIR/dist/bin.js"
+    TURN_ENV=$(node "$ENTRY" service dub-turn-env) || { echo "[$ROLE] could not resolve TURN_SECRET/ICE_SERVERS" >&2; exit 1; }
+    eval "$TURN_ENV"
+fi
 
 # Where all-in-one serves /docs from. A ServeDir, so it needs a directory rather than the two
 # loose files the old gateway mapped by hand; `ppn fetch` fills it from the backend's tree at

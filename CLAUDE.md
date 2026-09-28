@@ -86,6 +86,7 @@ prints what resolves.
 
 - **GitHub auth**: Required for fetch - `gh auth login` or set `GITHUB_TOKEN`
 - **Node.js 24+**: Required for tests and startup helper scripts
+- **eturnal (macOS only)**: `brew tap processone/eturnal https://github.com/processone/eturnal && brew install processone/eturnal/eturnal`. Linux gets it from `make fetch` (see `docs/TURN.md`)
 
 **Mac Users (Apple Silicon)**: Disable IPv6 due to [known bug](https://github.com/paritytech/polkadot-sdk/issues/8918):
 
@@ -129,7 +130,8 @@ docs/
 ├── FORK.md                   # Fork mode: spawn from production state
 ├── POLKADOT-FORK.md          # Runbook: fork Polkadot with the fellowship runtimes on a dedicated machine
 ├── PROFILES.md               # dev/prod profiles: funded accounts, sudo, signing keys
-└── RUNTIME-UPGRADE.md        # Upgrade the runtime of a running chain
+├── RUNTIME-UPGRADE.md        # Upgrade the runtime of a running chain
+└── TURN.md                   # TURN/STUN relay (eturnal) behind DUB's turn-api
 
 bin/                          # Output directory (gitignored except ppn.mjs)
 ├── polkadot                  # Relay chain binary (+ execute/prepare PVF workers)
@@ -150,6 +152,7 @@ scripts/                      # Shell launchers zombienet execs; the logic lives
 ├── ipfs-daemon.sh            # IPFS daemon launcher
 ├── ipfs-swarm.sh             # IPFS swarm connection
 ├── dashboard.sh              # Launcher over `ppn service dashboard`
+├── turn.sh                   # Launcher over `ppn service turn`: eturnal TURN/STUN relay
 ├── storage-provider-node.sh  # Launcher over `ppn service storage-provider-node`
 ├── set-dispatcher-address.sh # Launcher over `ppn service set-dispatcher-address`
 ├── pin-design-families.sh    # Pins design families to IPFS
@@ -181,6 +184,7 @@ tests/
 ├── 08-dub.zndsl              # device-uniqueness-backend smoke tests
 ├── 09-dub-registration.zndsl # dub registration flow
 ├── 10-network-suffix.zndsl   # Genesis set the product-context namespace on both chains
+├── 11-turn.zndsl             # TURN relay: STUN, DUB credentials, authenticated Allocate
 ├── 13-runtime-upgrade.zndsl  # Live runtime upgrade on Asset Hub
 └── scripts/                  # Custom TS test scripts the .zndsl suites call
 
@@ -220,6 +224,7 @@ zombienet-configs/
 | Web3 Storage Provider | `http://127.0.0.1:3333` | HTTP API connected to Web3 Storage Chain |
 | Device Uniqueness Backend | `http://127.0.0.1:8092` | Auth, usernames, tickets, TURN, notify (one origin, all services) |
 | DUB API Reference | `http://127.0.0.1:8092/docs` | Generated OpenAPI reference |
+| TURN/STUN (eturnal) | `stun:127.0.0.1:3478`, `turn:127.0.0.1:3478` | Relay for p2p clients; credentials from DUB `/api/v1/turn/issue` (see `docs/TURN.md`) |
 
 ## Elastic Scaling (Asset Hub)
 

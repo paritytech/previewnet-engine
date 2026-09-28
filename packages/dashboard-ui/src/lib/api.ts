@@ -14,12 +14,26 @@ export interface Endpoint {
 export interface Chain extends Endpoint {
   paraId: number | null;
 }
+export interface IceServer {
+  id: string;
+  label: string;
+  url: string;
+  transport: 'udp' | 'tcp' | 'tls';
+  port: number;
+}
+export interface Ice {
+  id: string;
+  servers: IceServer[];
+  credentialsUrl: string;
+}
 export interface Model {
   schemaVersion: number;
   network: { name: string; displayName: string; genesis: boolean };
   baseUrl: string;
   chains: Chain[];
   services: Endpoint[];
+  /** Absent from older sidecars, null when the network runs no relay. */
+  ice?: Ice | null;
   logs: string[];
 }
 export interface Health {

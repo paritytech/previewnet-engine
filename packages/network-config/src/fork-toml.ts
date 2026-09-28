@@ -354,7 +354,8 @@ export function generateForkToml(options: GenerateForkTomlOptions): string {
             gateway: requiredPort('DUB_PORT'),
           },
           undefined,
-          scriptsDir
+          scriptsDir,
+          net.services['turn'] !== false
         )
       : '';
 

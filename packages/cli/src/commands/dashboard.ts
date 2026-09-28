@@ -9,6 +9,8 @@
 // Never in the production data path: on servers nginx routes the chains directly and only
 // `/` is proxied here, so this process crashing costs the dashboard, not the network.
 
+import crypto from 'node:crypto';
+import dgram from 'node:dgram';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -35,6 +37,27 @@ interface HealthEntry {
   clientVersion?: string;
   error?: string;
   checkedAt: string;
+}
+
+/** A STUN Binding request (RFC 5389); resolves on a matching success response. */
+function stunBinding(host: string, port: number): Promise<void> {
+  const sock = dgram.createSocket(host.includes(':') ? 'udp6' : 'udp4');
+  const txid = crypto.randomBytes(12);
+  const request = Buffer.concat([Buffer.from([0x00, 0x01, 0x00, 0x00, 0x21, 0x12, 0xa4, 0x42]), txid]);
+  return new Promise((resolve, reject) => {
+    const done = (err?: Error) => {
+      clearTimeout(timer);
+      sock.close();
+      if (err) reject(err);
+      else resolve();
+    };
+    const timer = setTimeout(() => done(new Error('no STUN response')), 3000);
+    sock.on('message', (msg) => {
+      if (msg.length >= 20 && msg.readUInt16BE(0) === 0x0101 && msg.subarray(8, 20).equals(txid)) done();
+    });
+    sock.on('error', (err) => done(err));
+    sock.send(request, port, host);
+  });
 }
 
 /**
@@ -189,8 +212,23 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
       })
     );
   };
-  probe();
-  const probeTimer = setInterval(probe, 5000);
+  // The relay listens on P2P_LISTEN_IP, which is a public address on a server.
+  const ice = model.ice;
+  const stunHost = process.env.P2P_LISTEN_IP || ctx.ports.P2P_LISTEN_IP || '127.0.0.1';
+  const stunPort = ice?.servers.find((s) => s.id === 'stun')?.port;
+  const probeAll = async () => {
+    await probe();
+    if (!ice || !stunPort) return;
+    const at = new Date().toISOString();
+    try {
+      await stunBinding(stunHost, stunPort);
+      health.set(ice.id, { id: ice.id, status: 'ok', checkedAt: at });
+    } catch (err) {
+      health.set(ice.id, { id: ice.id, status: 'down', error: (err as Error).message, checkedAt: at });
+    }
+  };
+  probeAll();
+  const probeTimer = setInterval(probeAll, 5000);
   probeTimer.unref();
 
   // ---- logs: whitelist is what exists on disk as DATA_DIR/<name>/<name>.log ----
@@ -281,6 +319,7 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
         /-validator\d*$|-collator\d*$|^Collator-/.test(n) || WELL_KNOWN.has(n) || n === 'doppelganger';
       const serviceIds = new Set([
         ...model.services.map((s) => s.id),
+        ...(model.ice ? [model.ice.id] : []),
         'dashboard', 'ipfs-swarm', 'dub-api', 'dub-postgres',
         'device-attestation-chain-writer', 'registration-queue', 'invite-tickets-pool',
       ]);

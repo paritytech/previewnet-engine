@@ -70,6 +70,8 @@ export interface ServiceDeps {
 const services: Record<string, Service> = {
   'assign-cores': assignCores,
   dashboard: async (ctx) => (await import('./dashboard.js')).dashboard(ctx),
+  turn: async (ctx) => (await import('./turn.js')).turn(ctx),
+  'dub-turn-env': async (ctx) => (await import('./turn.js')).printDubTurnEnv(ctx),
   'force-open-hrmp': forceOpenHrmp,
   'increase-people-lite-attestation-allowance': increaseAttestationAllowance,
   'grant-invites': grantInvites,
