@@ -397,9 +397,9 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   if (!fs.existsSync(tomlFile)) throw new Error(`no zombienet config at ${tomlFile}`);
 
   // Decided after ensureDeps, which is where a --fresh-bite produces the bundle the data is
-  // compared against. zombienet restores a bundle's snapshot only into an empty base path;
-  // a database already there is run on as-is — which is right when it is this bundle's own
-  // fork continuing from where it stopped, and wrong for anything else. See docs/FORK.md.
+  // compared against. zombienet unpacks a node's db_snapshot over its base path on every spawn,
+  // whether or not a database is already there, so a resume regenerates the config without
+  // them. Otherwise the resumed fork rewinds to the bite block. See docs/FORK.md.
   if (opts.fork && !opts.ephemeral) {
     const verdict = forkDataVerdict(dataDir, name, path.join(forkDirFor(name), 'manifest.json'));
     if (verdict.action === 'wipe') {
@@ -407,6 +407,11 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
       fs.rmSync(dataDir, { recursive: true, force: true });
     } else if (verdict.action === 'resume') {
       console.log(`fork mode: resuming ${dataDir} — ${verdict.reason} (--clean restarts from the bite block)`);
+      // Only the generated config: a --toml the caller supplied is theirs, not ours to rewrite.
+      const generated = path.join(forkDirFor(name), 'fork.toml');
+      if (path.resolve(tomlFile) === path.resolve(generated)) {
+        run(process.execPath, [process.argv[1], 'fork', 'toml', forkDirFor(name), generated, '--resume']);
+      }
     }
   }
   if (!opts.ephemeral) fs.mkdirSync(dataDir, { recursive: true });
