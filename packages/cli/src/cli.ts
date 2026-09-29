@@ -597,9 +597,10 @@ export function buildProgram(): Command {
 
   forkCmd('toml <bundleDir> <outFile>', 'generate the zombienet config for a bundle')
     .addOption(new Option('--no-enable-hop', 'leave --enable-hop off the bulletin collator').env('ENABLE_HOP'))
-    .action((bundleDir: string, outFile: string, opts: { enableHop: boolean }) => {
+    .option('--resume', 'leave the snapshots out, for a fork that resumes on its own database')
+    .action((bundleDir: string, outFile: string, opts: { enableHop: boolean; resume?: boolean }) => {
       process.env.ENABLE_HOP = String(opts.enableHop);
-      return runFork(['toml', bundleDir, outFile]);
+      return runFork(['toml', bundleDir, outFile, ...(opts.resume ? ['--resume'] : [])]);
     });
 
   forkCmd('products <assetHubRpc> <bulletinRpc> <resolver>', 'the DotNS product CIDs a fork needs')

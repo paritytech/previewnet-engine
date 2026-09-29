@@ -158,6 +158,8 @@ export async function run(args: string[]): Promise<void> {
         bundleDir: path.resolve(bundleDir),
         enableHop: (process.env.ENABLE_HOP || 'true').toLowerCase() !== 'false',
         binDir: bundleNet === 'previewnet' ? undefined : path.join(WS, 'bin', bundleNet),
+        // Resuming runs on the database already in the data dir, so there is nothing to restore.
+        restoreSnapshots: !rest.includes('--resume'),
       });
       fs.writeFileSync(outFile, toml);
       const rpcPorts = [...toml.matchAll(/^rpc_port = (\d+)$/gm)].map((m) => m[1]);

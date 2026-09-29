@@ -281,8 +281,10 @@ and per-chain flags with the genesis generator — see below.
 
 Each of these was a real failure during development; none of them announces itself clearly.
 
-**A fork resumes only on its own database.** zombienet restores the bundle's snapshot only into
-an empty base path, so a start that finds a database already there silently runs on it instead.
+**A fork resumes only on its own database.** zombienet unpacks a node's `db_snapshot` over its
+base path on every spawn, whether or not a database is already there, and the extraction
+overwrites the files it carries while leaving the rest in place. A start that hands it the
+snapshots over foreign data therefore gets a mix of the two.
 What that cost us once: a genesis run and a fork sharing `./data`, so the fork came up on a
 database belonging to a different chain. It looked healthy for a hundred blocks, then three of six
 validators panicked with `Trie lookup error: Database missing expected key` ~110 blocks past the
@@ -292,8 +294,9 @@ Three things are in place for that. Fork mode has its own `data-fork-<network>` 
 never meets genesis data. The spawn stamp (`spawn.json`, written beside the chain state) records
 which bite the databases came from, and `ppn start --fork` compares it with the bundle's
 `bittenAt` before deciding: a match resumes where the fork stopped, with any runtime upgrade it
-enacted still in force; anything else — a re-bitten bundle, another network's data, no stamp —
-is wiped and the snapshot restored. `CLEAN=1` wipes regardless, which is how a fork is put back
+enacted still in force, and regenerates the config without `db_snapshot` so there is nothing to
+unpack over it; anything else — a re-bitten bundle, another network's data, no stamp — is wiped
+and the snapshot restored. `CLEAN=1` wipes regardless, which is how a fork is put back
 at its bite block.
 
 ```bash

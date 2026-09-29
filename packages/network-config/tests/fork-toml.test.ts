@@ -195,6 +195,20 @@ describe('generateForkToml — collators', () => {
     assert.match(toml, /chain_spec_path = ".*\/specs\/individuality\.json"/);
   });
 
+  // zombienet unpacks a db_snapshot over the node's base path on every spawn, whether or not a
+  // database is already there, so a resumed fork given one rewinds to the bite block. The resume
+  // config is therefore the normal one minus those lines, and only those lines.
+  it('omits every snapshot when resuming, and changes nothing else', () => {
+    const dir = makeBundle();
+    const restored = generateForkToml({ repoDir: REPO, bundleDir: dir });
+    const resumed = generateForkToml({ repoDir: REPO, bundleDir: dir, restoreSnapshots: false });
+    assert.ok(!resumed.includes('db_snapshot'), 'a resumed fork must not be handed a snapshot');
+    assert.equal(
+      resumed,
+      restored.replace(/^default_db_snapshot = .*\n/m, '').replace(/^db_snapshot = .*$/gm, '')
+    );
+  });
+
   // A warp-synced relay cannot serve history to an embedded relay node, which then sits at #0.
   it('points every collator at the relay over RPC', () => {
     for (const id of Object.values(paraIds())) {
