@@ -283,8 +283,8 @@ async function coreLayoutCandidates(
 }
 
 /**
- * The inherited messaging state a shared relay carries, cleared. See ./shared-relay.ts for
- * why. Storage map entries, so injects.
+ * The inherited messaging state, cleared on every bite. See ./shared-relay.ts for why.
+ * Storage map entries, so injects.
  */
 async function messagingResets(
   index: StorageIndex,

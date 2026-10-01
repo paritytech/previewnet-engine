@@ -138,14 +138,18 @@ describe('paraMessagingWipes', () => {
 });
 
 describe('dmpWipes', () => {
-  it('zeroes the DMP head for each parachain, and nothing else', () => {
+  it('zeroes the DMP head and empties the downward message queue for each parachain, and nothing else', () => {
     const wipes = dmpWipes([1500, 1501]);
-    assert.equal(Object.keys(wipes).length, 2);
+    assert.equal(Object.keys(wipes).length, 4);
     for (const id of [1500, 1501]) {
-      const dmp = Object.entries(wipes).find(
+      const head = Object.entries(wipes).find(
         ([k]) => k.startsWith(keyOf('Dmp', 'DownwardMessageQueueHeads')) && k.includes(u32le(id))
       );
-      assert.equal(dmp?.[1], DMP_HEAD_EMPTY, `dmp ${id}`);
+      assert.equal(head?.[1], DMP_HEAD_EMPTY, `head ${id}`);
+      const queue = Object.entries(wipes).find(
+        ([k]) => k.startsWith(keyOf('Dmp', 'DownwardMessageQueues')) && k.includes(u32le(id))
+      );
+      assert.equal(queue?.[1], SCALE_EMPTY, `queue ${id}`);
     }
     // The ingress index is left alone: emptying it is what used to leave the channels
     // registered but dead, with only a root call able to bring them back.

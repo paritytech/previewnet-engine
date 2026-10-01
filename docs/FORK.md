@@ -311,10 +311,10 @@ because production's values are the ones we want:
   gives Asset Hub its 2-second blocks. Its `executor_params` holds
   `EnabledHostFunction(EccRfc163)`, without which the relay's validators reject People's PVFs.
   One key, two things depending on it, which is why overriding it wholesale costs both.
-- `Hrmp::*` / `Dmp::*` — keeps the four HRMP channels open (relay pallets), but resets their
-  queues on both sides on every bite: the parachains are snapshotted before the relay, and a
-  message delivered in between leaves the fork panicking `HRMP head mismatch`. See "Forking a
-  shared relay" in `networks/README.md` for what the reset writes
+- `Hrmp::*` / `Dmp::*` — keeps the four HRMP channels open (relay pallets), but resets their queues
+  on both sides on every bite: the parachains are snapshotted before the relay, and a message
+  delivered in between leaves the fork panicking `HRMP head mismatch` or `DMQ head mismatch`.
+  See "Forking a shared relay" in `networks/README.md` for what the reset writes.
 - `Paras::Parachains` — keeps all four parachains registered (relay pallet)
 
 Every override value is SCALE-decoded against the live metadata of the chain being bitten before it
