@@ -127,7 +127,7 @@ ppn start --runtime asset-hub=file:/path/to/runtime.wasm
 ppn start --binary polkadot-omni-node=paritytech/release-automation@polkadot-weekly2026w37-rc1
 ```
 
-The same flags apply to a bite (`ppn bite`), so a fork can run on the node binary under test.
+`--binary` works on a fork too (`ppn start --fork`), so it can run on the node binary under test.
 
 ### Rehearse a runtime upgrade
 

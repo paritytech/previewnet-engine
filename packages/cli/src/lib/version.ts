@@ -1,10 +1,12 @@
 // What this `ppn` is, and where it came from.
 //
-// Three shapes install it, and which one you are on is the half of a bug report the version
+// Four shapes install it, and which one you are on is the half of a bug report the version
 // number alone does not carry. A dist tarball has `.ppn-dist.json`: the release it was cut
 // for, the commit behind it, when it was built. An npm install has the version CI stamped
 // into package.json at publish. A checkout has neither — the version there is the placeholder
-// the release rewrites, so the commit is the only honest answer.
+// the release rewrites, so the commit is the only honest answer. The Docker image has the
+// version the release stamps into package.json, but no .git or dist manifest, so its Dockerfile
+// sets `PPN_INSTALL`.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { packageRoot, workspaceRoot } from '@parity/ppn-network-config';
 
 /** How this copy got here. */
-export type Install = 'dist' | 'npm' | 'checkout';
+export type Install = 'dist' | 'npm' | 'checkout' | 'docker';
 
 /** The subset of `ppn dist`'s manifest anything reads back. */
 export interface DistManifest {
@@ -26,7 +28,10 @@ export interface VersionInfo {
   /** The published version. In a checkout it is the unreleased placeholder — read `commit`. */
   version: string;
   install: Install;
-  /** The build's commit on a dist, HEAD in a checkout. An npm install carries none. */
+  /**
+   * The build's commit on a dist, HEAD in a checkout. An npm install and the Docker image
+   * carry none.
+   */
   commit?: string;
   repo?: string;
   builtAt?: string;
@@ -113,6 +118,7 @@ export function versionInfo(): VersionInfo {
   const dist = distManifest(root);
   const provenance: Pick<VersionInfo, 'install' | 'commit' | 'repo' | 'builtAt'> =
     dist ? { install: 'dist', commit: dist.commit, repo: dist.repo, builtAt: dist.builtAt }
+    : process.env.PPN_INSTALL === 'docker' ? { install: 'docker' }
     : fs.existsSync(path.join(root, '.git')) ? { install: 'checkout', commit: head(root) }
     : { install: 'npm' };
 

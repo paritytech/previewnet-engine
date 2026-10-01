@@ -235,6 +235,9 @@ export function buildProgram(): Command {
         '$PPN_NETWORK (default previewnet) — see networks/README.md.'
     )
     .version(shortVersion(), '-V, --version', 'print the version and exit')
+    // Parse top-level options only before the subcommand, because `dist` has its own
+    // `--version <tag>`.
+    .enablePositionalOptions()
     .configureHelp({ sortSubcommands: true })
     .showHelpAfterError('(run `ppn --help`)')
     // The one question every [network] argument raises. Resolved when the help is printed,
