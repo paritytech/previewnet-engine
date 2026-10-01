@@ -10,6 +10,7 @@
 
 import type { NetworkDef, Parachain } from './networks.js';
 import { PORTS, RELAY_BASE_PORT, VALIDATORS, requiredPort } from './toml-generator.js';
+import { iceServers, runsTurnRelay, type IceServer } from './turn.js';
 
 /** Bumped when the shape changes incompatibly. Renderers support N and N-1. */
 export const DASHBOARD_SCHEMA_VERSION = 1;
@@ -51,6 +52,15 @@ export interface DashboardChain extends DashboardEndpoint {
   paraId: number | null;
 }
 
+/** The TURN/STUN relay: what a WebRTC client puts in `iceServers`, and where to get credentials. */
+export interface DashboardIce {
+  /** Log-stream and health id of the relay process. */
+  id: string;
+  servers: IceServer[];
+  /** DUB's turn-api: POST with a DUB JWT, returns a short-lived username/credential pair. */
+  credentialsUrl: string;
+}
+
 export interface DashboardModel {
   schemaVersion: number;
   network: {
@@ -61,6 +71,8 @@ export interface DashboardModel {
   baseUrl: string;
   chains: DashboardChain[];
   services: DashboardEndpoint[];
+  /** Absent when the network runs no relay (no DUB, or `services.turn: false`). */
+  ice: DashboardIce | null;
   /** Ids whose logs the dashboard may stream — the whitelist, nothing else is served. */
   logs: string[];
 }
@@ -188,12 +200,17 @@ export function dashboardModel(net: NetworkDef, baseUrl: string): DashboardModel
     },
     'people');
 
+  const ice: DashboardIce | null = runsTurnRelay(net)
+    ? { id: 'turn', servers: iceServers(base), credentialsUrl: `${base}/dub/api/v1/turn/issue` }
+    : null;
+
   return {
     schemaVersion: DASHBOARD_SCHEMA_VERSION,
     network: { name: net.name, displayName: net.displayName, genesis: net.genesis },
     baseUrl: base,
     chains,
     services,
-    logs: [...chains.map((c) => c.id), ...services.map((s) => s.id)],
+    ice,
+    logs: [...chains.map((c) => c.id), ...services.map((s) => s.id), ...(ice ? [ice.id] : [])],
   };
 }

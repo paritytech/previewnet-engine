@@ -51,10 +51,27 @@ describe('planCores', () => {
     ]);
   });
 
-  // 5 cores + 1 = 6 validators, which is exactly the number of dev keys a fork runs. If this
-  // ever exceeds them, groups start coming out empty again and blocks stop being backed.
-  it('plans no more cores than six validators can staff', () => {
+  // 5 cores + 1 = 6 validators, which is exactly the number of dev keys a fork runs by
+  // default. If this ever exceeds them, groups start coming out empty again and blocks stop
+  // being backed — which is why a bite asked for more cores grows the validator set to match.
+  it('plans no more cores than six validators can staff, by default', () => {
     assert.ok(planCores(PNV2).length < 6, 'a fork has six dev validators');
+  });
+
+  // `ppn bite --cores people=3`: the asked-for count replaces the default for that chain only.
+  it('lays a parachain out on as many cores as the bite asked for', () => {
+    assert.equal(coresFor('people', { people: 3 }), 3);
+    assert.equal(coresFor('asset-hub', { people: 3 }), 3, 'the default stays for the others');
+    assert.equal(coresFor('asset-hub', { 'asset-hub': 1 }), 1, 'and can be cut too');
+    assert.deepEqual(planCores(PNV2, { people: 3 }), [
+      { core: 0, paraId: 1500 },
+      { core: 1, paraId: 1500 },
+      { core: 2, paraId: 1500 },
+      { core: 3, paraId: 1502 },
+      { core: 4, paraId: 1502 },
+      { core: 5, paraId: 1502 },
+      { core: 6, paraId: 1501 },
+    ]);
   });
 });
 
@@ -121,14 +138,18 @@ describe('paraMessagingWipes', () => {
 });
 
 describe('dmpWipes', () => {
-  it('zeroes the DMP head for each parachain, and nothing else', () => {
+  it('zeroes the DMP head and empties the downward message queue for each parachain, and nothing else', () => {
     const wipes = dmpWipes([1500, 1501]);
-    assert.equal(Object.keys(wipes).length, 2);
+    assert.equal(Object.keys(wipes).length, 4);
     for (const id of [1500, 1501]) {
-      const dmp = Object.entries(wipes).find(
+      const head = Object.entries(wipes).find(
         ([k]) => k.startsWith(keyOf('Dmp', 'DownwardMessageQueueHeads')) && k.includes(u32le(id))
       );
-      assert.equal(dmp?.[1], DMP_HEAD_EMPTY, `dmp ${id}`);
+      assert.equal(head?.[1], DMP_HEAD_EMPTY, `head ${id}`);
+      const queue = Object.entries(wipes).find(
+        ([k]) => k.startsWith(keyOf('Dmp', 'DownwardMessageQueues')) && k.includes(u32le(id))
+      );
+      assert.equal(queue?.[1], SCALE_EMPTY, `queue ${id}`);
     }
     // The ingress index is left alone: emptying it is what used to leave the channels
     // registered but dead, with only a root call able to bring them back.

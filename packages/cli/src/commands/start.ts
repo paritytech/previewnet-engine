@@ -18,11 +18,14 @@ import {
   readEnvFile,
   repoRoot,
   workspaceRoot,
+  type ForkManifest,
+  type ForkTopology,
   type NetworkDef,
 } from '@parity/ppn-network-config';
 import { readSpawnStamp, writeSpawnStamp, SPAWN_FILE } from '../lib/spawn-stamp.js';
 import { localEnvContent, childEnv } from '../lib/spawn-env.js';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
+import { resolveTopology, sameTopology, topologyFlags } from '../fork/topology.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
@@ -73,6 +76,10 @@ export interface StartOptions {
   upgrades?: string[];
   /** With a bite: authorize a runtime whose spec_version is not bumped. */
   upgradeSameSpec?: boolean;
+  /** With a bite: `<chain>=<n>` cores per parachain. See `ppn bite --cores`. */
+  cores?: string[];
+  /** With a bite: `<chain>=<n>` collators per parachain. See `ppn bite --collators`. */
+  collators?: string[];
   /** Override the data directory. */
   dataDir?: string;
   /** Override the zombienet config, bypassing the generated one. */
@@ -211,7 +218,13 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
 
   const forkDir = forkDirFor(netDef.name);
   const forkToml = path.join(forkDir, 'fork.toml');
-  const biteOpts = { upgrades: opts.upgrades, upgradeCheckVersion: !opts.upgradeSameSpec };
+  const biteOpts = {
+    upgrades: opts.upgrades,
+    upgradeCheckVersion: !opts.upgradeSameSpec,
+    cores: opts.cores,
+    collators: opts.collators,
+  };
+  const asked = resolveTopology(opts, netDef);
   if (opts.freshBite) {
     console.log('biting the source network now (--fresh-bite)');
     const { run: bite } = await import('./bite.js');
@@ -259,9 +272,29 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
       await bite([forkDir], biteOpts);
     }
   }
+  assertBundleTopology(forkDir, netDef.name, asked);
   run(nodeBin, [ppn, 'fork', 'toml', forkDir, forkToml]);
   console.log(`✓ fork config: ${forkToml}`);
   return opts.toml ?? forkToml;
+}
+
+/**
+ * Refuse a bundle bitten with a different layout than the run asks for.
+ *
+ * `--cores`/`--collators` are bite-time: the collator authority sets and the relay's core
+ * layout are state inside the snapshots, and the fork TOML follows the manifest, so a spawn
+ * cannot take a layout its bundle was not bitten with. Asking for none matches only a bundle
+ * bitten with the defaults.
+ */
+export function assertBundleTopology(forkDir: string, network: string, asked: ForkTopology | undefined): void {
+  const m = JSON.parse(fs.readFileSync(path.join(forkDir, 'manifest.json'), 'utf-8')) as ForkManifest;
+  if (m.topology) console.log(`  bitten with ${topologyFlags(m.topology)} (${m.topology.validators} validators)`);
+  if (sameTopology(asked, m.topology)) return;
+  throw new Error(
+    `--cores/--collators change how the bite lays the network out, and the bundle in ${forkDir} was bitten` +
+      (m.topology ? ` with ${topologyFlags(m.topology)}.` : ' with the defaults.') +
+      `\n       Re-bite with it: ppn start ${network} --fork --fresh-bite${asked ? ' ' + topologyFlags(asked) : ''}`
+  );
 }
 
 export type ForkDataVerdict =
