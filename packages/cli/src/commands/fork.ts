@@ -79,7 +79,7 @@ export async function run(args: string[]): Promise<void> {
       fs.mkdirSync(outDir, { recursive: true });
       const relay = CHAINS.find((c) => c.key === 'relay')!;
       // A shared relay carries parachains this network does not run, and its inherited core
-      // layout and messaging state are then wrong for us — see fork/shared-relay.ts.
+      // layout is then wrong for us — see fork/shared-relay.ts.
       await relayOverrides(
         endpointOf(relay, NETWORK, baseUrl),
         `${outDir}/rc_overrides.json`,
