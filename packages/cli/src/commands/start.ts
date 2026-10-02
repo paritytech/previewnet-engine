@@ -17,6 +17,7 @@ import {
   currentNetworkName,
   readEnvFile,
   repoRoot,
+  runsTurnRelay,
   workspaceRoot,
   type ForkManifest,
   type ForkTopology,
@@ -46,7 +47,7 @@ const NODE_BINARIES = [
   'doppelganger-parachain',
 ];
 
-/** Ports the auxiliary services listen on; freed before a start and after a kill. */
+/** Ports the auxiliary services listen on: refused when held before a start, reported after a kill. */
 const SERVICE_PORT_KEYS = [
   'IPFS_GATEWAY_PORT',
   'IPFS_API_PORT',
@@ -60,6 +61,9 @@ const SERVICE_PORT_KEYS = [
   // with the old genesis stamp.
   'DASHBOARD_PORT',
 ];
+
+/** The TURN relay's own listeners (docs/TURN.md), for a network that runs it. */
+const TURN_PORT_KEYS = ['TURN_PORT', 'TURN_PROXY_PORT'];
 
 export interface StartOptions {
   /** Continue from a bitten bundle instead of genesis. */
@@ -104,22 +108,80 @@ export function forkDirFor(name: string): string {
 
 const ports = () => readEnvFile(path.join(REPO, 'config', 'ports.env'));
 
-/** Free a TCP port by killing whatever holds it. Uses lsof, as the shell version did. */
-function freePorts(numbers: string[]): void {
-  const pids = new Set<string>();
-  for (const port of numbers) {
-    if (!port) continue;
-    const out = spawnSync('lsof', ['-ti', `:${port}`], { encoding: 'utf-8' });
-    for (const pid of out.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) pids.add(pid);
+/** A service port as ports.env names it. */
+export interface ServicePort {
+  key: string;
+  port: string;
+}
+
+/** The service ports a network listens on: the auxiliary services, and the relay's when it runs one. */
+export function servicePorts(net: NetworkDef, values: Record<string, string>): ServicePort[] {
+  const keys = [...SERVICE_PORT_KEYS, ...(runsTurnRelay(net) ? TURN_PORT_KEYS : [])];
+  return keys.filter((key) => values[key]).map((key) => ({ key, port: values[key] }));
+}
+
+/**
+ * The processes listening on a TCP port, as `command(pid)`. Listeners only: a bare `lsof -i :port`
+ * also matches every client whose connection has that port at the *other* end — a browser on some
+ * host's :8080, a wallet talking to a remote :8545.
+ */
+export function listenersOn(port: string): string[] {
+  const out = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-F', 'pc'], { encoding: 'utf-8' });
+  const holders: string[] = [];
+  let pid = '';
+  for (const line of out.stdout.split('\n')) {
+    if (line.startsWith('p')) pid = line.slice(1);
+    else if (line.startsWith('c') && pid) holders.push(`${line.slice(1)}(${pid})`);
   }
-  for (const pid of pids) {
-    try {
-      process.kill(Number(pid), 'SIGKILL');
-    } catch {
-      /* already gone */
-    }
-  }
-  if (pids.size) console.log(`  freed ${pids.size} process(es) holding service ports`);
+  return holders;
+}
+
+/**
+ * Refuse a start while anything listens on a service port. Nothing is killed: the holder may be a
+ * previous run of this network, but it may as well be another checkout's network or a service that
+ * has nothing to do with PPN (a developer's own Postgres, IPFS daemon or dashboard on the same
+ * port), and a signal cannot tell them apart. `ppn kill` stops a previous run of this workspace.
+ */
+export function refuseOccupiedPorts(ports: ServicePort[], holders: (port: string) => string[] = listenersOn): void {
+  const taken = ports.map((p) => ({ ...p, by: holders(p.port) })).filter((p) => p.by.length > 0);
+  if (taken.length === 0) return;
+  throw new Error(
+    `${taken.length} service port(s) this network needs are in use, and nothing was stopped:\n` +
+      taken.map((t) => `       ${t.port} (${t.key}) — ${t.by.join(', ')}`).join('\n') +
+      '\n       `ppn kill` stops a previous run of this workspace; otherwise stop the holder or move the port in config/ports.env.'
+  );
+}
+
+/**
+ * Service binaries the custom processes run from bin/ or bin/<network>/. The port sweep used to be
+ * what stopped them; `ppn kill` now names them, as it names the nodes.
+ */
+const SERVICE_BINARIES = ['eth-rpc', 'ipfs', 'storage-provider-node', 'dub'];
+
+/** Launchers that restart what they run, so they have to stop before it does. */
+const RESTARTING_LAUNCHERS = ['ipfs-daemon.sh', 'ipfs-swarm.sh', 'dub/service.sh'];
+
+/** Escape a path for an extended regular expression (pkill -f). */
+const ere = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The `pkill -f` patterns `ppn kill` sweeps with, each anchored to this workspace's or this
+ * package's own paths, so that a network started from another checkout or workspace, or another
+ * user's, is never matched: before, `killall -9 polkadot` took every polkadot on the machine.
+ * Node binaries run from bin/, bin/<network>/ or bin/<network>/dg/ (the bite's doppelganger).
+ */
+export function sweepPatterns(
+  ws: string,
+  repo: string
+): { launchers: string; binaries: string; services: string; postgres: string } {
+  const bin = ere(path.join(ws, 'bin'));
+  return {
+    launchers: `${ere(path.join(repo, 'scripts'))}/(${RESTARTING_LAUNCHERS.map(ere).join('|')})( |$)`,
+    binaries: `^${bin}/(.*/)?(${[...NODE_BINARIES, ...SERVICE_BINARIES].map(ere).join('|')})( |$)`,
+    // Installed from npm the launchers run dist/bin.js; in a checkout, bin/ppn.mjs.
+    services: `(${ere(path.join(repo, 'bin', 'ppn.mjs'))}|${ere(path.join(repo, 'dist', 'bin.js'))}) service( |$)`,
+    postgres: `^${bin}/postgres-dist/bin/postgres( |$)`,
+  };
 }
 
 /** True when something is already listening — a start would fight it for the port. */
@@ -404,7 +466,7 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   const binDir = binDirFor(name);
 
   const p = ports();
-  freePorts(SERVICE_PORT_KEYS.map((k) => p[k]).filter(Boolean));
+  refuseOccupiedPorts(servicePorts(netDef, p));
 
   const relayPort = Number(p.RELAY_ALICE_PORT);
   if (relayPort && (await inUse(relayPort))) {
@@ -564,25 +626,27 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
 }
 
 export function kill(): void {
+  // Every pattern names this workspace's or this package's own paths (sweepPatterns): nothing
+  // started from another checkout or workspace is matched, and no port holder is killed.
+  const sweep = sweepPatterns(WS, REPO);
   console.log('stopping zombienet processes...');
-  spawnSync('killall', ['-9', ...NODE_BINARIES], { stdio: 'ignore' });
 
-  // The one-shot services hold no port, so the sweep below cannot reach them. Left running
-  // they keep waiting for a chain, and a stale one submits its extrinsic to whatever network
-  // comes up on those ports next.
-  spawnSync('pkill', ['-9', '-f', `${path.join(REPO, 'bin', 'ppn.mjs')} service`], { stdio: 'ignore' });
-
-  // The backend stack has to die wrapper-first. service.sh supervises its role and restarts
-  // it after 5s, and only the two listeners (all-in-one, postgres) are reachable by the port
-  // sweep at all — the workers hold no port. Killing the ports alone left the wrappers
-  // alive respawning children against the next network, with an indexer whose watermark was
-  // ahead of that network's chain: registrations were accepted and never projected.
+  // Launchers that restart what they run go first. service.sh supervises its role and restarts
+  // it after 5s, and the workers hold no port at all. Leaving the wrappers alive had them
+  // respawning children against the next network, with an indexer whose watermark was ahead of
+  // that network's chain: registrations were accepted and never projected.
   //
-  // Both paths have moved once already — scripts/identity/ -> scripts/dub/, and the binary
-  // `ibv2` -> `dub` in v0.3.0 — and a pkill pattern that matches nothing fails silently, which
-  // is exactly the bug this call exists to prevent. Keep them in step with what runs.
-  spawnSync('pkill', ['-9', '-f', path.join(REPO, 'scripts', 'dub', 'service.sh')], { stdio: 'ignore' });
-  spawnSync('pkill', ['-9', '-f', path.join(WS, 'bin', 'dub')], { stdio: 'ignore' });
+  // These paths have moved before — scripts/identity/ -> scripts/dub/, and the binary `ibv2` ->
+  // `dub` in v0.3.0 — and a pkill pattern that matches nothing fails silently, which is exactly
+  // the bug this call exists to prevent. Keep them in step with what runs.
+  spawnSync('pkill', ['-9', '-f', sweep.launchers], { stdio: 'ignore' });
+  spawnSync('pkill', ['-9', '-f', sweep.binaries], { stdio: 'ignore' });
+
+  // The one-shot services hold no port, so no port check can find them. Left running they keep
+  // waiting for a chain, and a stale one submits its extrinsic to whatever network comes up on
+  // those ports next. SIGTERM first, SIGKILL below: `ppn service turn` stops its eturnal on
+  // SIGTERM, and a SIGKILL alone left the relay running with nothing to stop it.
+  spawnSync('pkill', ['-TERM', '-f', sweep.services], { stdio: 'ignore' });
 
   // Postgres gets SIGTERM first, and only then SIGKILL. It takes a SysV shared-memory segment
   // at startup and releases it on shutdown; SIGKILL skips that, leaving the segment behind with
@@ -591,13 +655,17 @@ export function kill(): void {
   // memory segment: No space left on device" — whose own HINT says it is not about disk. The
   // network then comes up with no backend at all. Recovery is manual: `ipcs -m` to list,
   // `ipcrm -m <id>` per orphan.
-  spawnSync('pkill', ['-TERM', '-f', path.join('postgres-dist', 'bin', 'postgres')], { stdio: 'ignore' });
+  spawnSync('pkill', ['-TERM', '-f', sweep.postgres], { stdio: 'ignore' });
   spawnSync('sleep', ['2'], { stdio: 'ignore' });
-  spawnSync('pkill', ['-9', '-f', path.join('postgres-dist', 'bin', 'postgres')], { stdio: 'ignore' });
+  spawnSync('pkill', ['-9', '-f', sweep.services], { stdio: 'ignore' });
+  spawnSync('pkill', ['-9', '-f', sweep.postgres], { stdio: 'ignore' });
 
-  console.log('stopping auxiliary services...');
+  // What still listens on a service port is not a process of this workspace: say so, and leave it.
   const p = ports();
-  freePorts(SERVICE_PORT_KEYS.map((k) => p[k]).filter(Boolean));
+  for (const key of [...SERVICE_PORT_KEYS, ...TURN_PORT_KEYS]) {
+    const by = p[key] ? listenersOn(p[key]) : [];
+    if (by.length) console.log(`  ! ${p[key]} (${key}) is held by ${by.join(', ')}, which this workspace did not start: left running`);
+  }
 
   for (const dir of fs.existsSync('/tmp') ? fs.readdirSync('/tmp') : []) {
     if (dir.startsWith('zombie-')) fs.rmSync(path.join('/tmp', dir), { recursive: true, force: true });
