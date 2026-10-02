@@ -26,6 +26,16 @@ import {
 import { readSpawnStamp, writeSpawnStamp, SPAWN_FILE } from '../lib/spawn-stamp.js';
 import { localEnvContent, childEnv } from '../lib/spawn-env.js';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
+import {
+  classifyGroup,
+  recordedGroups,
+  removeGroupRecord,
+  runsFrom,
+  stopGroup,
+  systemProcesses,
+  writeGroupRecord,
+  type GroupRecord,
+} from '../lib/process-group.js';
 import { resolveTopology, sameTopology, topologyFlags } from '../fork/topology.js';
 
 const REPO = repoRoot();
@@ -465,6 +475,11 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   const dataDir = dataDirFor(name, Boolean(opts.fork), opts.dataDir);
   const binDir = binDirFor(name);
 
+  // A network an earlier `ppn start` of this workspace left running (that ppn was killed, or its
+  // terminal closed) is stopped first: its recorded process group proves it is ours. Only then
+  // are the ports checked, so what still holds one is someone else's, and refused.
+  stopRecordedGroups('a previous run');
+
   const p = ports();
   refuseOccupiedPorts(servicePorts(netDef, p));
 
@@ -556,7 +571,11 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   const spawnArgs = ['spawn', '-p', 'native', ...(opts.ephemeral ? [] : ['-d', dataDir]), tomlFile];
   console.log(`\n${netDef.displayName}: ${opts.fork ? 'fork' : 'genesis'}, config ${path.basename(tomlFile)}\n`);
 
+  // Detached: zombie-cli leads a process group of its own, and everything zombienet starts joins
+  // it. The terminal's Ctrl-C now reaches only this process, which forwards it to that group (below),
+  // and `ppn kill` or a later `ppn start` can stop exactly that group from its record.
   const child = spawn(zombie, spawnArgs, {
+    detached: true,
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -570,6 +589,25 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
     },
   });
   let interrupted = false;
+  const group: GroupRecord | undefined = child.pid
+    ? {
+        version: 1,
+        pgid: child.pid,
+        leaderStart: systemProcesses.startOf(child.pid) ?? '',
+        network: name,
+        workspace: WS,
+        ...(opts.ephemeral ? {} : { dataDir }),
+        recordedAt: new Date().toISOString(),
+      }
+    : undefined;
+  if (group) writeGroupRecord(group);
+  // If this process exits any other way (an error below), the network does not outlive it. A
+  // SIGKILL leaves no chance: the next `ppn start` or `ppn kill` stops the recorded group.
+  let groupStopped = false;
+  const onExit = () => {
+    if (group && !groupStopped) systemProcesses.signalGroup(group.pgid, 'SIGTERM');
+  };
+  process.on('exit', onExit);
 
   // zombienet's last word is "network is up", and then it goes quiet — so the one thing a
   // reader wants next (where to look) is announced here rather than left to be guessed.
@@ -588,24 +626,24 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
     }
   })();
 
-  // Ctrl-C reaches zombie-cli too — the terminal signals the whole foreground group — but
-  // zombienet takes down only the nodes it supervises. The custom processes (dashboard,
-  // eth-rpc, ipfs, the dub stack) outlive it still holding their ports, so the next start
-  // failed on a port nothing visible was using and `ppn kill` was the only way out. Taking
-  // our own SIGINT stops node from exiting first, leaving us alive to run the same sweep.
+  // Ctrl-C (and SIGTERM, or the terminal closing) is forwarded to the whole group, as the
+  // terminal used to deliver it: zombie-cli tears its nodes down, and the custom processes get the
+  // same signal. What is still in the group once zombie-cli has exited is stopped below.
   const onInterrupt = () => {
+    if (!group) return;
     if (interrupted) {
       // A second Ctrl-C means the first did not take: stop waiting on it.
-      child.kill('SIGKILL');
+      systemProcesses.signalGroup(group.pgid, 'SIGKILL');
       return;
     }
     interrupted = true;
     console.log('\ninterrupted — stopping the network...');
-    // zombie-cli has the signal already; this only covers a build that ignores it.
-    setTimeout(() => child.kill('SIGKILL'), 15_000).unref();
+    systemProcesses.signalGroup(group.pgid, 'SIGINT');
+    setTimeout(() => systemProcesses.signalGroup(group.pgid, 'SIGKILL'), 15_000).unref();
   };
   process.on('SIGINT', onInterrupt);
   process.on('SIGTERM', onInterrupt);
+  process.on('SIGHUP', onInterrupt);
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -619,17 +657,101 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   } finally {
     process.off('SIGINT', onInterrupt);
     process.off('SIGTERM', onInterrupt);
+    process.off('SIGHUP', onInterrupt);
+    // zombienet takes down only the nodes it supervises; the custom processes (dashboard, eth-rpc,
+    // ipfs, the dub stack) are still in the group, holding their ports. Whichever way zombie-cli
+    // ended, the rest of its group goes with it.
+    if (group) {
+      finishGroup(group, 'this run');
+      groupStopped = true;
+    }
+    process.off('exit', onExit);
   }
 
   await announce;
-  if (interrupted) kill();
+}
+
+/** This workspace's processes the sweep would stop, other than this process. */
+function workspaceStrays(sweep = sweepPatterns(WS, REPO)): string[] {
+  const patterns = Object.values(sweep).map((pattern) => new RegExp(pattern));
+  const out = spawnSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf-8' });
+  return (out.stdout ?? '').split('\n').flatMap((line) => {
+    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!m || Number(m[1]) === process.pid || !patterns.some((re) => re.test(m[2]!))) return [];
+    return [`${path.basename(m[2]!.split(' ')[0]!)}(${m[1]})`];
+  });
+}
+
+/** Stop what is left of a group, then anything of this workspace that left it (the sweep, as the fallback). */
+function finishGroup(group: GroupRecord, what: string): void {
+  const stopped = stopGroup(group.pgid, systemProcesses);
+  if (stopped.members)
+    console.log(`  ${what}: stopped process group ${group.pgid} (${stopped.members} process(es)${stopped.forced ? ', some only by SIGKILL' : ''})`);
+  removeGroupRecord(group);
+  const strays = workspaceStrays();
+  if (strays.length) {
+    console.log(`  ${strays.length} process(es) of this workspace had left the group: ${strays.join(', ')}; stopping them by path`);
+    sweepByPath();
+  }
+}
+
+/**
+ * Stop the groups this workspace recorded and that are still its own. A recorded group whose id
+ * now belongs to something else is left alone, and its record dropped.
+ */
+function stopRecordedGroups(what: string): number {
+  const ours = runsFrom([WS, REPO]);
+  let stopped = 0;
+  for (const record of recordedGroups(WS)) {
+    const state = classifyGroup(record, systemProcesses, ours);
+    if (state === 'ours') {
+      console.log(`${what} of ${record.network} in this workspace is still running (process group ${record.pgid}, since ${record.recordedAt}): stopping it`);
+      finishGroup(record, record.network);
+      stopped++;
+    } else {
+      if (state === 'foreign') console.log(`  process group ${record.pgid}, recorded for ${record.network}, is no longer this workspace's: left alone`);
+      removeGroupRecord(record);
+    }
+  }
+  return stopped;
 }
 
 export function kill(): void {
-  // Every pattern names this workspace's or this package's own paths (sweepPatterns): nothing
-  // started from another checkout or workspace is matched, and no port holder is killed.
-  const sweep = sweepPatterns(WS, REPO);
   console.log('stopping zombienet processes...');
+  // The groups `ppn start` recorded: exactly what it started, whatever it is called.
+  const groups = stopRecordedGroups('the network');
+  // The fallback: a network started without a record (an older ppn, or a supervisor that spawns
+  // zombie-cli itself), or processes that left their group.
+  const strays = workspaceStrays();
+  if (strays.length) {
+    console.log(
+      groups
+        ? `  ${strays.length} process(es) of this workspace were outside its process group(s): ${strays.join(', ')}; stopping them by path`
+        : `  no recorded process group; stopping this workspace's processes by path: ${strays.join(', ')}`
+    );
+    sweepByPath();
+  }
+
+  // What still listens on a service port is not a process of this workspace: say so, and leave it.
+  const p = ports();
+  for (const key of [...SERVICE_PORT_KEYS, ...TURN_PORT_KEYS]) {
+    const by = p[key] ? listenersOn(p[key]) : [];
+    if (by.length) console.log(`  ! ${p[key]} (${key}) is held by ${by.join(', ')}, which this workspace did not start: left running`);
+  }
+
+  for (const dir of fs.existsSync('/tmp') ? fs.readdirSync('/tmp') : []) {
+    if (dir.startsWith('zombie-')) fs.rmSync(path.join('/tmp', dir), { recursive: true, force: true });
+  }
+  console.log('✓ stopped');
+}
+
+/**
+ * The path-anchored sweep: every pattern names this workspace's or this package's own paths
+ * (sweepPatterns), so nothing started from another checkout or workspace is matched, and no port
+ * holder is killed.
+ */
+function sweepByPath(): void {
+  const sweep = sweepPatterns(WS, REPO);
 
   // Launchers that restart what they run go first. service.sh supervises its role and restarts
   // it after 5s, and the workers hold no port at all. Leaving the wrappers alive had them
@@ -659,16 +781,4 @@ export function kill(): void {
   spawnSync('sleep', ['2'], { stdio: 'ignore' });
   spawnSync('pkill', ['-9', '-f', sweep.services], { stdio: 'ignore' });
   spawnSync('pkill', ['-9', '-f', sweep.postgres], { stdio: 'ignore' });
-
-  // What still listens on a service port is not a process of this workspace: say so, and leave it.
-  const p = ports();
-  for (const key of [...SERVICE_PORT_KEYS, ...TURN_PORT_KEYS]) {
-    const by = p[key] ? listenersOn(p[key]) : [];
-    if (by.length) console.log(`  ! ${p[key]} (${key}) is held by ${by.join(', ')}, which this workspace did not start: left running`);
-  }
-
-  for (const dir of fs.existsSync('/tmp') ? fs.readdirSync('/tmp') : []) {
-    if (dir.startsWith('zombie-')) fs.rmSync(path.join('/tmp', dir), { recursive: true, force: true });
-  }
-  console.log('✓ stopped');
 }
