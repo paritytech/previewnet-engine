@@ -156,6 +156,7 @@ start: build-spawner
 		$(if $(filter 1,$(EPHEMERAL)),--ephemeral,) \
 		$(if $(filter 1,$(REGENERATE)),--regenerate,) \
 		$(if $(filter 1,$(FRESH_BITE)),--fresh-bite,) \
+		$(if $(NODE_VERIFIER),--node-verifier $(NODE_VERIFIER),) \
 		$(UPGRADE_FLAGS) $(TOPOLOGY_FLAGS)
 
 kill:
@@ -356,6 +357,7 @@ help:
 	@echo "  UPGRADES=...   With a bite: authorize runtimes at import, \"<chain>=<wasm> ...\" (no-sudo networks)"
 	@echo "  CORES=...      With a bite: cores per parachain, \"<chain>=<n> ...\" (validators grow to match)"
 	@echo "  COLLATORS=...  With a bite: collators per parachain, \"<chain>=<n> ...\""
+	@echo "  NODE_VERIFIER= metric (zombie-cli's default) or none: none leaves node readiness to you"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make start                    Start with persistence (default)"
