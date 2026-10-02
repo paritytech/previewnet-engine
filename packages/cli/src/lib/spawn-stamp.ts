@@ -14,6 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { distManifest } from './version.js';
 
 export const SPAWN_FILE = 'spawn.json';
 
@@ -58,16 +59,6 @@ function biteFrom(manifest: string | null | undefined): Bite | null {
   }
 }
 
-function packedVersion(repoRoot: string): string | undefined {
-  const dist = path.join(repoRoot, '.ppn-dist.json');
-  if (!fs.existsSync(dist)) return undefined;
-  try {
-    return JSON.parse(fs.readFileSync(dist, 'utf-8')).version;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Write `<dataDir>/spawn.json` and return what was written.
  *
@@ -75,7 +66,7 @@ function packedVersion(repoRoot: string): string | undefined {
  * service starts, which may be the first thing to touch a freshly wiped DATA_DIR.
  */
 export function writeSpawnStamp(dataDir: string, input: StampSpawnInput): SpawnStamp {
-  const version = packedVersion(input.repoRoot);
+  const version = distManifest(input.repoRoot)?.version;
   const stamp: SpawnStamp = {
     spawnedAt: new Date().toISOString(),
     network: input.network,
