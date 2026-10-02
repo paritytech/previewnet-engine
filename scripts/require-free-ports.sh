@@ -10,8 +10,20 @@ set -uo pipefail
 status=0
 for port in "$@"; do
     [[ -n "$port" ]] || continue
-    holders=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -F pc 2>/dev/null \
-        | awk '/^p/ { pid = substr($0, 2) } /^c/ { printf "%s%s(%s)", sep, substr($0, 2), pid; sep = ", " }')
+    holders="" pid=""
+    # lsof -F pc: a `p<pid>` line, then its `c<command>` line. The name shown is argv[0]'s basename
+    # (`ps -o args=`): lsof's COMMAND is the kernel's name, on Linux the main thread's (`MainThread`
+    # for Node). lsof's COMMAND only when `ps` gives nothing.
+    while IFS= read -r line; do
+        case "$line" in
+            p*) pid=${line#p} ;;
+            c*)
+                name=$(ps -o args= -p "$pid" 2>/dev/null | awk 'NR == 1 { print $1 }')
+                name=${name##*/}
+                holders+="${holders:+, }${name:-${line#c}}($pid)"
+                ;;
+        esac
+    done < <(lsof -nP -iTCP:"$port" -sTCP:LISTEN -F pc 2>/dev/null)
     if [[ -n "$holders" ]]; then
         echo "port $port is in use by $holders; nothing was stopped (\`ppn kill\` stops a previous run of this workspace)" >&2
         status=1

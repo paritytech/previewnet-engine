@@ -3,11 +3,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import net from 'node:net';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { loadNetwork } from '@parity/ppn-network-config';
-import { refuseOccupiedPorts, servicePorts, sweepPatterns } from '../src/commands/start.js';
+import { listenersOn, refuseOccupiedPorts, servicePorts, sweepPatterns } from '../src/commands/start.js';
 
 const REQUIRE_FREE = path.resolve(import.meta.dirname, '../../../scripts/require-free-ports.sh');
 
@@ -105,6 +104,43 @@ describe('ppn kill sweep patterns', () => {
   });
 });
 
+/**
+ * A process listening on a free port, started with its own argv[0]. Its name in a refusal must be
+ * that argv[0]: lsof's COMMAND is the kernel's name for it (`node` on macOS, the main thread's
+ * name, `MainThread`, on Linux), which tells a user less.
+ */
+const HOLDER_NAME = 'ppn-port-holder';
+async function startHolder(): Promise<{ holder: ChildProcess; port: number }> {
+  const holder = spawn(
+    process.execPath,
+    ['-e', "const s = require('node:net').createServer().listen(0, '127.0.0.1', () => console.log(s.address().port))"],
+    { argv0: HOLDER_NAME, stdio: ['ignore', 'pipe', 'inherit'] }
+  );
+  const port: number = await new Promise((resolve, reject) => {
+    holder.once('error', reject);
+    holder.stdout!.once('data', (chunk) => resolve(Number(String(chunk).trim())));
+  });
+  return { holder, port };
+}
+
+async function stopHolder(holder: ChildProcess): Promise<void> {
+  if (holder.exitCode !== null || holder.signalCode !== null) return;
+  const exited = new Promise((resolve) => holder.once('exit', resolve));
+  holder.kill('SIGKILL');
+  await exited;
+}
+
+describe('naming the holder of a port', () => {
+  it('names it by its argv[0] and pid, whatever the platform calls it', async () => {
+    const { holder, port } = await startHolder();
+    try {
+      assert.deepEqual(listenersOn(String(port)), [`${HOLDER_NAME}(${holder.pid})`]);
+    } finally {
+      await stopHolder(holder);
+    }
+  });
+});
+
 describe('require-free-ports.sh', () => {
   it('passes when nothing is given or the port is free', () => {
     assert.equal(spawnSync('bash', [REQUIRE_FREE], { encoding: 'utf-8' }).status, 0);
@@ -112,18 +148,16 @@ describe('require-free-ports.sh', () => {
   });
 
   it('refuses a port something listens on, names the holder and leaves it running', async () => {
-    const held = net.createServer();
-    const port: number = await new Promise((r) =>
-      held.listen(0, '127.0.0.1', () => r((held.address() as net.AddressInfo).port))
-    );
+    const { holder, port } = await startHolder();
     try {
       const r = spawnSync('bash', [REQUIRE_FREE, String(port)], { encoding: 'utf-8' });
       assert.equal(r.status, 1);
-      assert.match(r.stderr, new RegExp(`port ${port} is in use by node\\(${process.pid}\\)`));
+      assert.match(r.stderr, new RegExp(`port ${port} is in use by ${HOLDER_NAME}\\(${holder.pid}\\);`));
       assert.match(r.stderr, /nothing was stopped/);
-      assert.ok(held.listening, 'the holder is still listening');
+      assert.equal(holder.exitCode, null, 'the holder is still running');
+      assert.deepEqual(listenersOn(String(port)), [`${HOLDER_NAME}(${holder.pid})`], 'and still listening');
     } finally {
-      await new Promise((r) => held.close(r));
+      await stopHolder(holder);
     }
   });
 });

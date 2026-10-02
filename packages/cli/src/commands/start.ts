@@ -141,9 +141,20 @@ export function listenersOn(port: string): string[] {
   let pid = '';
   for (const line of out.stdout.split('\n')) {
     if (line.startsWith('p')) pid = line.slice(1);
-    else if (line.startsWith('c') && pid) holders.push(`${line.slice(1)}(${pid})`);
+    else if (line.startsWith('c') && pid) holders.push(`${processName(pid, line.slice(1))}(${pid})`);
   }
   return holders;
+}
+
+/**
+ * A process's name as its command line starts: the basename of argv[0]. lsof's COMMAND is the
+ * kernel's name for it, which on Linux is the main thread's name (`MainThread` for Node).
+ * `fallback` (lsof's COMMAND) when the process is gone or `ps` gives nothing.
+ */
+export function processName(pid: string, fallback: string): string {
+  const args = spawnSync('ps', ['-o', 'args=', '-p', pid], { encoding: 'utf-8' }).stdout?.trim();
+  const argv0 = args?.split(/\s/, 1)[0];
+  return argv0 ? path.basename(argv0) : fallback;
 }
 
 /**
@@ -227,7 +238,7 @@ function holderOf(port: number): string {
   const out = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-F', 'cp'], { encoding: 'utf-8' });
   const pid = out.stdout.match(/^p(\d+)/m)?.[1];
   const cmd = out.stdout.match(/^c(.+)/m)?.[1];
-  return pid ? `${cmd ?? 'held'}(${pid})` : 'not a listening socket — possibly TIME_WAIT';
+  return pid ? `${processName(pid, cmd ?? 'held')}(${pid})` : 'not a listening socket — possibly TIME_WAIT';
 }
 
 /**
