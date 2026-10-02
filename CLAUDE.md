@@ -169,7 +169,7 @@ scripts/                      # Shell launchers zombienet execs; the logic lives
 ├── docker-entrypoint.sh      # Docker container entrypoint
 ├── ensure-dot-cli.sh         # Installs dot CLI tool
 ├── install.sh                # Installation script
-├── kill-port.sh              # Kill processes on specific ports
+├── require-free-ports.sh     # Refuse ports something already listens on (never kills)
 ├── validate-ports.sh         # Port configuration validator
 ├── run-tests.sh              # Integration test runner
 └── dub/                      # device-uniqueness-backend (see docs/DEVICE-UNIQUENESS-BACKEND.md)
