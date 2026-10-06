@@ -17,7 +17,7 @@ const without = (o: Record<string, string>, key: string) => Object.fromEntries(O
 describe('config/secrets.env.example', () => {
   it('puts every key in a section', () => {
     const s = secretSections();
-    assert.ok(s.always.includes('JWT_ED25519_SECRET'));
+    assert.ok(s.server.includes('JWT_ED25519_SECRET'));
     assert.ok(s.deployable.includes('PPN_SUDO_URI'));
     assert.ok(s.optional.includes('APNS_KEY_ID'));
   });

@@ -52,8 +52,8 @@ The reason every consumer reads the file directly is that `zombie-cli` does not 
 ## What the file must hold
 
 [`config/secrets.env.example`](../config/secrets.env.example) lists every key, with a line on
-how to make each one: `always` for every server, `deployable` on top under that profile, and
-`optional`. `ppn secrets check <file>` fails on a missing or empty required key, on a key the
+how to make each one, in three sections: every server, deployable servers on top under that
+profile, and optional. A laptop names no secrets file and needs none of it. `ppn secrets check <file>` fails on a missing or empty required key, on a key the
 example does not list, and on a deployable key in a local file; `ppn start` refuses such a file.
 A key the engine starts reading goes into the example, and every deployment's check fails until
 it supplies it.
