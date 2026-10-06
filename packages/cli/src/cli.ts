@@ -251,6 +251,20 @@ export function buildProgram(): Command {
     });
 
   program
+    .command('secrets')
+    .command('check')
+    .argument('[file]', 'secrets file; default $PPN_SECRETS_FILE')
+    .summary('check a secrets file against config/secrets.env.example')
+    .description(
+      'Every key the profile requires is set, and nothing outside the example is there.\n' +
+        '`ppn start` refuses a file that fails this. The example says how to make each key.'
+    )
+    .action(async (file: string | undefined) => {
+      const { check } = await import('./commands/secrets.js');
+      check(file);
+    });
+
+  program
     .command('nginx-conf')
     .argument('<template>', 'nginx template with the GENERATED_* markers')
     .argument('<out>', 'where to write the rendered config')
