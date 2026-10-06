@@ -85,14 +85,25 @@ if [[ ! -f "$LOCAL_ENV" ]]; then
   say "created $LOCAL_ENV with a new dashboard actions token"
 fi
 source "$LOCAL_ENV"
+# TURN_SECRET and JWT_ED25519_SECRET replace public dev defaults; DUB refuses to start on a
+# secrets file without the JWT seed. Created once, never rotated here.
+if ! sudo test -f "$SECRETS_FILE"; then
+  sudo install -d -m 0750 -o root -g "$RUN_USER" "$(dirname "$SECRETS_FILE")"
+  printf 'TURN_SECRET=%s\nJWT_ED25519_SECRET=0x%s\n' \
+    "$(openssl rand -hex 24 | tr -d '\n' | base64)" "$(openssl rand -hex 32)" \
+    | sudo tee "$SECRETS_FILE" >/dev/null
+  sudo chown "root:$RUN_USER" "$SECRETS_FILE" && sudo chmod 0640 "$SECRETS_FILE"
+  say "created $SECRETS_FILE"
+fi
 sed -i \
   -e "s|^BOOTNODE_HOSTNAME=.*|BOOTNODE_HOSTNAME=$DOMAIN|" \
   -e "s|^PPN_PUBLIC_URL=.*|PPN_PUBLIC_URL=https://$DOMAIN|" \
   -e "s|^DASHBOARD_HOST=.*|DASHBOARD_HOST=127.0.0.1|" \
   -e "s|^P2P_LISTEN_IP=.*|P2P_LISTEN_IP=$PUBLIC_IP|" \
   -e "s|^DASHBOARD_ACTIONS_TOKEN=.*|DASHBOARD_ACTIONS_TOKEN=${DASHBOARD_ACTIONS_TOKEN:-}|" \
+  -e "s|^PPN_SECRETS_FILE=.*|PPN_SECRETS_FILE=$SECRETS_FILE|" \
   config/ports.env
-say "ports.env: domain $DOMAIN, listen ip $PUBLIC_IP"
+say "ports.env: domain $DOMAIN, listen ip $PUBLIC_IP, secrets $SECRETS_FILE"
 
 # ---- 5. nginx ---------------------------------------------------------------------------
 TLS_DIR="/etc/letsencrypt/live/$DOMAIN"
