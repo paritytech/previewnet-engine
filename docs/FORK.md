@@ -110,7 +110,8 @@ here depends on it:
   wallets' revive accounts. Below, "Seeding what dotNS needs".
 - `bulletinAuthorizer`, an entry in Bulletin's `AllowedAuthorizers`. Under "Bulletin content",
   because a fork's relation to Bulletin's stored bytes is the same discussion.
-- `seedAsset`, the `Assets` registration and metadata. Below, "Seeding the asset Coinage wraps".
+- `seedAsset`, the `Assets` registration and metadata, and People's conversion rate for it. Below,
+  "Seeding the asset Coinage wraps".
 - `attestation`, the two `AttestationAllowance` quotas the identity backend spends. Below,
   "Seeding the attestation allowances".
 - `onboarding`, the onboarding size of one `Members` collection. Below, "Seeding the onboarding
@@ -177,12 +178,16 @@ The descriptor states the asset. `reserve` names the chain that keys it by id, a
 which is the `Assets` index there. `alsoOn` lists the chains holding it by location.
 
 ```json
-{ "seedAsset": { "id": 50000413, "reserve": "asset-hub", "alsoOn": ["people"] } }
+{ "seedAsset": { "id": 7873, "reserve": "asset-hub", "alsoOn": ["people"] } }
 ```
 
-Only the registration is seeded, not any balance. Minting, the conversion pool and the Coinage
-instance are ordinary signed calls that run after the spawn and compute their own state, which
-is also what keeps the extrinsics the fork exists to test in the path. `seedAssetInjects` in
+`conversionRateToNative`, when set, also seeds `AssetRate::ConversionRateToNative` on the `alsoOn`
+chains, as the `FixedU128` inner value. People takes transaction and XCM execution fees in the
+asset only at a registered rate, and `AssetRate.create` takes Root.
+
+Only the registration and the rate are seeded, not any balance. Minting, the conversion pool and the
+Coinage instance are ordinary signed calls that run after the spawn and compute their own state,
+which is also what keeps the extrinsics the fork exists to test in the path. `seedAssetInjects` in
 `overrides.ts` says what the entry holds.
 
 ## Seeding the attestation allowances

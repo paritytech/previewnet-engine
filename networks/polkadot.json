@@ -88,16 +88,17 @@
     }
   },
   "seedAsset": {
-    "id": 50000413,
+    "id": 7873,
     "owner": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-    "minBalance": "1",
+    "minBalance": "10000",
     "isSufficient": true,
-    "name": "CASH",
-    "symbol": "CASH",
+    "name": "dotUSD",
+    "symbol": "dotUSD",
     "decimals": 6,
     "reserve": "asset-hub",
     "alsoOn": ["people"],
-    "_note": "Coinage needs an asset on both Asset Hub (the reserve) and People (by location). Assets.force_create and force_set_metadata take ForceOrigin, which is Root on both, and People's by-Location instance has CreateOrigin = EnsureNever, so nothing signed could ever register it there. Id, decimals and min_balance reuse XTRNL from individuality-community's initial-setup so a Coinage instance built the same way behaves the same; the name is CASH for this fork. Owner is //Alice because the bite endows Alice on every chain and nothing else here can pay to mint."
+    "conversionRateToNative": "11412919424788860990641",
+    "_note": "Coinage needs an asset on both Asset Hub (the reserve) and People (by location). Assets.force_create and force_set_metadata take ForceOrigin, which is Root on both, and People's by-Location instance has CreateOrigin = EnsureNever, so nothing signed could ever register it there. Id, min_balance, metadata and People's conversion rate are dotUSD's from Polkadot referendum 1944, which creates it; drop this seed once that referendum is enacted, or the bite overwrites the real asset 7873. Owner is //Alice because the bite endows Alice on every chain and nothing else here can pay to mint."
   },
   "attestation": {
     "attester": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",

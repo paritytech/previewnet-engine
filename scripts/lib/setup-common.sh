@@ -18,6 +18,7 @@ DESCRIPTOR="$PPN_WS/networks/$NETWORK.json"
 [ -f "$DESCRIPTOR" ] || { echo "ERROR: no descriptor at $DESCRIPTOR" >&2; exit 1; }
 
 PARACHAIN_ID_ASSET_HUB="$(jq -r '.parachains[]|select(.key=="asset-hub").paraId' "$DESCRIPTOR")"
+PARACHAIN_ID_PEOPLE="$(jq -r '.parachains[]|select(.key=="people").paraId' "$DESCRIPTOR")"
 
 SEED_ASSET_ID="$(jq -r '.seedAsset.id' "$DESCRIPTOR")"
 SEED_ASSET_DECIMALS="$(jq -r '.seedAsset.decimals' "$DESCRIPTOR")"
@@ -53,6 +54,14 @@ people_foreign_location() {
 asset_hub_local_location() {
   local asset_id="$1"
   echo '{"parents":0,"interior":{"type":"X2","value":[{"type":"PalletInstance","value":50},{"type":"GeneralIndex","value":"'"$asset_id"'"}]}}'
+}
+
+# Echoes a sibling parachain's sovereign account: "sibl", the para id as a little-endian u32,
+# then zeros.
+sibling_sovereign_account() {
+  local le
+  le=$(printf '%08x' "$1" | sed -E 's/(..)(..)(..)(..)/\4\3\2\1/')
+  dot account inspect "0x7369626c${le}$(printf '0%.0s' $(seq 1 48))" --output json | jq -r '.ss58'
 }
 
 # Echoes an account's balance of an asset on a chain, or 0 if it holds none.

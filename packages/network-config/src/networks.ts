@@ -267,6 +267,11 @@ export interface NetworkDef {
     /** Chain keys that carry it. The reserve chain keys it by id, the others by location. */
     reserve: string;
     alsoOn: string[];
+    /**
+     * `AssetRate::ConversionRateToNative` on the chains in `alsoOn`, as the `FixedU128` inner
+     * value. People takes fees in the asset only at this rate, and only Root can create one.
+     */
+    conversionRateToNative?: string;
   };
   /**
    * Attester granted an `AttestationAllowance` on each pallet named in `on`, at bite time.
@@ -513,6 +518,10 @@ export function loadDescriptor(name: string): NetworkDef {
     if (a.reserve !== 'asset-hub') bad(`seedAsset.reserve must be "asset-hub", got "${a.reserve}"`);
     namesOurChains('seedAsset', keys);
     if (a.alsoOn?.includes(a.reserve)) bad('seedAsset.alsoOn must not repeat the reserve chain');
+    const rate = a.conversionRateToNative;
+    if (rate !== undefined && !/^[0-9]+$/.test(String(rate))) {
+      bad('seedAsset.conversionRateToNative must be a decimal string');
+    }
   }
 
   if (raw.attestation) {

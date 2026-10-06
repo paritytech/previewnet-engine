@@ -103,6 +103,8 @@ export async function run(args: string[]): Promise<void> {
             name: a.name,
             symbol: a.symbol,
             decimals: a.decimals,
+            conversionRateToNative:
+              a.conversionRateToNative === undefined ? undefined : BigInt(a.conversionRateToNative),
           },
           assetHubParaId: reserve.paraId,
           isReserve: key === a.reserve,
