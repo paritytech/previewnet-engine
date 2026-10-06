@@ -207,7 +207,7 @@ describe('dubCustomProcesses', () => {
   // was, along with a standing risk of drifting from it.
   it('runs the TURN relay beside the API, unless switched off', () => {
     assert.match(toml, /name = "turn"\ncommand = "\{\{SCRIPTS\}\}\/turn\.sh"/);
-    assert.ok(!dubCustomProcesses(PORTS, undefined, undefined, false).includes('name = "turn"'));
+    assert.ok(!dubCustomProcesses(PORTS, undefined, undefined, 'testnet', false).includes('name = "turn"'));
   });
 
   it('runs no hand-written gateway', () => {
