@@ -250,6 +250,8 @@ export interface SeededAsset {
   name: string;
   symbol: string;
   decimals: number;
+  /** `AssetRate::ConversionRateToNative` where the asset is keyed by `Location`; none if absent. */
+  conversionRateToNative?: bigint;
 }
 
 /**
@@ -313,6 +315,22 @@ export function seedAssetInjects(
     isFrozen: false,
   });
   return { [detailsKey]: details, [metaKey]: meta };
+}
+
+/**
+ * Register a conversion rate for an asset, as `AssetRate.create` would have.
+ *
+ * People takes transaction and XCM execution fees in a non-native asset only at a registered
+ * rate. `CreateOrigin` is Root, which a fork does not have, so the rate is seeded with the
+ * registration.
+ */
+export function seedAssetRateInject(
+  index: StorageIndex,
+  assetKey: unknown,
+  rate: bigint
+): Record<string, string> {
+  const [key, value] = encodeMapEntry(index, 'AssetRate', 'ConversionRateToNative', assetKey, rate);
+  return { [key]: value };
 }
 
 /** The HostConfiguration fields a shared-relay bite changes, and what they were. */
@@ -633,6 +651,15 @@ export async function paraOverrides(
             ? seedAsset.asset.id
             : assetHubAssetLocation(seedAsset.assetHubParaId, seedAsset.asset.id),
           seedAsset.asset
+        )
+      : {}),
+    // Only where the asset is keyed by location. No `pallets.has` guard: a rate the descriptor
+    // asks for on a runtime without AssetRate fails the bite. See seedAssetRateInject.
+    ...(seedAsset && !seedAsset.isReserve && seedAsset.asset.conversionRateToNative !== undefined
+      ? seedAssetRateInject(
+          index,
+          assetHubAssetLocation(seedAsset.assetHubParaId, seedAsset.asset.id),
+          seedAsset.asset.conversionRateToNative
         )
       : {}),
     // Neither pallet is in the metadata of the chain being bitten, so the guard is the
