@@ -8,7 +8,8 @@
   },
   "exports": {
     ".": "./dist/cli.js",
-    "./spawn-env": "./dist/lib/spawn-env.js"
+    "./spawn-env": "./dist/lib/spawn-env.js",
+    "./secrets": "./dist/lib/secrets-example.js"
   },
   "scripts": {
     "build": "tsc -b",

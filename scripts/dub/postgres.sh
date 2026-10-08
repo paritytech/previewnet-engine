@@ -62,11 +62,24 @@ fi
 # and PGDATA is user-controlled via DATA_DIR, so a deep path makes postgres fail
 # to start with "could not create any Unix-domain sockets". Every client here
 # connects over TCP anyway.
+#
+# dynamic_shared_memory_type=mmap keeps the dynamic shared memory in
+# $PGDATA/pg_dynshmem instead of /dev/shm. systemd-logind runs with RemoveIPC=yes, which
+# deletes the POSIX shared memory of a normal uid when that user's last login session
+# ends. Postgres runs as ubuntu here, so an ssh logout removes the segment under a live
+# cluster, and every backend started after that dies with "could not open shared memory
+# segment". The postmaster survives, because shared_memory_type defaults to mmap and is
+# not an IPC object, so the port keeps listening and only queries fail. Files in the data
+# directory are not IPC, so logind never touches them. Upstream never meets this: its
+# compose file runs Postgres in a container, which has its own /dev/shm and no login
+# session. This ran unnoticed on previewnet from 2026-08-31 and on the Polkadot fork from
+# 2026-09-11.
 PG_OPTS=(
     -D "$PGDATA"
     -p "$DUB_POSTGRES_PORT"
     -c listen_addresses=127.0.0.1
     -c unix_socket_directories=
+    -c dynamic_shared_memory_type=mmap
 )
 
 PG_PID=""

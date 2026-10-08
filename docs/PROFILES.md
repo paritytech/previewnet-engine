@@ -49,6 +49,15 @@ Four independent consumers read it directly:
 
 The reason every consumer reads the file directly is that `zombie-cli` does not forward env vars from its parent to `custom_process` children. So loading the file into the supervisor's environment covers `make generate` but does *not* reach the operational scripts that run during network boot — they have to read the file themselves.
 
+## What the file must hold
+
+[`config/secrets.env.example`](../config/secrets.env.example) lists every key, with a line on
+how to make each one, in three sections: every server, deployable servers on top under that
+profile, and optional. A laptop names no secrets file and needs none of it. `ppn secrets check <file>` fails on a missing or empty required key, on a key the
+example does not list, and on a deployable key in a local file; `ppn start` refuses such a file.
+A key the engine starts reading goes into the example, and every deployment's check fails until
+it supplies it.
+
 With `PPN_SECRETS_FILE` unset, every consumer runs `local`. That is the developer ergonomic, and it is safe precisely because it is the *stated* absence of a deployment rather than a failed lookup. Anything that must not be guessed is gated on this instead of on a filesystem probe: the dashboard's sudo actions key off what the socket is bound to (see [DASHBOARD.md](DASHBOARD.md)), and the identity backend refuses to start on the public dev JWT seed once a secrets file is named.
 
 ## What deployable mode does NOT change

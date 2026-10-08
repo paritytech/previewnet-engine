@@ -25,6 +25,8 @@ import {
 import { readSpawnStamp, writeSpawnStamp, SPAWN_FILE } from '../lib/spawn-stamp.js';
 import { localEnvContent, childEnv } from '../lib/spawn-env.js';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
+import { secretsFile } from '../lib/secrets.js';
+import { assertSecrets } from './secrets.js';
 import { resolveTopology, sameTopology, topologyFlags } from '../fork/topology.js';
 
 const REPO = repoRoot();
@@ -399,6 +401,10 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
         `       ppn start ${name} --fork`
     );
   }
+
+  // A named secrets file is a deployment: refuse a bad one before touching anything.
+  const secrets = secretsFile();
+  if (secrets) assertSecrets(secrets);
 
   const dataDir = dataDirFor(name, Boolean(opts.fork), opts.dataDir);
   const binDir = binDirFor(name);
