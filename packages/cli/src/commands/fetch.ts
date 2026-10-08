@@ -355,7 +355,7 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
   } else {
     const identityRelease = await release(versions.DUB_REPO, identityTag);
     // The asset embeds the version without its leading `v`: tag v0.3.0 -> dub-0.3.0-<triple>.
-    const asset = `${IDENTITY_BINARY}-${identityTag.replace(/^v/, '')}-${plat.triple}.tar.gz`;
+    const asset = `${IDENTITY_BINARY}-${identityTag.replace(/^v/, '')}-${versions.DUB_NETWORK}-${plat.triple}.tar.gz`;
     const archivePath = path.join(sharedDest, asset);
     // Stamped whatever happens below: writeProvenance drops entries whose file is absent, so
     // a failed download leaves no stamp rather than a false one.

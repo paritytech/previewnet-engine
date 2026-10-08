@@ -129,7 +129,7 @@ DUB_REPO=paritytech/device-uniqueness-backend-community
 DUB_TAG=v0.2.0
 ```
 
-`ppn fetch` downloads `dub-<version>-<triple>.tar.gz` (the tag without its leading `v`)
+`ppn fetch` downloads `dub-<version>-<network>-<triple>.tar.gz` (the tag without its leading `v`)
 and extracts the single `dub` into `bin/`. PPN no longer builds it: the
 `build-identity-backend` job is gone from `.github/workflows/release.yml`, along with the
 GitHub App token it needed to clone a private repo, the pinned Rust toolchain and roughly

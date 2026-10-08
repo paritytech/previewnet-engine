@@ -151,6 +151,7 @@ export function dubServices(
     METRICS_ENABLED: 'false',
     RUST_LOG: 'info',
     PEOPLE_RPC_URL: rpc,
+    ASSET_HUB_RPC_URL: `ws://127.0.0.1:${ports.assetHub}`,
     // westend2 | paseo | polkadot. PPN's relay is paseo, and the value is required rather
     // than defaulted — a wrong one would have the ticket services address another network.
     PEOPLE_NETWORK: 'paseo',
@@ -174,7 +175,6 @@ export function dubServices(
       env: {
         ...common,
         BIND_ADDR: `127.0.0.1:${ports.gateway}`,
-        ASSET_HUB_RPC_URL: `ws://127.0.0.1:${ports.assetHub}`,
         // turn-api requires a realm and has no default. Public, so it belongs here; the
         // signing secret and ICE_SERVERS depend on the host, so service.sh supplies them.
         TURN_REALM,
