@@ -84,6 +84,29 @@ export interface StartOptions {
   dataDir?: string;
   /** Override the zombienet config, bypassing the generated one. */
   toml?: string;
+  /** zombie-cli's `--node-verifier`. Unset passes nothing, which leaves zombie-cli's default, `metric`. */
+  nodeVerifier?: 'metric' | 'none';
+}
+
+/**
+ * zombie-cli's arguments. `--node-verifier` only when asked for: with `metric` zombie-cli polls
+ * every node's Prometheus endpoint, at start and every 15 s after, and exits — taking the whole
+ * network down — the first time one does not answer; `none` leaves readiness and supervision to
+ * the caller.
+ */
+export function zombieSpawnArgs(
+  opts: Pick<StartOptions, 'ephemeral' | 'nodeVerifier'>,
+  dataDir: string,
+  tomlFile: string
+): string[] {
+  return [
+    'spawn',
+    '-p',
+    'native',
+    ...(opts.nodeVerifier ? ['--node-verifier', opts.nodeVerifier] : []),
+    ...(opts.ephemeral ? [] : ['-d', dataDir]),
+    tomlFile,
+  ];
 }
 
 /** Where a network's mutable state lives, mirroring the Makefile's DATA_DIR rule. */
@@ -491,7 +514,7 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
   const zombie = path.join(WS, 'bin', 'zombie-cli');
   if (!fs.existsSync(zombie)) throw new Error(`zombie-cli is not in ${path.dirname(zombie)} — run \`ppn fetch\``);
 
-  const spawnArgs = ['spawn', '-p', 'native', ...(opts.ephemeral ? [] : ['-d', dataDir]), tomlFile];
+  const spawnArgs = zombieSpawnArgs(opts, dataDir, tomlFile);
   console.log(`\n${netDef.displayName}: ${opts.fork ? 'fork' : 'genesis'}, config ${path.basename(tomlFile)}\n`);
 
   const child = spawn(zombie, spawnArgs, {

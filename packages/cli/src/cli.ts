@@ -342,6 +342,12 @@ export function buildProgram(): Command {
       .option('--collators <chain=n...>', 'with a bite: install this many collators on a parachain')
       .option('--data-dir <path>', 'where chain state goes; default data/ (suffixed per network and mode)')
       .option('--toml <path>', 'use this zombienet config instead of the generated one')
+      .addOption(
+        new Option(
+          '--node-verifier <verifier>',
+          "how zombie-cli checks node readiness: metric (zombie-cli's default) or none, which leaves it to you"
+        ).choices(['metric', 'none'])
+      )
       // Tri-state on purpose: unset leaves the decision to the descriptor's dotns.pinProducts,
       // and either flag overrides it for this run. Both carry .default(undefined) so commander
       // does not turn `--no-` into a default of true.
@@ -371,6 +377,7 @@ export function buildProgram(): Command {
         collators: opts.collators as string[] | undefined,
         dataDir: opts.dataDir as string | undefined,
         toml: opts.toml as string | undefined,
+        nodeVerifier: opts.nodeVerifier as 'metric' | 'none' | undefined,
       });
     } catch (err) {
       die(err instanceof Error ? err.message : String(err));
