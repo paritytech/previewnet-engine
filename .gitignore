@@ -19,6 +19,8 @@ fork-bundle*/
 # A generated fork config normally lives inside the bundle; a manual
 # `ppn fork toml <bundle> fork.toml` drops one wherever the shell stood.
 fork.toml
+# What `ppn start` spawns: the config above with each custom process's environment (lib/spawn-env.ts)
+*.spawn.toml
 
 # Working notes, kept locally rather than in the repo
 docs/issues-drafts/
