@@ -67,6 +67,9 @@ PG_OPTS=(
     -p "$DUB_POSTGRES_PORT"
     -c listen_addresses=127.0.0.1
     -c unix_socket_directories=
+    # Keep dynamic shared memory under PGDATA, not /dev/shm, where systemd-logind's
+    # RemoveIPC deletes it when the user's last session ends.
+    -c dynamic_shared_memory_type=mmap
 )
 
 PG_PID=""
