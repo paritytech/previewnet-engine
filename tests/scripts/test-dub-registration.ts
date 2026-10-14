@@ -52,6 +52,10 @@ const BASE = `http://127.0.0.1:${GATEWAY_PORT}`;
 // The message prefix pallet people-lite signs over, from its MSG_PREFIX const.
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
 
+// A wallet wraps a raw message in these before it signs it.
+const BYTES_PREFIX = new TextEncoder().encode("<Bytes>");
+const BYTES_SUFFIX = new TextEncoder().encode("</Bytes>");
+
 // The host SDK derives the lite-person account at this path; matching it means
 // the account we attest is the one a real user would have.
 const LITE_PERSON_DERIVATION = "//wallet//sso";
@@ -81,12 +85,30 @@ const cat = (...arrs: Uint8Array[]) => new Uint8Array(Buffer.concat(arrs.map(Buf
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Whether the People runtime accepts only `<Bytes>`-wrapped account signatures
+ * over non-transaction messages (paritytech/individuality-community#105).
+ *
+ * Version-gated: individuality releases up to 3004000 check the plain message,
+ * and later ones only the wrapped message. Plain JSON-RPC, so no papi
+ * descriptors. Delete once the pinned release carries the change.
+ */
+async function usesWrappedBytesSignatures(wsUri: string): Promise<boolean> {
+  const res = await fetch(wsUri.replace(/^ws/, "http"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "state_getRuntimeVersion", params: [] }),
+  });
+  const { result } = (await res.json()) as { result: { specName: string; specVersion: number } };
+  return result.specName === "next-people-paseo" && result.specVersion > 3_004_000;
+}
+
 const waitForReady = () =>
   waitForDubReady({ timeoutMs: READY_TIMEOUT_MS, pollMs: POLL_MS, log: console.log });
 
 export async function run(
   nodeName: string,
-  _networkInfo: NetworkInfo,
+  networkInfo: NetworkInfo,
   _args: string[]
 ): Promise<number> {
   try {
@@ -108,9 +130,15 @@ export async function run(
     const ringVrfKey = verifiable.member_from_entropy(verifiableEntropy);
 
     // Both signatures are over the same message the pallet reconstructs:
-    // MSG_PREFIX || candidate || ring_vrf_key (people-lite/src/lib.rs).
+    // MSG_PREFIX || candidate || ring_vrf_key (people-lite/src/lib.rs). Newer
+    // runtimes check the account signatures over the `<Bytes>`-wrapped message.
+    // The ring VRF proof always signs the plain message.
+    const wrapBytes = await usesWrappedBytesSignatures(networkInfo.nodesByName[nodeName].wsUri);
+    console.log(`[TEST] <Bytes>-wrapped account signatures: ${wrapBytes}`);
+    const accountPayload = (msg: Uint8Array) =>
+      wrapBytes ? cat(BYTES_PREFIX, msg, BYTES_SUFFIX) : msg;
     const message = cat(MSG_PREFIX, publicKey, ringVrfKey);
-    const candidateSignature = keyPair.sign(message);
+    const candidateSignature = keyPair.sign(accountPayload(message));
     const proofOfOwnership = verifiable.sign(verifiableEntropy, message);
 
     // 65 bytes. The leading byte must be 0: the indexer's search excludes
@@ -154,7 +182,7 @@ export async function run(
       usernameBytes,
       Uint8Array.from([0]) // Option::None reserved_username
     );
-    const consumerRegistrationSignature = keyPair.sign(consumerPayload);
+    const consumerRegistrationSignature = keyPair.sign(accountPayload(consumerPayload));
 
     // --- register ----------------------------------------------------------
     const regRes = await fetch(`${BASE}/api/v1/usernames`, {
