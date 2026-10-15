@@ -2,14 +2,17 @@
 //
 // zombienet forwards no environment to custom processes, so everything the dashboard,
 // eth-rpc, the dub stack and the storage provider cannot derive has to be *stated*.
-// `ppn start` states it twice: config/ports.local.env (read by custom processes) and
-// zombie-cli's child environment (inherited by node-level processes). A deployment that
-// spawns zombie-cli directly never runs `ppn start`, so it has to restate the same facts
-// itself.
+// `ppn start` states it three times: config/ports.local.env (read by custom processes),
+// zombie-cli's child environment (which the configs' {{BIN}} and {{SCRIPTS}} are filled from),
+// and each custom process's own `env` in the config it spawns (customProcessEnv), the only
+// environment zombie-cli hands them. A deployment that spawns zombie-cli directly never runs
+// `ppn start`, so it has to restate the same facts itself.
 //
 // This module is the canonical statement, and the contract a deployment implements: it is
 // exported as `@parity/ppn/spawn-env` so the restating side can assert against the key lists
 // rather than keeping its own copy in step by hand.
+
+import path from 'node:path';
 
 /** Facts config/ports.local.env states for zombienet's custom processes. */
 export interface LocalEnvFacts {
@@ -56,6 +59,69 @@ export function childEnv(f: ChildEnvFacts): Record<string, string> {
     DATA_DIR: f.dataDir,
     EPHEMERAL: f.ephemeral ? '1' : '',
   };
+}
+
+/**
+ * Facts every custom process is handed in its own `env` (custom-process-env): zombie-cli starts
+ * nodes and custom processes with an empty environment but TZ, LANG, PATH and what the TOML
+ * gives each one, so neither zombie-cli's environment (childEnv) nor the shell's reaches them.
+ * Without PPN_HOME a launcher falls back to the checkout it sits in, or ~/.ppn
+ * (scripts/lib/workspace.sh), and reads that workspace's ports.local.env, binaries and data
+ * instead of this run's.
+ */
+export function customProcessEnv(f: { workspace: string; network: string; dataDir: string }): Record<string, string> {
+  return { PPN_HOME: f.workspace, PPN_NETWORK: f.network, PPN_DATA_DIR: f.dataDir };
+}
+
+const SECTION = /^\s*\[\[?\s*([\w.-]+)\s*\]\]?\s*(#.*)?$/;
+
+/**
+ * `toml` with `env` added to every `[[custom_processes]]` block, before any entry the block
+ * already has; an entry the block names itself is kept, not repeated. Other sections are left
+ * alone. Line-based, for the configs this repository generates and any hand-written one in the
+ * same shape: one key per line, `env = [` opening its array on the key's own line.
+ */
+export function withCustomProcessEnv(toml: string, env: Record<string, string>): string {
+  const lines = toml.split('\n');
+  const out: string[] = [];
+  const entry = (name: string, value: string) => `{ name = ${JSON.stringify(name)}, value = ${JSON.stringify(value)} }`;
+  let i = 0;
+  while (i < lines.length) {
+    const header = SECTION.exec(lines[i]);
+    out.push(lines[i++]);
+    if (!header || header[1] !== 'custom_processes' || !lines[i - 1].trim().startsWith('[[')) continue;
+    // The block runs to the next section header.
+    const start = i;
+    while (i < lines.length && !SECTION.test(lines[i])) i++;
+    const block = lines.slice(start, i);
+    const named = new Set([...block.join('\n').matchAll(/\{\s*name\s*=\s*"([^"]+)"/g)].map((m) => m[1]));
+    const missing = Object.entries(env).filter(([name]) => !named.has(name)).map(([n, v]) => entry(n, v));
+    const at = block.findIndex((line) => /^\s*env\s*=\s*\[/.test(line));
+    if (missing.length === 0) {
+      out.push(...block);
+    } else if (at === -1) {
+      // No env yet: after the block's last key, before the blank lines that separate it.
+      let last = block.length;
+      while (last > 0 && block[last - 1].trim() === '') last--;
+      out.push(...block.slice(0, last), `env = [${missing.join(', ')}]`, ...block.slice(last));
+    } else {
+      const open = block[at].indexOf('[') + 1;
+      const rest = block[at].slice(open).trim();
+      if (rest === '') {
+        // Multi-line array: one entry per line, as the generators write them.
+        out.push(...block.slice(0, at + 1), ...missing.map((e) => `  ${e},`), ...block.slice(at + 1));
+      } else {
+        const joined = rest.startsWith(']') ? missing.join(', ') : `${missing.join(', ')}, `;
+        out.push(...block.slice(0, at), `${block[at].slice(0, open)}${joined}${rest}`, ...block.slice(at + 1));
+      }
+    }
+  }
+  return out.join('\n');
+}
+
+/** Where `ppn start` writes the config it spawns: beside the one it was made from, so relative paths still resolve. */
+export function spawnTomlFor(source: string): string {
+  return path.join(path.dirname(source), `${path.basename(source, '.toml')}.spawn.toml`);
 }
 
 const DUMMY_LOCAL: LocalEnvFacts = { network: 'x', dataDir: 'x', ephemeral: false, identityDataDir: 'x' };

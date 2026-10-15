@@ -23,7 +23,7 @@ import {
   type NetworkDef,
 } from '@parity/ppn-network-config';
 import { readSpawnStamp, writeSpawnStamp, SPAWN_FILE } from '../lib/spawn-stamp.js';
-import { localEnvContent, childEnv } from '../lib/spawn-env.js';
+import { localEnvContent, childEnv, customProcessEnv, spawnTomlFor, withCustomProcessEnv } from '../lib/spawn-env.js';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
 import { resolveTopology, sameTopology, topologyFlags } from '../fork/topology.js';
 
@@ -426,8 +426,15 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
 
   ensureLaunchersExecutable();
 
-  const tomlFile = await ensureDeps(netDef, opts, binDir);
-  if (!fs.existsSync(tomlFile)) throw new Error(`no zombienet config at ${tomlFile}`);
+  const sourceToml = await ensureDeps(netDef, opts, binDir);
+  if (!fs.existsSync(sourceToml)) throw new Error(`no zombienet config at ${sourceToml}`);
+  // zombie-cli hands custom processes no environment but what their own blocks say, so this
+  // run's workspace, network and data directory go into each block (lib/spawn-env.ts).
+  const tomlFile = spawnTomlFor(sourceToml);
+  fs.writeFileSync(
+    tomlFile,
+    withCustomProcessEnv(fs.readFileSync(sourceToml, 'utf-8'), customProcessEnv({ workspace: WS, network: name, dataDir }))
+  );
 
   // Decided after ensureDeps, which is where a --fresh-bite produces the bundle the data is
   // compared against. zombienet restores a bundle's snapshot only into an empty base path;
