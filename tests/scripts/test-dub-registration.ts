@@ -52,9 +52,9 @@ const BASE = `http://127.0.0.1:${GATEWAY_PORT}`;
 // The message prefix pallet people-lite signs over, from its MSG_PREFIX const.
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
 
-// A wallet wraps a raw message in these before it signs it.
-const BYTES_PREFIX = new TextEncoder().encode("<Bytes>");
-const BYTES_SUFFIX = new TextEncoder().encode("</Bytes>");
+// twox128("NetworkSuffix") ++ twox128("NetworkSuffix"): the People chain's network suffix.
+const NETWORK_SUFFIX_KEY =
+  "0x63c2d4c355d2d188c234d0a0669dc90863c2d4c355d2d188c234d0a0669dc908";
 
 // The host SDK derives the lite-person account at this path; matching it means
 // the account we attest is the one a real user would have.
@@ -85,22 +85,43 @@ const cat = (...arrs: Uint8Array[]) => new Uint8Array(Buffer.concat(arrs.map(Buf
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Whether the People runtime accepts only `<Bytes>`-wrapped account signatures
- * over non-transaction messages (paritytech/individuality-community#105).
- *
- * Version-gated: individuality releases up to 3004000 check the plain message,
- * and later ones only the wrapped message. Plain JSON-RPC, so no papi
- * descriptors. Delete once the pinned release carries the change.
- */
-async function usesWrappedBytesSignatures(wsUri: string): Promise<boolean> {
+async function rpc<T>(wsUri: string, method: string, params: unknown[] = []): Promise<T> {
   const res = await fetch(wsUri.replace(/^ws/, "http"), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "state_getRuntimeVersion", params: [] }),
+    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
   });
-  const { result } = (await res.json()) as { result: { specName: string; specVersion: number } };
-  return result.specName === "next-people-paseo" && result.specVersion > 3_004_000;
+  return ((await res.json()) as { result: T }).result;
+}
+
+/**
+ * The personhood signing context the People runtime expects account signatures
+ * over non-transaction messages in, or `null` for the plain message
+ * (paritytech/individuality-community#105).
+ *
+ * The context is blake2_256("product/peopl.<suffix>/" ++ "sig/" ++ 28 zero
+ * bytes), with the chain's own network suffix: `testnet` on a genesis network,
+ * the live value on a fork. Version-gated: individuality releases up to 3004000
+ * check the plain message, and later ones only the message in the context.
+ * Plain JSON-RPC, so no papi descriptors. Delete the gate once the pinned
+ * release carries the change.
+ */
+async function signingContext(wsUri: string): Promise<Uint8Array | null> {
+  const version = await rpc<{ specName: string; specVersion: number }>(
+    wsUri,
+    "state_getRuntimeVersion"
+  );
+  if (version.specName !== "next-people-paseo" || version.specVersion <= 3_004_000) return null;
+
+  const stored = await rpc<string | null>(wsUri, "state_getStorage", [NETWORK_SUFFIX_KEY]);
+  if (!stored) throw new Error("People chain has no NetworkSuffix in storage");
+  // A SCALE BoundedVec<u8, 16>: a one-byte compact length (len << 2), then the bytes.
+  const bytes = Buffer.from(stored.replace(/^0x/, ""), "hex");
+  const suffix = bytes.subarray(1, 1 + (bytes[0] >> 2));
+  const utf8 = (text: string) => new TextEncoder().encode(text);
+  const sigSuffix = new Uint8Array(32);
+  sigSuffix.set(utf8("sig/"), 0);
+  return blake2b256(cat(utf8("product/peopl."), suffix, utf8("/"), sigSuffix));
 }
 
 const waitForReady = () =>
@@ -131,12 +152,11 @@ export async function run(
 
     // Both signatures are over the same message the pallet reconstructs:
     // MSG_PREFIX || candidate || ring_vrf_key (people-lite/src/lib.rs). Newer
-    // runtimes check the account signatures over the `<Bytes>`-wrapped message.
-    // The ring VRF proof always signs the plain message.
-    const wrapBytes = await usesWrappedBytesSignatures(networkInfo.nodesByName[nodeName].wsUri);
-    console.log(`[TEST] <Bytes>-wrapped account signatures: ${wrapBytes}`);
-    const accountPayload = (msg: Uint8Array) =>
-      wrapBytes ? cat(BYTES_PREFIX, msg, BYTES_SUFFIX) : msg;
+    // runtimes check the account signatures over the personhood signing context
+    // followed by the message. The ring VRF proof always signs the plain message.
+    const context = await signingContext(networkInfo.nodesByName[nodeName].wsUri);
+    console.log(`[TEST] account signatures in the signing context: ${context !== null}`);
+    const accountPayload = (msg: Uint8Array) => (context ? cat(context, msg) : msg);
     const message = cat(MSG_PREFIX, publicKey, ringVrfKey);
     const candidateSignature = keyPair.sign(accountPayload(message));
     const proofOfOwnership = verifiable.sign(verifiableEntropy, message);
