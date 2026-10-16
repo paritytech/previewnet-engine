@@ -43,7 +43,7 @@ if [[ ! -x "$PG_DIST/bin/postgres" ]]; then
     exit 1
 fi
 
-"$SCRIPT_DIR/../kill-port.sh" "$DUB_POSTGRES_PORT"
+"$SCRIPT_DIR/../require-free-ports.sh" "$DUB_POSTGRES_PORT" || exit 1
 
 # initdb once; on restart the existing cluster is reused.
 if [[ ! -f "$PGDATA/PG_VERSION" ]]; then
