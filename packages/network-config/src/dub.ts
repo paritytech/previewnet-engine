@@ -175,8 +175,10 @@ export function dubServices(
       env: {
         ...common,
         BIND_ADDR: `127.0.0.1:${ports.gateway}`,
-        // turn-api requires a realm and has no default. Public, so it belongs here; the
-        // signing secret and ICE_SERVERS depend on the host, so service.sh supplies them.
+        // Credentials are HMAC-signed for our own eturnal relay, not minted by Cloudflare
+        // (turn-api's default). The realm is public, so it belongs here; the signing secret
+        // and ICE_SERVERS depend on the host, so service.sh supplies them.
+        TURN_PROVIDER: 'coturn',
         TURN_REALM,
       },
     },

@@ -254,6 +254,7 @@ INVITE_TICKETS_DATABASE_URL=postgres://…/invite_tickets              #   DATAB
 PEOPLE_RPC_URL=ws://127.0.0.1:$PEOPLE_PORT
 PEOPLE_NETWORK=paseo                                                 # westend2|paseo|polkadot
 ASSET_HUB_RPC_URL=ws://127.0.0.1:$ASSET_HUB_PORT
+TURN_PROVIDER=coturn                                                 # our eturnal, not Cloudflare
 TURN_REALM=previewnet.local
 ```
 

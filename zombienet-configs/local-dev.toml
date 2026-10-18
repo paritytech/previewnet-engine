@@ -185,6 +185,7 @@ env = [
   { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
   { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
   { name = "BIND_ADDR", value = "127.0.0.1:8092" },
+  { name = "TURN_PROVIDER", value = "coturn" },
   { name = "TURN_REALM", value = "previewnet.local" },
 ]
 
