@@ -12,9 +12,8 @@ PPN's chain specs and operational scripts run under one of two profiles, selecte
 The profile also selects which runtime the relay starts from: `local` uses `relay.fastRuntime` and `deployable` uses `relay.runtime`.
 
 **Which profile a host runs is a property of that host**, not a per-run choice: it comes
-from `PPN_PROFILE` in the environment or from the secrets file below, so it cannot flip
-with whoever triggered a deploy. How your deployment sets it is up to you — see
-[DEPLOYING-YOUR-OWN.md](DEPLOYING-YOUR-OWN.md).
+from `PPN_PROFILE` in the secrets file below, so it cannot flip with whoever triggered a
+deploy. How your deployment sets it is up to you — see [DEPLOYING-YOUR-OWN.md](DEPLOYING-YOUR-OWN.md).
 
 ## How the switch is plumbed
 
