@@ -165,7 +165,8 @@ The engine ends at "a network is running and these are its ports". Parity's own 
 network at `previewnet.substrate.dev` is deployed from a separate repo that installs this
 engine's release tarball. [docs/DEPLOYING-YOUR-OWN.md](docs/DEPLOYING-YOUR-OWN.md) describes
 the contract to build yours against, and [docs/PROFILES.md](docs/PROFILES.md) the profile that
-strips the dev keys from anything long-lived.
+strips the dev keys from anything long-lived. A server's secrets file holds the keys in
+[config/secrets.env.example](config/secrets.env.example); `ppn secrets check` validates it.
 
 ## The network
 

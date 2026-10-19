@@ -306,7 +306,7 @@ it. The backend attests as that same account, so it needs the matching key along
 the keys #140 already defines:
 
 ```sh
-PPN_IDENTITY_ATTESTER_URI="<mnemonic, 0x hex seed, or //derivation for PPN_ALLOWANCE_SS58>"
+PPN_DUB_ATTESTER_URI="<mnemonic, 0x hex seed, or //derivation for PPN_ALLOWANCE_SS58>"
 ```
 
 `scripts/dub/service.sh` reads both at exec time and overrides the Alice defaults
@@ -317,7 +317,7 @@ the generated TOML carries. Two things are worth knowing about that:
    while generating the config would never reach a server. The public SS58 would
    otherwise belong in the TOML with the rest of the non-secret env.
 2. **A missing key is fatal, deliberately.** With `PPN_ALLOWANCE_SS58` set and
-   `PPN_IDENTITY_ATTESTER_URI` absent, falling back to `//Alice` would leave the writer
+   `PPN_DUB_ATTESTER_URI` absent, falling back to `//Alice` would leave the writer
    signing as an account with no allowance: the API keeps returning `202` and every
    registration sits in the outbox failing `NoAttestationAllowance`. The services refuse
    to start instead, matching the allowance script's own hard-fail.
