@@ -15,7 +15,7 @@ const HEADINGS: Record<string, Section> = {
 };
 
 /** The keys of each section of the example, in file order. */
-export function secretSections(file = path.join(repoRoot(), 'config', 'secrets.env.example')): Record<Section, string[]> {
+export function secretSections(file = path.join(repoRoot(import.meta.dirname), 'config', 'secrets.env.example')): Record<Section, string[]> {
   const sections: Record<Section, string[]> = { server: [], deployable: [], optional: [] };
   let current: Section | null = null;
   for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
