@@ -4,7 +4,6 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { repoRoot } from '@parity/ppn-network-config';
 
 export type Section = 'server' | 'deployable' | 'optional';
 
@@ -14,8 +13,22 @@ const HEADINGS: Record<string, Section> = {
   optional: 'optional',
 };
 
+const EXAMPLE = path.join('config', 'secrets.env.example');
+
+/**
+ * The example this CLI ships. Searched for by the file itself, not the usual config/ports.env
+ * marker: the network-config package carries a config/ports.env of its own.
+ */
+export function exampleFile(): string {
+  if (process.env.PPN_PACKAGE_ROOT) return path.join(process.env.PPN_PACKAGE_ROOT, EXAMPLE);
+  for (let dir = import.meta.dirname; ; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, EXAMPLE))) return path.join(dir, EXAMPLE);
+    if (path.dirname(dir) === dir) throw new Error(`${EXAMPLE} not found above ${import.meta.dirname}`);
+  }
+}
+
 /** The keys of each section of the example, in file order. */
-export function secretSections(file = path.join(repoRoot(import.meta.dirname), 'config', 'secrets.env.example')): Record<Section, string[]> {
+export function secretSections(file = exampleFile()): Record<Section, string[]> {
   const sections: Record<Section, string[]> = { server: [], deployable: [], optional: [] };
   let current: Section | null = null;
   for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
