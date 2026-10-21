@@ -23,6 +23,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Pointer } from '@parity/trinity-stack';
 import { defaultHome, packageRoot, networksDirs } from './repo-root.js';
 
 /** The parachain keys PPN knows: what its port and per-chain flag tables are keyed by. */
@@ -151,7 +152,7 @@ export interface NetworkStack {
   /** The dotNS TLD. A genesis network defaults to `genesisConfig.networkSuffix`. */
   tld?: string;
   /** Where the live network's own descriptor is published: a fork's `fork.of`. */
-  pointer?: { url: string; key?: string };
+  pointer?: Pointer;
 }
 
 export interface NetworkDef {

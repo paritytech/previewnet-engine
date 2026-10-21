@@ -99,6 +99,9 @@ importers:
 
   packages/network-config:
     dependencies:
+      '@parity/trinity-stack':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@polkadot/keyring':
         specifier: ^13.5.9
         version: 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)
