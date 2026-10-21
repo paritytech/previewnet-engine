@@ -5,7 +5,14 @@
 
   let stack = $state<Stack | null>(null);
   let copied = $state<string | null>(null);
-  fetchStack().then((s) => (stack = s)).catch(() => (stack = null));
+
+  // The descriptor appears minutes after a fresh spawn, and its sequence moves on each refresh.
+  $effect(() => {
+    const load = () => fetchStack().then((s) => (stack = s)).catch(() => {});
+    load();
+    const timer = setInterval(load, 10_000);
+    return () => clearInterval(timer);
+  });
 
   const qr = $derived(stack ? renderSVG(stack.link) : '');
 
