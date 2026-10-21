@@ -1,0 +1,69 @@
+# Trinity stack descriptor
+
+Every running network writes a [Trinity stack descriptor](https://github.com/paritytech/trinity-user-agents/blob/main/docs/rfcs/trinity-stack-descriptor.md):
+one JSON document with its chains, genesis hashes, RPC endpoints, chain specs and services.
+Hosts and tools import a network from it, by a link or a QR code, instead of keeping their own
+copy of those facts.
+
+## What gets written
+
+`ppn service trinity-stack` runs as a zombienet custom process in genesis and fork spawns.
+Once the chains answer, it writes into the data directory:
+
+| File | Served at | What it is |
+| --- | --- | --- |
+| `trinity-stack.json` | `/.well-known/trinity-stack.json` | The descriptor, signed when the deployment gives a key |
+| `<spec>.smol.json` | `/chainspecs/<spec>.smol.json` | Each chain's light-client spec |
+| `trinity-stack.state.json` | `/api/stack` | The publish state, the generation, and the pointer and link |
+
+It is a file rather than an API: a signature and a content hash cover exact bytes, and nginx,
+CI and the dashboard can all serve the same file. The dashboard serves all three and shows the
+link and its QR code on the overview.
+
+The service rewrites the files every `PPN_STACK_REFRESH_SECONDS` (6 hours by default), so the
+relay's checkpoint stays recent. `sequence` rises only when the content changes.
+
+## Fields
+
+The descriptor is built from the dashboard model, so its URLs are the ones the dashboard shows:
+
+- `id`, `name`: the network's, or `<name>-fork` and `Fork of <displayName>` for a fork.
+- `network`: the relay's chain, such as `paseo`.
+- `tld`: `stack.tld` in the network file, or `genesisConfig.networkSuffix`. A network with
+  neither writes no descriptor.
+- `generation`: minted with the data directory, so it changes when the chains restart from
+  scratch: a wipe, or a fork started again from its bite.
+- `chains`: each chain's genesis hash, its RPC URLs, and its full and light specs with their
+  SHA-256.
+- `services`: the DUB, TURN and STUN, the IPFS gateway, Bulletin as `hop`, eth-rpc with its
+  chain id, and the storage provider.
+- `fork` and each chain's `forkedAt`: on a fork whose network file names the source's
+  descriptor in `stack.pointer`.
+
+## Light specs
+
+A light spec is the raw spec with its genesis storage replaced by the genesis state root, and
+the relay's also carries a sync checkpoint from `sync_state_genSyncSpec`. Its bootnodes are
+the network's own nodes:
+
+- behind `https`, nginx's TLS port for that chain (`*_P2P_WSS_PORT`), because a browser on an
+  https page may only dial `wss`;
+- otherwise the node's P2P WS port.
+
+Before writing, the service checks that the spec implies the chain's genesis hash, and refuses
+a raw spec that names a node on any host other than `BOOTNODE_HOSTNAME`. A fork keeps its
+source's genesis hash, so a spec that still lists one of the source's nodes would join the
+source network, and nothing on the chain would show it.
+
+## Settings
+
+All optional. They are read from the environment or `config/ports.local.env`, because
+zombienet hands custom processes no environment.
+
+| Setting | Effect |
+| --- | --- |
+| `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. |
+| `PPN_STACK_FAUCET_URL` | Adds a `faucet` service. |
+| `PPN_STACK_EXPIRES_AT` | Unix seconds when the network is torn down, for spawner instances. |
+| `PPN_STACK_VALID_FOR` | Seconds a reader may use a copy before fetching it again. |
+| `PPN_STACK_REFRESH_SECONDS` | How often the files are rewritten. |
