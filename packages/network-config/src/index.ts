@@ -51,6 +51,21 @@ export type {
   DashboardEndpoint,
   DashboardIce,
 } from './dashboard-model.js';
+export {
+  trinityStackModel,
+  trinityStackUrl,
+  lightClientBootnode,
+  lightSpec,
+  foreignBootnodes,
+} from './trinity-stack.js';
+export type {
+  TrinityStackModel,
+  StackChain,
+  StackService,
+  StackSpecFile,
+  StackFacts,
+  StackChainFacts,
+} from './trinity-stack.js';
 export { hrmpChannels } from './toml-generator.js';
 export type { HrmpChannel } from './toml-generator.js';
 export { generateForkToml, FORK_PROCESSES } from './fork-toml.js';
