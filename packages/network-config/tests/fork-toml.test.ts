@@ -592,7 +592,8 @@ describe('generateForkToml — non-previewnet bundles', () => {
     assert.match(toml, /chain = "kusama"/);
     assert.ok(toml.includes('eth-rpc.sh'));
     for (const gone of ['dub-api', 'ipfs-daemon', 'pin-bulletin-products',
-      'increase-people-lite-attestation-allowance', 'pin-design-families', 'storage-provider-node']) {
+      'increase-people-lite-attestation-allowance', 'increase-dotns-attestation-allowance',
+      'pin-design-families', 'storage-provider-node']) {
       assert.ok(!toml.includes(gone), `${gone} should not run without its parachain`);
     }
     assert.ok(toml.includes('patch-bootnodes.sh'), 'patch-bootnodes is unconditional');

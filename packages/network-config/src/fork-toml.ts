@@ -320,6 +320,8 @@ function customProcesses(
     if (gate !== null && !present.has(gate)) return false;
     if (name === 'pin-bulletin-products' && !pinsProducts(net)) return false;
     if (name === 'enact-upgrades' && !seeded) return false;
+    // Only the identity backend spends it, and that runs on People.
+    if (name === 'increase-dotns-attestation-allowance' && !present.has('people')) return false;
     if (SUDO_PROCESSES.has(name) && !net.sudo) return false;
     return net.services[name] !== false;
   })
