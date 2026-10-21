@@ -44,13 +44,18 @@ function loadContext(): ServiceContext {
   const binDir = process.env.BIN
     ? path.resolve(process.env.BIN)
     : path.join(WS, 'bin', net.name === 'previewnet' ? '' : net.name);
+  const sharedBinDir = net.name === 'previewnet' || process.env.BIN ? binDir : path.dirname(binDir);
+  const dashboardPort = process.env.DASHBOARD_PORT || ports.DASHBOARD_PORT || '8090';
   return {
     net,
     ports,
     binDir,
-    sharedBinDir: net.name === 'previewnet' || process.env.BIN ? binDir : path.dirname(binDir),
+    sharedBinDir,
     relayWs: process.env.RELAY_WS || `ws://127.0.0.1:${ports.RELAY_ALICE_PORT}`,
     sudoUri: process.env.PPN_SUDO_URI || '//Alice',
+    dataDir:
+      process.env.DATA_DIR || process.env.PPN_DATA_DIR || ports.PPN_DATA_DIR || path.join(path.dirname(sharedBinDir), 'data'),
+    baseUrl: (process.env.PPN_PUBLIC_URL || ports.PPN_PUBLIC_URL || `http://127.0.0.1:${dashboardPort}`).replace(/\/$/, ''),
   };
 }
 
@@ -550,10 +555,8 @@ async function patchBootnodes(ctx: ServiceContext, _deps: ServiceDeps = {}): Pro
     console.log('patch-bootnodes: BOOTNODE_HOSTNAME is 127.0.0.1, nothing to advertise');
     return;
   }
-  // Where the specs are depends on the mode: data/ for genesis, data-fork-<network>/ for a
-  // fork. `ppn start` records the answer in ports.local.env, which ctx.ports merges in; a
-  // deployment that spawns zombie-cli itself sets DATA_DIR. Only then the genesis default.
-  const dir = process.env.DATA_DIR || ctx.ports.PPN_DATA_DIR || path.join(WS, 'data');
+  // Where the specs are depends on the mode: data/ for genesis, data-fork-<network>/ for a fork.
+  const dir = ctx.dataDir;
   if (!fs.existsSync(dir)) throw new Error(`DATA_DIR does not exist: ${dir}`);
 
   // A raw chainspec is any top-level JSON with an id and a bootNodes list. Matching by
@@ -644,7 +647,7 @@ async function storageProviderNode(ctx: ServiceContext, _deps: ServiceDeps = {})
     const storagePath =
       process.env.STORAGE_PATH ||
       ctx.ports.WEB3_STORAGE_PROVIDER_DATA_DIR ||
-      path.join(process.env.DATA_DIR || ctx.ports.PPN_DATA_DIR || path.join(WS, 'data'), 'web3-storage-provider');
+      path.join(ctx.dataDir, 'web3-storage-provider');
     fs.mkdirSync(storagePath, { recursive: true });
     storageArgs.length = 0;
     storageArgs.push('--storage-mode', 'disk', '--storage-path', storagePath);

@@ -91,20 +91,9 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
   // Environment first: the test harness points fixtures at ephemeral ports, and a server
   // can repoint without editing ports.env — the same precedence loadContext gives BIN.
   const port = Number(process.env.DASHBOARD_PORT || ctx.ports.DASHBOARD_PORT || 8090);
-  // Env first, then the ports file — the same precedence dataDir uses below, and for the
-  // same reason: the dashboard runs as a zombienet custom process, which is handed no
-  // environment. Setting PPN_PUBLIC_URL for the supervisor does not reach here, so a server
-  // that only did that advertised ws://127.0.0.1:8090 for every chain — an address no
-  // browser on the far side of a reverse proxy can use.
-  const baseUrl =
-    process.env.PPN_PUBLIC_URL || ctx.ports.PPN_PUBLIC_URL || `http://127.0.0.1:${port}`;
+  // Resolved once in loadContext, so the files trinity-stack writes are the ones served here.
+  const { baseUrl, dataDir } = ctx;
   const proxyEnabled = (process.env.DASHBOARD_PROXY ?? '1') !== '0';
-  // Per-mode (data/ vs data-fork/), resolved by `ppn start` and carried through
-  // ports.local.env because zombienet strips the environment of custom processes.
-  const dataDir =
-    process.env.DATA_DIR ||
-    ctx.ports.PPN_DATA_DIR ||
-    path.join(path.dirname(ctx.sharedBinDir), 'data');
 
   // Actions are sudo: a runtime upgrade is a root call. What may run one is decided by who can
   // reach this socket, because the bind is the one input that cannot be silently absent — an

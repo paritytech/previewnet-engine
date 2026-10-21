@@ -106,6 +106,8 @@ function ctxFor(h: Harness): ServiceContext {
     sharedBinDir: h.bin,
     relayWs: `ws://127.0.0.1:${port}`,
     sudoUri: '//Alice',
+    dataDir: path.join(path.dirname(h.bin), 'data'),
+    baseUrl: 'http://127.0.0.1:8090',
   };
 }
 
