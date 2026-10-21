@@ -77,6 +77,7 @@ const services: Record<string, Service> = {
   'grant-invites': grantInvites,
   'set-dispatcher-address': setDispatcherAddress,
   'patch-bootnodes': patchBootnodes,
+  'trinity-stack': async (ctx) => (await import('./trinity-stack.js')).trinityStack(ctx),
   'storage-provider-node': storageProviderNode,
   'pin-bulletin-products': pinBulletinProducts,
   'enact-upgrades': enactUpgrades,
@@ -561,7 +562,8 @@ async function patchBootnodes(ctx: ServiceContext, _deps: ServiceDeps = {}): Pro
   const rawSpecs = () =>
     fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith('.json') && !f.endsWith('-plain.json') && f !== 'zombie.json')
+      // Light specs are excluded: trinity-stack writes their bootnodes and hashes their bytes.
+      .filter((f) => f.endsWith('.json') && !f.endsWith('-plain.json') && !f.endsWith('.smol.json') && f !== 'zombie.json')
       .filter((f) => {
         try {
           const s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));

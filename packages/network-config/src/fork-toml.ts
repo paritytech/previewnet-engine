@@ -81,6 +81,8 @@ const PROCESS_GATES: Record<string, Parachain | null> = {
   'storage-provider-node': 'web3-storage',
   'pin-design-families': 'people',
   'patch-bootnodes': null,
+  // The fork's Trinity stack descriptor: what a host imports to reach it.
+  'trinity-stack': null,
   // Imports the DotNS products whose bytes a warp-synced bulletin cannot have. Best
   // effort: without it the fork runs, but content published before the bite 404s.
   'pin-bulletin-products': 'bulletin',
