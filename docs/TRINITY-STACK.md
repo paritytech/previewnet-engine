@@ -20,8 +20,14 @@ It is a file rather than an API: a signature and a content hash cover exact byte
 CI and the dashboard can all serve the same file. The dashboard serves all three and shows the
 link and its QR code on the overview.
 
-The service rewrites the files every `PPN_STACK_REFRESH_SECONDS` (6 hours by default), so the
-relay's checkpoint stays recent. `sequence` rises only when the content changes.
+The service rewrites the files every `PPN_STACK_REFRESH_SECONDS` (6 hours by default), and at
+least twice per `PPN_STACK_VALID_FOR`, so the relay's checkpoint stays recent and no reader
+holds a copy past its `validUntil`. `sequence` rises only when the content changes. Until the
+relay has finalized a block and eth-rpc answers, it publishes without the relay's light spec and
+without eth-rpc, and tries again every 30 seconds.
+
+An `EPHEMERAL=1` run writes nothing: its chains live in a temp directory, so the data directory
+holds an earlier run's files.
 
 ## Fields
 
@@ -37,8 +43,14 @@ The descriptor is built from the dashboard model, so its URLs are the ones the d
   SHA-256.
 - `services`: the DUB, TURN and STUN, the IPFS gateway, Bulletin as `hop`, eth-rpc with its
   chain id, and the storage provider.
-- `fork` and each chain's `forkedAt`: on a fork whose network file names the source's
-  descriptor in `stack.pointer`.
+- `fork` and each chain's `forkedAt`: on a fork whose spawn stamp records the bite and whose
+  network file names the source's descriptor in `stack.pointer`. `ppn start --fork` records the
+  bite itself. A deployment that spawns zombienet directly runs
+  `ppn stamp-spawn --fork-manifest <bundle>/manifest.json`; without it the fork is still named
+  as one, but carries no `fork`.
+
+Once the live network signs its descriptor, its network file's `stack.pointer` needs the `key`,
+so every fork of it names a signed source.
 
 ## Light specs
 
@@ -46,9 +58,9 @@ A light spec is the raw spec with its genesis storage replaced by the genesis st
 the relay's also carries a sync checkpoint from `sync_state_genSyncSpec`. Its bootnodes are
 the network's own nodes:
 
-- behind `https`, nginx's TLS port for that chain (`*_P2P_WSS_PORT`), because a browser on an
-  https page may only dial `wss`;
-- otherwise the node's P2P WS port.
+- the node's P2P WS port on `BOOTNODE_HOSTNAME`, which native smoldot dials;
+- behind `https`, also nginx's TLS port for that chain (`*_P2P_WSS_PORT`), because a browser on
+  an https page may only dial `wss`.
 
 Before writing, the service checks that the spec implies the chain's genesis hash, and refuses
 a raw spec that names a node on any host other than `BOOTNODE_HOSTNAME`. A fork keeps its
@@ -57,8 +69,8 @@ source network, and nothing on the chain would show it.
 
 ## Settings
 
-All optional. They are read from the environment or `config/ports.local.env`, because
-zombienet hands custom processes no environment.
+All optional. zombienet hands custom processes no environment, so a deployment patches them
+into `config/ports.env`, where each has an empty default. The key goes in the secrets file.
 
 | Setting | Effect |
 | --- | --- |
