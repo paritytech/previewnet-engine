@@ -136,6 +136,22 @@ describe('published packages', () => {
   });
 
   describe('@parity/ppn', () => {
+    // A deployment imports this entry point without going through bin.ts, so nothing has set
+    // PPN_PACKAGE_ROOT and the example has to be found from inside node_modules.
+    it('reads its secrets example when imported from an install', () => {
+      const lib = pack('packages/network-config');
+      const cli = pack('packages/cli');
+      const dir = fs.mkdtempSync(path.join(tmp, 'secrets-'));
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', type: 'module' }));
+      execFileSync('npm', ['install', '--silent', lib.tarball, cli.tarball], { cwd: dir, stdio: ['ignore', 'ignore', 'inherit'] });
+      const out = execFileSync(
+        process.execPath,
+        ['--input-type=module', '-e', "import { secretSections } from '@parity/ppn/secrets'; console.log(secretSections().server.join(','));"],
+        { cwd: dir, encoding: 'utf-8', env: { ...process.env, PPN_HOME: undefined, PPN_PACKAGE_ROOT: undefined } }
+      );
+      assert.equal(out.trim(), 'PPN_PROFILE,JWT_ED25519_SECRET,TURN_SECRET');
+    });
+
     it('ships the launchers zombienet has to exec', () => {
       const p = pack('packages/cli');
       // If prepack silently stops staging these, an installed `ppn start` brings up nodes and
