@@ -547,6 +547,13 @@ name = "increase-people-lite-attestation-allowance"
 command = "{{SCRIPTS}}/increase-people-lite-attestation-allowance.sh"
 `
 )}${section(
+  has('people') && has('asset-hub') && serviceEnabled('increase-dotns-attestation-allowance'),
+  `
+[[custom_processes]]
+name = "increase-dotns-attestation-allowance"
+command = "{{SCRIPTS}}/increase-dotns-attestation-allowance.sh"
+`
+)}${section(
   has('people') && serviceEnabled('dub'),
   `
 [[custom_processes]]
