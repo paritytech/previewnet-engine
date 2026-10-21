@@ -32,6 +32,9 @@ export function localEnvContent(f: LocalEnvFacts): string {
     `WEB3_STORAGE_PROVIDER_STORAGE_MODE=${f.ephemeral ? 'inmemory' : 'disk'}\n` +
     `DUB_POSTGRES_DATA_DIR=${f.identityDataDir}\n` +
     `PPN_NETWORK=${f.network}\n` +
+    // An ephemeral run keeps its chains in a temp dir, so PPN_DATA_DIR below holds an earlier
+    // run's files, which the services that read the data dir must not take for this one's.
+    `PPN_EPHEMERAL=${f.ephemeral ? '1' : '0'}\n` +
     // zombienet forwards no env to custom processes, and the data dir is per-mode
     // (data/ vs data-fork/): without this the dashboard reads the *other* mode's
     // spawn stamp and logs — a fork reporting itself as yesterday's genesis.
