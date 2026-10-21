@@ -1,5 +1,7 @@
 // What `ppn service trinity-stack` writes into the data directory, and the dashboard serves.
 
+import type { Pointer, PublishState } from '@parity/trinity-stack';
+
 /** The descriptor's bytes, served as-is at /.well-known/trinity-stack.json. */
 export const STACK_FILE = 'trinity-stack.json';
 
@@ -11,7 +13,7 @@ export const lightSpecFile = (specName: string) => `${specName}.smol.json`;
 
 export interface StackStateFile {
   generation: string;
-  state: { sequence: number; contentHash: string };
-  pointer: { url: string; key?: string };
+  state: PublishState;
+  pointer: Pointer;
   link: string;
 }

@@ -10,10 +10,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  chainKey,
   dashboardModel,
-  foreignBootnodes,
-  lightClientBootnode,
-  lightSpec,
   trinityStackModel,
   trinityStackUrl,
   type ChainKey,
@@ -25,15 +23,12 @@ import { encodeLink, lightSpecGenesis, publicKey, publish } from '@parity/trinit
 import type { ServiceContext } from './service-context.js';
 import { rpc } from '../fork/rpc.js';
 import { chainSpecNames } from '../lib/chain-specs.js';
-import { SPAWN_FILE, type SpawnStamp } from '../lib/spawn-stamp.js';
-import {
-  STACK_FILE,
-  STACK_STATE_FILE,
-  lightSpecFile,
-  type StackStateFile,
-} from '../lib/stack-files.js';
+import { foreignBootnodes, lightClientBootnodes, lightSpec } from '../lib/light-spec.js';
+import { readSpawnStamp } from '../lib/spawn-stamp.js';
+import { STACK_FILE, STACK_STATE_FILE, lightSpecFile, type StackStateFile } from '../lib/stack-files.js';
 
 const RETRY_SECONDS = 30;
+const DEFAULT_REFRESH_SECONDS = 6 * 3600;
 
 const sleep = (seconds: number) => new Promise((r) => setTimeout(r, seconds * 1000));
 const asHttp = (url: string) => url.replace(/^ws/, 'http');
@@ -46,9 +41,9 @@ function writeIfChanged(file: string, bytes: Uint8Array): void {
   fs.renameSync(`${file}.tmp`, file);
 }
 
-function readJson<T>(file: string): T | null {
+function readState(file: string): StackStateFile | null {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf-8')) as T;
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as StackStateFile;
   } catch {
     return null;
   }
@@ -57,16 +52,14 @@ function readJson<T>(file: string): T | null {
 /** The first node of each chain: the relay's is alice, a parachain's its first collator. */
 function chainNodes(chains: DashboardChain[]): [ChainKey, DashboardChain][] {
   const nodes = new Map<ChainKey, DashboardChain>();
-  for (const c of chains) {
-    const key = (c.id.startsWith('relay-') ? 'relay' : c.id) as ChainKey;
-    if (!nodes.has(key)) nodes.set(key, c);
-  }
+  for (const c of chains) if (!nodes.has(chainKey(c.id))) nodes.set(chainKey(c.id), c);
   return [...nodes];
 }
 
 export interface Settings {
   /** JSON-RPC to a local node; a fake in tests. */
   call: typeof rpc;
+  now: () => Date;
   baseUrl: string;
   dataDir: string;
   bootnodeHost: string;
@@ -118,8 +111,8 @@ async function chainFacts(
       return facts;
     }
   }
-  const light = lightSpec(full, header.stateRoot, [lightClientBootnode(s.baseUrl, key, peerId)], checkpoint);
-  const lightBytes = new TextEncoder().encode(JSON.stringify(light));
+  const bootnodes = lightClientBootnodes(s.baseUrl, s.bootnodeHost, key, peerId);
+  const lightBytes = new TextEncoder().encode(JSON.stringify(lightSpec(full, header.stateRoot, bootnodes, checkpoint)));
   const implied = lightSpecGenesis(lightBytes);
   if (implied !== genesisHash) throw new Error(`${specName}: light spec implies genesis ${implied}, chain has ${genesisHash}`);
   writeIfChanged(path.join(s.dataDir, lightSpecFile(specName)), lightBytes);
@@ -138,15 +131,17 @@ async function ethChainId(s: Settings, directUrl: string): Promise<number | unde
 
 /**
  * Writes the light specs and the descriptor once. Returns what the dashboard shows, and whether
- * every chain with a spec got a light spec: a relay has no checkpoint until it finalizes a block.
+ * the descriptor is complete: a relay has no checkpoint until it finalizes a block, and eth-rpc
+ * is left out until it answers.
  */
 export async function writeStack(
   ctx: Pick<ServiceContext, 'net'>,
   s: Settings
 ): Promise<{ written: StackStateFile; complete: boolean }> {
   const model = dashboardModel(ctx.net, s.baseUrl);
-  const spawn = readJson<SpawnStamp>(path.join(s.dataDir, SPAWN_FILE));
-  const bite = spawn?.mode === 'fork' ? spawn.bite : null;
+  const spawn = readSpawnStamp(s.dataDir);
+  const forked = spawn?.mode === 'fork';
+  const bite = forked ? spawn.bite : null;
   const specs = chainSpecNames(s.dataDir, model.chains);
 
   const chains: StackFacts['chains'] = {};
@@ -155,10 +150,12 @@ export async function writeStack(
     chains[key] = await chainFacts(s, key, node, specs.get(node.id), bite?.blocks[paraId]);
   }
   const eth = model.services.find((e) => e.id === 'eth-rpc');
-  const now = new Date();
+  const chainId = eth && (await ethChainId(s, eth.directUrl));
+  const now = s.now();
   const stack = trinityStackModel(ctx.net, model, {
     chains,
-    ethChainId: eth && (await ethChainId(s, eth.directUrl)),
+    ethChainId: chainId,
+    forked,
     forkAt: bite ? Math.floor(Date.parse(bite.at) / 1000) : undefined,
     faucet: s.faucet,
     expiresAt: s.expiresAt,
@@ -168,7 +165,7 @@ export async function writeStack(
   // The generation is minted with the data directory, so it changes exactly when the chains
   // restart from scratch: a wipe, or a fork started again from its bite.
   const stateFile = path.join(s.dataDir, STACK_STATE_FILE);
-  const previous = readJson<StackStateFile>(stateFile);
+  const previous = readState(stateFile);
   const generation = previous?.generation ?? spawn?.spawnedAt ?? now.toISOString();
   const published = await publish(stack, { generation, state: previous?.state, secret: s.secret, now });
   writeIfChanged(path.join(s.dataDir, STACK_FILE), published.document);
@@ -176,8 +173,8 @@ export async function writeStack(
   const pointer = { url: trinityStackUrl(s.baseUrl), ...(s.secret && { key: publicKey(s.secret) }) };
   const written: StackStateFile = { generation, state: published.state, pointer, link: encodeLink(pointer) };
   writeIfChanged(stateFile, new TextEncoder().encode(JSON.stringify(written, null, 2) + '\n'));
-  const complete = Object.values(chains).every((c) => !c?.fullSpec || c.lightSpec);
-  return { written, complete };
+  const specsComplete = Object.values(chains).every((c) => !c?.fullSpec || c.lightSpec);
+  return { written, complete: specsComplete && (!eth || chainId !== undefined) };
 }
 
 function hexSecret(value: string | undefined): Uint8Array | undefined {
@@ -194,25 +191,33 @@ function optionalNumber(name: string, value: string | undefined): number | undef
 }
 
 export async function trinityStack(ctx: ServiceContext): Promise<void> {
+  // zombienet hands custom processes no environment, so the deployment's settings arrive in
+  // the ports files, which loadContext merged into process.env.
+  const setting = (name: string) => process.env[name] || ctx.ports[name] || undefined;
+  if (setting('PPN_EPHEMERAL') === '1') {
+    console.log('trinity-stack: an ephemeral run has no data directory to publish from');
+    return;
+  }
   if (!ctx.net.stack?.tld && !ctx.net.genesisConfig?.networkSuffix) {
     console.log(`trinity-stack: networks/${ctx.net.name}.json names no TLD, so there is no descriptor to write`);
     return;
   }
-  // Read through ctx.ports as the dashboard does: zombienet hands custom processes no
-  // environment, so the deployment's settings arrive in ports.local.env.
-  const setting = (name: string) => process.env[name] || ctx.ports[name] || undefined;
-  const port = Number(setting('DASHBOARD_PORT') || 8090);
   const s: Settings = {
     call: rpc,
-    baseUrl: (setting('PPN_PUBLIC_URL') || `http://127.0.0.1:${port}`).replace(/\/$/, ''),
-    dataDir: setting('DATA_DIR') || setting('PPN_DATA_DIR') || path.join(path.dirname(ctx.sharedBinDir), 'data'),
+    now: () => new Date(),
+    baseUrl: ctx.baseUrl,
+    dataDir: ctx.dataDir,
     bootnodeHost: setting('BOOTNODE_HOSTNAME') || '127.0.0.1',
     secret: hexSecret(setting('PPN_STACK_SECRET')),
     faucet: setting('PPN_STACK_FAUCET_URL'),
     expiresAt: optionalNumber('PPN_STACK_EXPIRES_AT', setting('PPN_STACK_EXPIRES_AT')),
     validFor: optionalNumber('PPN_STACK_VALID_FOR', setting('PPN_STACK_VALID_FOR')),
   };
-  const refresh = optionalNumber('PPN_STACK_REFRESH_SECONDS', setting('PPN_STACK_REFRESH_SECONDS')) ?? 6 * 3600;
+  // A copy must be replaced before its validUntil, or readers show the stack as stale.
+  const refresh = Math.min(
+    optionalNumber('PPN_STACK_REFRESH_SECONDS', setting('PPN_STACK_REFRESH_SECONDS')) ?? DEFAULT_REFRESH_SECONDS,
+    s.validFor ? Math.max(RETRY_SECONDS, Math.floor(s.validFor / 2)) : Infinity
+  );
 
   for (;;) {
     try {
