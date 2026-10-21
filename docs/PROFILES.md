@@ -42,7 +42,8 @@ Four independent consumers read it directly:
  `ppn generate`      your process     scripts/{assign-cores,force-open-hrmp}.js
  (sources at top)    supervisor       (inline KEY=value loader)
                      (EnvironmentFile) scripts/{set-dispatcher-address,
-                                        increase-people-lite-attestation-allowance}.sh
+                                        increase-people-lite-attestation-allowance,
+                                        increase-dotns-attestation-allowance}.sh
                                        (sources directly)
 ```
 

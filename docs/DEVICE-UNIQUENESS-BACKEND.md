@@ -274,10 +274,11 @@ request.
 
 ### Attester
 
-`ATTESTER_ACCOUNT` needs no new chain-side setup: PPN's existing
-`increase-people-lite-attestation-allowance` custom process already sudo-grants 1000
+`ATTESTER_ACCOUNT` needs no new chain-side setup: PPN's
+`increase-people-lite-attestation-allowance` custom process sudo-grants 1000
 allowance to `5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`, the same account
-upstream defaults to. `ATTESTER_ALLOWANCE_FLOOR` (default 100) sits comfortably under
+upstream defaults to, and `increase-dotns-attestation-allowance` grants that account
+1000 on Asset Hub's DotnsGateway, which its dotNS reservations draw on. `ATTESTER_ALLOWANCE_FLOOR` (default 100) sits comfortably under
 that. Ordering between the allowance process and the chain writer still needs
 checking — the writer polls allowance every `ATTESTER_RESOURCE_POLL_SECS` (60s), so a
 late grant should self-heal, but that should be confirmed rather than assumed.
