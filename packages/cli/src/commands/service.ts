@@ -310,6 +310,23 @@ const dotRun = (args: string[]) =>
     env: dotEnv(),
   }).trim();
 
+/** Whether `chain` has `pallet`. Only dot's unknown-pallet error means no; anything else throws. */
+function dotHasPallet(chain: string, pallet: string, storage: string, key: string): boolean {
+  try {
+    execFileSync('dot', [`${chain}.query.${pallet}.${storage}`, key], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: dotEnv(),
+    });
+    return true;
+  } catch (err) {
+    const stderr = String((err as { stderr?: unknown }).stderr ?? '');
+    if (stderr.includes(`Unknown pallet "${pallet}"`)) return false;
+    process.stderr.write(stderr);
+    throw err;
+  }
+}
+
 async function chainReachable(httpUrl: string, attempts: number, gapSeconds: number): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -446,17 +463,19 @@ async function increaseDotnsAttestationAllowance(ctx: ServiceContext, _deps: Ser
   await waitSeconds('Asset Hub', 20);
   dotRun(['chain', 'add', 'AssetHub', '--rpc', `ws://127.0.0.1:${ctx.ports.ASSET_HUB_PORT}`]);
   const from = dotSudoAccount();
-  // An unset allowance reads back as null, not 0.
-  const available = () =>
-    Number(dotRun(['AssetHub.query.DotnsGateway.AttestationAllowance', account]).match(/\d+/)?.[0] ?? 0);
-  try {
-    available();
-  } catch (err) {
-    console.log(
-      `increase-dotns-attestation-allowance: no DotnsGateway allowance to read (${(err as Error).message.split('\n')[0]}) — nothing to grant`
-    );
-    return;
+  // A fork whose bite authorized an Asset Hub upgrade may only gain the pallet once
+  // enact-upgrades has applied it, so look again for a while before skipping.
+  for (let check = 1; !dotHasPallet('AssetHub', 'DotnsGateway', 'AttestationAllowance', account); check++) {
+    if (check >= 5) {
+      console.log('increase-dotns-attestation-allowance: Asset Hub has no DotnsGateway — nothing to grant');
+      return;
+    }
+    await sleep(30);
+    dotRun(['chain', 'update', 'AssetHub']);
   }
+  // NaN on unexpected output, which fails the check below loudly.
+  const available = () =>
+    Number(dotRun(['AssetHub.query.DotnsGateway.AttestationAllowance', account]).trim() || '0');
 
   // Verified by reading the allowance back: set-dispatcher-address signs as the same sudo
   // account on Asset Hub, and a submission can lose its nonce to it.
