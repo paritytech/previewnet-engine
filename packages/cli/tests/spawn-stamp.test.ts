@@ -93,3 +93,21 @@ describe('writeSpawnStamp', () => {
     }
   });
 });
+
+describe('ppn stamp-spawn', () => {
+  // A spawner VM spawns a fork from a bundle at a path only the deployment knows. Without the
+  // bite in the stamp, the fork's Trinity stack descriptor would describe it as its source.
+  it('records the bite of the manifest it is given, as a fork', async () => {
+    const { stampSpawn } = await import('../src/commands/stamp-spawn.js');
+    const data = path.join(root, 'data');
+    const manifest = path.join(root, 'fork-bundle', 'manifest.json');
+    fs.mkdirSync(path.dirname(manifest), { recursive: true });
+    fs.writeFileSync(
+      manifest,
+      JSON.stringify({ bittenAt: '2026-10-20T12:00:00Z', source: 'https://previewnet.substrate.dev', biteBlocks: { relay: 7 } })
+    );
+    await stampSpawn(['previewnet'], { forkManifest: manifest, dataDir: data });
+    assert.equal(read(data).mode, 'fork');
+    assert.deepEqual(read(data).bite, { at: '2026-10-20T12:00:00Z', source: 'https://previewnet.substrate.dev', blocks: { relay: 7 } });
+  });
+});
