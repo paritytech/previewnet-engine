@@ -76,5 +76,8 @@
         "release": "polkadot-sdk"
       }
     }
+  },
+  "stack": {
+    "tld": "dot"
   }
 }
