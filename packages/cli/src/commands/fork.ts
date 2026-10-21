@@ -123,7 +123,7 @@ export async function run(args: string[]): Promise<void> {
         scriptsDir: path.join(REPO, 'scripts'),
         bundleDir: path.resolve(bundleDir),
         enableHop: (process.env.ENABLE_HOP || 'true').toLowerCase() !== 'false',
-        binDir: bundleNet === 'previewnet' ? undefined : path.join(WS, 'bin', bundleNet),
+        binDir: bundleNet === 'previewnet' ? path.join(WS, 'bin') : path.join(WS, 'bin', bundleNet),
       });
       fs.writeFileSync(outFile, toml);
       const rpcPorts = [...toml.matchAll(/^rpc_port = (\d+)$/gm)].map((m) => m[1]);
