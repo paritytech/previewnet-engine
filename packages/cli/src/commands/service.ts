@@ -595,9 +595,28 @@ async function setDispatcherAddress(ctx: ServiceContext, _deps: ServiceDeps = {}
   await waitSeconds('Asset Hub', 20);
   dotRun(['chain', 'add', 'AssetHub', '--rpc', `ws://127.0.0.1:${ctx.ports.ASSET_HUB_PORT}`]);
   const from = dotSudoAccount();
-  console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${target} (${via})`);
-  const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', target, '--encode']);
-  dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+  const current = () =>
+    dotRun(['AssetHub.query.DotnsGateway.DispatcherAddress']).replace(/"/g, '').toLowerCase();
+
+  // Verified by reading the address back: increase-dotns-attestation-allowance signs as the
+  // same sudo account on Asset Hub, and a submission can lose its nonce to it.
+  for (let attempt = 1; ; attempt++) {
+    if (current() === String(target).toLowerCase()) {
+      console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress is ${target} (${via})`);
+      return;
+    }
+    if (attempt > 4) {
+      throw new Error(`set-dispatcher-address: DispatcherAddress still not ${target} after ${attempt - 1} attempts`);
+    }
+    console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${target} (${via})`);
+    const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', target, '--encode']);
+    try {
+      dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+    } catch (err) {
+      console.log(`  submission rejected (${(err as Error).message.split('\n')[0]}), will re-check`);
+    }
+    await sleep(6);
+  }
 }
 
 // ---------------------------------------------------------------------------
