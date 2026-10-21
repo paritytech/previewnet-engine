@@ -17,6 +17,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..');
 const PORT = 18091;
 const BASE = `http://127.0.0.1:${PORT}`;
+// Not JSON as the dashboard would print it: the route must pass the bytes through untouched.
+const STACK_BYTES = '{"$v":1,  "id":"previewnet"}';
 
 let tmp: string;
 let child: ChildProcess;
@@ -37,6 +39,12 @@ before(async () => {
   );
   fs.mkdirSync(path.join(tmp, 'data', 'eth-rpc'), { recursive: true });
   fs.writeFileSync(path.join(tmp, 'data', 'eth-rpc', 'eth-rpc.log'), 'line one\nline two\n');
+  // What `ppn service trinity-stack` leaves in the data dir: a spec, its light spec, the
+  // descriptor and its state.
+  fs.writeFileSync(path.join(tmp, 'data', 'paseo-local.json'), '{"id":"paseo-local","bootNodes":[]}');
+  fs.writeFileSync(path.join(tmp, 'data', 'paseo-local.smol.json'), '{"id":"paseo-local","genesis":{}}');
+  fs.writeFileSync(path.join(tmp, 'data', 'trinity-stack.json'), STACK_BYTES);
+  fs.writeFileSync(path.join(tmp, 'data', 'trinity-stack.state.json'), JSON.stringify({ link: 'https://dot.li/stack?url=x' }));
   fs.writeFileSync(
     path.join(tmp, 'data', 'spawn.json'),
     JSON.stringify({ spawnedAt: '2026-08-21T00:00:01Z', network: 'previewnet', mode: 'genesis', bite: null, profile: 'local' })
@@ -166,6 +174,21 @@ describe('dashboard API', () => {
     assert.equal((await get('/api/logs/nope')).status, 404);
     assert.equal((await get('/api/logs/..%2F..%2Fetc%2Fpasswd')).status, 404);
     assert.equal((await get('/api/logs/eth-rpc%2F..%2F..')).status, 404);
+  });
+
+  it('serves the Trinity stack descriptor byte for byte, and its pointer', async () => {
+    const res = await fetch(`${BASE}/.well-known/trinity-stack.json`);
+    assert.equal(res.headers.get('access-control-allow-origin'), '*');
+    assert.equal(await res.text(), STACK_BYTES);
+    assert.deepEqual((await get('/api/stack')).body, { link: 'https://dot.li/stack?url=x' });
+  });
+
+  it('serves light specs next to the raw ones, and nothing else from the data dir', async () => {
+    const light = await fetch(`${BASE}/chainspecs/paseo-local.smol.json`);
+    assert.equal(await light.text(), '{"id":"paseo-local","genesis":{}}');
+    assert.equal((await get('/chainspecs/paseo-local.json')).status, 200);
+    assert.equal((await get('/chainspecs/trinity-stack.json')).status, 404);
+    assert.equal((await get('/chainspecs/trinity-stack.state.json')).status, 404);
   });
 
   it('answers an invalid url instead of crashing', async () => {
