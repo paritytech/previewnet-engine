@@ -62,6 +62,10 @@ the network's own nodes:
 - behind `https`, also nginx's TLS port for that chain (`*_P2P_WSS_PORT`), because a browser on
   an https page may only dial `wss`.
 
+The relay's light spec names alice alone, because she is the only validator with a fixed P2P
+port and a WSS port in front of it. While alice is down, light clients cannot reach the relay,
+though the other validators keep it running.
+
 Before writing, the service checks that the spec implies the chain's genesis hash, and refuses
 a raw spec that names a node on any host other than `BOOTNODE_HOSTNAME`. A fork keeps its
 source's genesis hash, so a spec that still lists one of the source's nodes would join the
@@ -74,7 +78,7 @@ into `config/ports.env`, where each has an empty default. The key goes in the se
 
 | Setting | Effect |
 | --- | --- |
-| `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. |
+| `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. Ignored on a fork, which is always published unsigned: a descriptor signed with its source's key would be the source. |
 | `PPN_STACK_FAUCET_URL` | Adds a `faucet` service. |
 | `PPN_STACK_EXPIRES_AT` | Unix seconds when the network is torn down, for spawner instances. |
 | `PPN_STACK_VALID_FOR` | Seconds a reader may use a copy before fetching it again. |
