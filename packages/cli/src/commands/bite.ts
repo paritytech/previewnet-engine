@@ -659,6 +659,10 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
     snapshotBytes[id] = fs.statSync(dest).size;
   }
 
+  const { biteHashes } = await import('../fork/manifest.js');
+  const hashes = await biteHashes(manifest.chains, biteBlocks);
+  if (!hashes) console.warn('  could not read every source block at the bite; the bundle records no biteHashes');
+
   // Sizes are recorded here rather than measured from the tarball later: the column layout
   // of `tar -tzv` differs between BSD and GNU tar.
   // Last write of the whole bite: the bundle is only "present" once this lands.
@@ -668,6 +672,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
       {
         ...manifest,
         biteBlocks,
+        ...(hashes ? { biteHashes: hashes } : {}),
         snapshotBytes,
         ...(Object.keys(staged).length ? { seededUpgrades: staged } : {}),
         ...(topology ? { topology } : {}),
