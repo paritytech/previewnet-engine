@@ -14,7 +14,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { checkChains, waitForChains, type ChainTarget } from '../src/fork/verify.js';
+import { checkChains, checkForkedAt, waitForChains, type ChainTarget } from '../src/fork/verify.js';
 
 /** A chain that answers `chain_getHeader` from a height we control, or refuses to answer. */
 class FakeChain {
@@ -23,6 +23,8 @@ class FakeChain {
   finalized = 90;
   /** When false every request 500s, standing in for a node that is not up yet. */
   up = true;
+  /** What `chain_getBlockHash` answers per height; absent heights are null. */
+  hashes: Record<number, string> = {};
   url = '';
 
   constructor() {
@@ -41,7 +43,13 @@ class FakeChain {
             ? (params?.length ? this.finalized : this.best)
             : null;
         const result =
-          method === 'chain_getFinalizedHead' ? '0xfinalized' : n === null ? null : { number: '0x' + n.toString(16) };
+          method === 'chain_getBlockHash'
+            ? (this.hashes[params[0]] ?? null)
+            : method === 'chain_getFinalizedHead'
+              ? '0xfinalized'
+              : n === null
+                ? null
+                : { number: '0x' + n.toString(16) };
         res.writeHead(200, { 'Content-Type': 'application/json' })
           .end(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
       });
@@ -227,5 +235,40 @@ describe('waitForChains', () => {
     });
     assert.equal(r.ok, false);
     assert.deepEqual(r.missing, ['para']);
+  });
+});
+
+describe('checkForkedAt', () => {
+  // A fork's descriptor names the source's block at the bite as each chain's `forkedAt`, read
+  // from the fork. That only holds while the fork resumes from the source's header.
+  const fork = new FakeChain();
+  const source = new FakeChain();
+  before(async () => {
+    await fork.start();
+    await source.start();
+  });
+  after(async () => {
+    await fork.stop();
+    await source.stop();
+  });
+
+  it('passes when the fork holds the source block at the bite', async () => {
+    fork.hashes = { 50: '0xaa' };
+    source.hashes = { 50: '0xaa' };
+    assert.equal((await checkForkedAt(fork.url, source.url, 50)).ok, true);
+  });
+
+  it('fails when the fork wrote a block of its own at the bite', async () => {
+    fork.hashes = { 50: '0xbb' };
+    source.hashes = { 50: '0xaa' };
+    const r = await checkForkedAt(fork.url, source.url, 50);
+    assert.equal(r.ok, false);
+    assert.match(r.detail, /0xbb.*0xaa/);
+  });
+
+  it('fails when the fork has no block at the bite', async () => {
+    fork.hashes = {};
+    source.hashes = { 50: '0xaa' };
+    assert.equal((await checkForkedAt(fork.url, source.url, 50)).ok, false);
   });
 });
