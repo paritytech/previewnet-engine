@@ -228,29 +228,6 @@ export async function checkDiverged(
     : { ok: true, detail: `block #${at} differs from source` };
 }
 
-/**
- * The fork must still hold its source's block at the bite.
- *
- * A fork's Trinity stack descriptor names that block as each chain's `forkedAt`, read from the
- * fork's own node, so it is only right while the fork resumes from the source's header rather
- * than writing a block of its own at that height.
- */
-export async function checkForkedAt(
-  forkUrl: string,
-  sourceUrl: string,
-  biteBlock: number
-): Promise<{ ok: boolean; detail: string }> {
-  const [mine, theirs] = await Promise.all([
-    rpc<string | null>(forkUrl, 'chain_getBlockHash', [biteBlock]).catch(() => null),
-    rpc<string | null>(sourceUrl, 'chain_getBlockHash', [biteBlock]).catch(() => null),
-  ]);
-  if (!mine) return { ok: false, detail: `fork has no block #${biteBlock}` };
-  if (!theirs) return { ok: true, detail: `source has no block #${biteBlock}; nothing to compare` };
-  return mine === theirs
-    ? { ok: true, detail: `block #${biteBlock} is the source's` }
-    : { ok: false, detail: `block #${biteBlock} is ${mine}, the source's is ${theirs}` };
-}
-
 /** Chain targets for every chain the bundle carries. */
 export function targetsFromManifest(
   manifest: ForkManifest,

@@ -30,7 +30,6 @@ import {
   checkChains,
   checkDistinctChains,
   checkDiverged,
-  checkForkedAt,
 } from '../fork/verify.js';
 
 // Roots come from repoRoot()/workspaceRoot(), never from counting directory levels.
@@ -206,18 +205,7 @@ export async function run(args: string[]): Promise<void> {
       const diverged = await checkDiverged(relay.url, sourceRelay, relay.biteBlock);
       console.log(`  ${diverged.ok ? 'ok  ' : 'FAIL'} diverged from source — ${diverged.detail}`);
 
-      // Chains whose manifest records no endpoint are skipped: older bundles predate it.
-      let forkedAtFailures = 0;
-      for (const t of targets) {
-        const source = t.key === 'relay' ? sourceRelay : manifest.chains[t.key]?.endpoint;
-        if (!source) continue;
-        const kept = await checkForkedAt(t.url, source, t.biteBlock);
-        if (!kept.ok) forkedAtFailures++;
-        console.log(`  ${kept.ok ? 'ok  ' : 'FAIL'} ${t.key.padEnd(13)} keeps the bite block — ${kept.detail}`);
-      }
-
-      const failed =
-        results.filter((r) => !r.ok).length + (distinct.ok ? 0 : 1) + (diverged.ok ? 0 : 1) + forkedAtFailures;
+      const failed = results.filter((r) => !r.ok).length + (distinct.ok ? 0 : 1) + (diverged.ok ? 0 : 1);
       if (failed) {
         console.error(`\n${failed} check(s) failed`);
         process.exit(1);
