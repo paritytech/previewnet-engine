@@ -104,10 +104,15 @@ describe('ppn stamp-spawn', () => {
     fs.mkdirSync(path.dirname(manifest), { recursive: true });
     fs.writeFileSync(
       manifest,
-      JSON.stringify({ bittenAt: '2026-10-20T12:00:00Z', source: 'https://previewnet.substrate.dev', biteBlocks: { relay: 7 } })
+      JSON.stringify({
+        bittenAt: '2026-10-20T12:00:00Z', source: 'https://previewnet.substrate.dev',
+        biteBlocks: { relay: 7 }, biteHashes: { relay: '0xaa' },
+      })
     );
     await stampSpawn(['previewnet'], { forkManifest: manifest, dataDir: data });
     assert.equal(read(data).mode, 'fork');
-    assert.deepEqual(read(data).bite, { at: '2026-10-20T12:00:00Z', source: 'https://previewnet.substrate.dev', blocks: { relay: 7 } });
+    assert.deepEqual(read(data).bite, {
+      at: '2026-10-20T12:00:00Z', source: 'https://previewnet.substrate.dev', blocks: { relay: 7 }, hashes: { relay: '0xaa' },
+    });
   });
 });
