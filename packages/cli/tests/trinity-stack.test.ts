@@ -118,6 +118,13 @@ describe('writeStack — what it writes', () => {
     assert.ok(open(read('trinity-stack.json'), written.pointer).signed);
   });
 
+  it('never signs a fork, whose machine may hold its source key', async () => {
+    stamp({ mode: 'fork' });
+    const { written } = await writeStack({ net }, settings({ secret: new Uint8Array(32).fill(7) }));
+    assert.equal(written.pointer.key, undefined);
+    assert.equal(open(read('trinity-stack.json'), written.pointer).signed, false);
+  });
+
   it('describes a fork with the block each chain was bitten at', async () => {
     const blocks = { relay: 100, '1500': 200, '1502': 300, '1501': 400, '1600': 500 };
     stamp({ mode: 'fork', bite: { at: '2026-10-20T12:00:00.000Z', source: 'https://previewnet.substrate.dev', blocks } });

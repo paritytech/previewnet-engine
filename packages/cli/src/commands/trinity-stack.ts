@@ -167,10 +167,14 @@ export async function writeStack(
   const stateFile = path.join(s.dataDir, STACK_STATE_FILE);
   const previous = readState(stateFile);
   const generation = previous?.generation ?? spawn?.spawnedAt ?? now.toISOString();
-  const published = await publish(stack, { generation, state: previous?.state, secret: s.secret, now });
+  // A descriptor signed with a stack's key is that stack, and a fork machine may hold its
+  // source's key, so a fork is published unsigned.
+  if (forked && s.secret) console.warn('trinity-stack: a fork is published unsigned; PPN_STACK_SECRET is ignored');
+  const secret = forked ? undefined : s.secret;
+  const published = await publish(stack, { generation, state: previous?.state, secret, now });
   writeIfChanged(path.join(s.dataDir, STACK_FILE), published.document);
 
-  const pointer = { url: trinityStackUrl(s.baseUrl), ...(s.secret && { key: publicKey(s.secret) }) };
+  const pointer = { url: trinityStackUrl(s.baseUrl), ...(secret && { key: publicKey(secret) }) };
   const written: StackStateFile = { generation, state: published.state, pointer, link: encodeLink(pointer) };
   writeIfChanged(stateFile, new TextEncoder().encode(JSON.stringify(written, null, 2) + '\n'));
   const specsComplete = Object.values(chains).every((c) => !c?.fullSpec || c.lightSpec);
