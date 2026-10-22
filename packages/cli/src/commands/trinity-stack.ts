@@ -75,17 +75,12 @@ async function chainFacts(
   key: ChainKey,
   node: DashboardChain,
   specName: string | undefined,
-  forkBlock: number | undefined
+  forkedAt: StackChainFacts['forkedAt']
 ): Promise<StackChainFacts> {
   const url = asHttp(node.directUrl);
   const genesisHash = await s.call<string>(url, 'chain_getBlockHash', [0]);
   if (!genesisHash) throw new Error(`${key}: no genesis block yet`);
-  const facts: StackChainFacts = { genesisHash };
-  if (forkBlock !== undefined) {
-    const hash = await s.call<string | null>(url, 'chain_getBlockHash', [forkBlock]);
-    if (!hash) throw new Error(`${key}: the node has no block #${forkBlock}, where it was bitten`);
-    facts.forkedAt = { number: forkBlock, hash };
-  }
+  const facts: StackChainFacts = { genesisHash, ...(forkedAt && { forkedAt }) };
   if (!specName) return facts;
 
   const fullBytes = fs.readFileSync(path.join(s.dataDir, `${specName}.json`));
@@ -146,8 +141,12 @@ export async function writeStack(
 
   const chains: StackFacts['chains'] = {};
   for (const [key, node] of chainNodes(model.chains)) {
-    const paraId = node.paraId === null ? 'relay' : String(node.paraId);
-    chains[key] = await chainFacts(s, key, node, specs.get(node.id), bite?.blocks[paraId]);
+    // The source's block, as the bite recorded it: the fork's own block at that height differs.
+    const id = node.paraId === null ? 'relay' : String(node.paraId);
+    const number = bite?.blocks[id];
+    const hash = bite?.hashes?.[id];
+    const forkedAt = number !== undefined && hash ? { number, hash } : undefined;
+    chains[key] = await chainFacts(s, key, node, specs.get(node.id), forkedAt);
   }
   const eth = model.services.find((e) => e.id === 'eth-rpc');
   const chainId = eth && (await ethChainId(s, eth.directUrl));

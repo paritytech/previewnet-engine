@@ -125,14 +125,35 @@ describe('writeStack — what it writes', () => {
     assert.equal(open(read('trinity-stack.json'), written.pointer).signed, false);
   });
 
-  it('describes a fork with the block each chain was bitten at', async () => {
-    const blocks = { relay: 100, '1500': 200, '1502': 300, '1501': 400, '1600': 500 };
-    stamp({ mode: 'fork', bite: { at: '2026-10-20T12:00:00.000Z', source: 'https://previewnet.substrate.dev', blocks } });
+  const blocks = { relay: 100, '1500': 200, '1502': 300, '1501': 400, '1600': 500 };
+  const hashes = Object.fromEntries(Object.keys(blocks).map((id, i) => [id, `0x${String(i + 1).repeat(64)}`]));
+  const bite = (extra: Record<string, unknown> = {}) => ({
+    at: '2026-10-20T12:00:00.000Z', source: 'https://previewnet.substrate.dev', blocks, ...extra,
+  });
+
+  it("describes a fork with the source's block each chain was bitten at", async () => {
+    stamp({ mode: 'fork', bite: bite({ hashes }) });
     const { written } = await writeStack({ net }, settings());
     const { descriptor } = open(read('trinity-stack.json'), written.pointer);
     assert.equal(descriptor.id, 'previewnet-fork');
     assert.deepEqual(descriptor.fork, { of: net.stack!.pointer, at: Date.parse('2026-10-20T12:00:00Z') / 1000 });
-    assert.deepEqual(descriptor.chains.map((c) => c.forkedAt?.number), [100, 200, 300, 400, 500]);
+    // The recorded source hashes, not the fork's own blocks, which the fake answers as 0xabab…
+    assert.deepEqual(descriptor.chains.map((c) => c.forkedAt), [
+      { number: 100, hash: hashes.relay },
+      { number: 200, hash: hashes['1500'] },
+      { number: 300, hash: hashes['1502'] },
+      { number: 400, hash: hashes['1501'] },
+      { number: 500, hash: hashes['1600'] },
+    ]);
+  });
+
+  it("names a fork from a bundle that predates biteHashes, but claims no source block", async () => {
+    stamp({ mode: 'fork', bite: bite() });
+    const { written } = await writeStack({ net }, settings());
+    const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.equal(descriptor.id, 'previewnet-fork');
+    assert.equal(descriptor.fork, undefined);
+    assert.ok(descriptor.chains.every((c) => c.forkedAt === undefined));
   });
 });
 

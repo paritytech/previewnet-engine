@@ -96,6 +96,14 @@ describe('trinityStackModel — forks', () => {
     assert.ok(stack.chains.every((c) => c.forkedAt === undefined));
   });
 
+  it("leaves out fork when one chain's source block is unknown, since fork needs every forkedAt", () => {
+    const partial = facts({ forked: true, forkAt: 1800000000 });
+    delete partial.chains.people!.forkedAt;
+    const stack = trinityStackModel(net, model, partial);
+    assert.equal(stack.fork, undefined);
+    assert.ok(stack.chains.every((c) => c.forkedAt === undefined));
+  });
+
   it('leaves out fork and forkedAt when the source publishes no descriptor', () => {
     const unpublished = { ...net, stack: undefined };
     const stack = trinityStackModel(unpublished, model, facts({ forked: true, forkAt: 1800000000 }));

@@ -44,7 +44,10 @@ The descriptor is built from the dashboard model, so its URLs are the ones the d
 - `services`: the DUB, TURN and STUN, the IPFS gateway, Bulletin as `hop`, eth-rpc with its
   chain id, and the storage provider.
 - `fork` and each chain's `forkedAt`: on a fork whose spawn stamp records the bite and whose
-  network file names the source's descriptor in `stack.pointer`. `ppn start --fork` records the
+  network file names the source's descriptor in `stack.pointer`. `forkedAt` is the source's
+  block, whose hash `ppn bite` reads from the source and records as `biteHashes`: the fork's
+  own block at that height differs, because the bite imports its overrides into it. A bundle
+  bitten before that was recorded gives no `fork`. `ppn start --fork` records the
   bite itself. A deployment that spawns zombienet directly runs
   `ppn stamp-spawn --fork-manifest <bundle>/manifest.json`; without it the fork is still named
   as one, but carries no `fork`.

@@ -54,14 +54,16 @@ export function trinityStackUrl(baseUrl: string): string {
  * The descriptor model of a running network.
  *
  * A fork is always named as one. It carries `fork` and each chain's `forkedAt` only when the
- * bite time is known and the network file says where the source publishes its own
- * descriptor: `fork.of` is that pointer.
+ * bite time and every chain's source block are known, and the network file says where the
+ * source publishes its own descriptor: `fork.of` is that pointer.
  */
 export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts: StackFacts): Model {
   const tld = net.stack?.tld ?? net.genesisConfig?.networkSuffix;
   if (!tld) throw new Error(`networks/${net.name}.json has no stack.tld`);
+  // `fork` requires `forkedAt` on every chain, so it is all or nothing.
+  const everyForkedAt = Object.values(facts.chains).every((c) => c?.forkedAt);
   const fork =
-    facts.forked && facts.forkAt !== undefined && net.stack?.pointer
+    facts.forked && facts.forkAt !== undefined && everyForkedAt && net.stack?.pointer
       ? { of: net.stack.pointer, at: facts.forkAt }
       : undefined;
 
