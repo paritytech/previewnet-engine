@@ -85,6 +85,8 @@ const PROCESS_GATES: Record<string, Parachain | null> = {
   // effort: without it the fork runs, but content published before the bite 404s.
   'pin-bulletin-products': 'bulletin',
   'increase-people-lite-attestation-allowance': 'people',
+  // The same attester reserves dotNS names on Asset Hub, under its own DotnsGateway allowance.
+  'increase-dotns-attestation-allowance': 'asset-hub',
   // Same reason as the allowance grant: a fork inherits the source network's invites, which
   // say nothing about the account signing here, and without invites the ticket pool fails
   // every batch it submits.
@@ -98,7 +100,11 @@ const PROCESS_GATES: Record<string, Parachain | null> = {
 // Processes whose only move is a sudo call. A fork of a network without sudo (kusama,
 // polkadot) cannot dispatch root, so these would only fail there; what they grant has to
 // come from the source chain's own state.
-const SUDO_PROCESSES = new Set(['increase-people-lite-attestation-allowance', 'grant-invites']);
+const SUDO_PROCESSES = new Set([
+  'increase-people-lite-attestation-allowance',
+  'increase-dotns-attestation-allowance',
+  'grant-invites',
+]);
 
 const FORK_PROCESSES = Object.keys(PROCESS_GATES);
 
@@ -314,6 +320,8 @@ function customProcesses(
     if (gate !== null && !present.has(gate)) return false;
     if (name === 'pin-bulletin-products' && !pinsProducts(net)) return false;
     if (name === 'enact-upgrades' && !seeded) return false;
+    // Only the identity backend spends it, and that runs on People.
+    if (name === 'increase-dotns-attestation-allowance' && !present.has('people')) return false;
     if (SUDO_PROCESSES.has(name) && !net.sudo) return false;
     return net.services[name] !== false;
   })

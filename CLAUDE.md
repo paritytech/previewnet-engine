@@ -166,6 +166,7 @@ scripts/                      # Shell launchers zombienet execs; the logic lives
 ├── enact-upgrades.sh         # Launcher over `ppn service enact-upgrades`: applies what a bite authorized
 ├── grant-invites.sh          # Grants the backend's inviter account invites (both dims)
 ├── increase-people-lite-attestation-allowance.sh # Attestation allowance config
+├── increase-dotns-attestation-allowance.sh # The same attester's DotnsGateway allowance on Asset Hub
 ├── docker-entrypoint.sh      # Docker container entrypoint
 ├── ensure-dot-cli.sh         # Installs dot CLI tool
 ├── install.sh                # Installation script

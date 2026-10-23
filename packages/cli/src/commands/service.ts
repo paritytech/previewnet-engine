@@ -74,6 +74,7 @@ const services: Record<string, Service> = {
   'dub-turn-env': async (ctx) => (await import('./turn.js')).printDubTurnEnv(ctx),
   'force-open-hrmp': forceOpenHrmp,
   'increase-people-lite-attestation-allowance': increaseAttestationAllowance,
+  'increase-dotns-attestation-allowance': increaseDotnsAttestationAllowance,
   'grant-invites': grantInvites,
   'set-dispatcher-address': setDispatcherAddress,
   'patch-bootnodes': patchBootnodes,
@@ -309,6 +310,23 @@ const dotRun = (args: string[]) =>
     env: dotEnv(),
   }).trim();
 
+/** Whether `chain` has `pallet`. Only dot's unknown-pallet error means no; anything else throws. */
+function dotHasPallet(chain: string, pallet: string, storage: string, key: string): boolean {
+  try {
+    execFileSync('dot', [`${chain}.query.${pallet}.${storage}`, key], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: dotEnv(),
+    });
+    return true;
+  } catch (err) {
+    const stderr = String((err as { stderr?: unknown }).stderr ?? '');
+    if (stderr.includes(`Unknown pallet "${pallet}"`)) return false;
+    process.stderr.write(stderr);
+    throw err;
+  }
+}
+
 async function chainReachable(httpUrl: string, attempts: number, gapSeconds: number): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -392,19 +410,7 @@ async function forceOpenHrmp(ctx: ServiceContext, _deps: ServiceDeps = {}): Prom
  */
 async function increaseAttestationAllowance(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
   const ALLOWANCE_COUNT = '1000';
-  const profile = process.env.PPN_PROFILE ?? 'local';
-  // In deployable mode Alice has been stripped from balances, so granting to her would be
-  // silently useless — the recipient must be named.
-  if (profile === 'deployable' && !process.env.PPN_ALLOWANCE_SS58) {
-    throw new Error(
-      'the deployable profile requires PPN_ALLOWANCE_SS58 (the attestation allowance\n' +
-        '       recipient) in the file named by PPN_SECRETS_FILE'
-    );
-  }
-  const account =
-    process.env.PPN_ALLOWANCE_SS58 ||
-    process.env.ALLOWANCE_ACCOUNT ||
-    '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  const account = attesterAccount();
 
   await waitSeconds('the People chain', 20);
   const peopleWs = `ws://127.0.0.1:${ctx.ports.PEOPLE_PORT}`;
@@ -418,6 +424,85 @@ async function increaseAttestationAllowance(ctx: ServiceContext, _deps: ServiceD
     '--encode',
   ]);
   dotRun(['People.tx.Sudo.sudo', encoded, '--from', from]);
+}
+
+/**
+ * The account the identity backend's chain writer signs as, on People and on Asset Hub.
+ * In deployable mode Alice has been stripped from balances, so granting to her would be
+ * silently useless — the recipient must be named.
+ */
+function attesterAccount(): string {
+  const profile = process.env.PPN_PROFILE ?? 'local';
+  if (profile === 'deployable' && !process.env.PPN_ALLOWANCE_SS58) {
+    throw new Error(
+      'the deployable profile requires PPN_ALLOWANCE_SS58 (the attestation allowance\n' +
+        '       recipient) in the file named by PPN_SECRETS_FILE'
+    );
+  }
+  return (
+    process.env.PPN_ALLOWANCE_SS58 ||
+    process.env.ALLOWANCE_ACCOUNT ||
+    '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// increase-dotns-attestation-allowance
+// ---------------------------------------------------------------------------
+
+/**
+ * Grant the same attester its DotnsGateway allowance on Asset Hub. Without it the People
+ * registration lands but every dotNS reservation fails with NoAttestationAllowance, so an
+ * attested person never gets a dotNS name. Additive, so re-running is safe; runs in fork
+ * mode for the same reason as the People grant.
+ */
+async function increaseDotnsAttestationAllowance(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
+  const ALLOWANCE_COUNT = 1000;
+  const account = attesterAccount();
+
+  await waitSeconds('Asset Hub', 20);
+  dotRun(['chain', 'add', 'AssetHub', '--rpc', `ws://127.0.0.1:${ctx.ports.ASSET_HUB_PORT}`]);
+  const from = dotSudoAccount();
+  // A fork whose bite authorized an Asset Hub upgrade may only gain the pallet once
+  // enact-upgrades has applied it, so look again for a while before skipping.
+  for (let check = 1; !dotHasPallet('AssetHub', 'DotnsGateway', 'AttestationAllowance', account); check++) {
+    if (check >= 5) {
+      console.log('increase-dotns-attestation-allowance: Asset Hub has no DotnsGateway — nothing to grant');
+      return;
+    }
+    await sleep(30);
+    dotRun(['chain', 'update', 'AssetHub']);
+  }
+  // NaN on unexpected output, which fails the check below loudly.
+  const available = () =>
+    Number(dotRun(['AssetHub.query.DotnsGateway.AttestationAllowance', account]).trim() || '0');
+
+  // Verified by reading the allowance back: set-dispatcher-address signs as the same sudo
+  // account on Asset Hub, and a submission can lose its nonce to it.
+  for (let attempt = 1; ; attempt++) {
+    if (available() >= ALLOWANCE_COUNT) {
+      console.log(`increase-dotns-attestation-allowance: ${account} holds a DotnsGateway allowance`);
+      return;
+    }
+    if (attempt > 4) {
+      throw new Error(
+        `increase-dotns-attestation-allowance: ${account} still short after ${attempt - 1} attempts`
+      );
+    }
+    console.log(`increase-dotns-attestation-allowance: ${ALLOWANCE_COUNT} to ${account}`);
+    const encoded = dotRun([
+      'AssetHub.tx.DotnsGateway.increase_attestation_allowance',
+      account,
+      String(ALLOWANCE_COUNT),
+      '--encode',
+    ]);
+    try {
+      dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+    } catch (err) {
+      console.log(`  submission rejected (${(err as Error).message.split('\n')[0]}), will re-check`);
+    }
+    await sleep(6);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -529,9 +614,28 @@ async function setDispatcherAddress(ctx: ServiceContext, _deps: ServiceDeps = {}
   await waitSeconds('Asset Hub', 20);
   dotRun(['chain', 'add', 'AssetHub', '--rpc', `ws://127.0.0.1:${ctx.ports.ASSET_HUB_PORT}`]);
   const from = dotSudoAccount();
-  console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${target} (${via})`);
-  const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', target, '--encode']);
-  dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+  const current = () =>
+    dotRun(['AssetHub.query.DotnsGateway.DispatcherAddress']).replace(/"/g, '').toLowerCase();
+
+  // Verified by reading the address back: increase-dotns-attestation-allowance signs as the
+  // same sudo account on Asset Hub, and a submission can lose its nonce to it.
+  for (let attempt = 1; ; attempt++) {
+    if (current() === String(target).toLowerCase()) {
+      console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress is ${target} (${via})`);
+      return;
+    }
+    if (attempt > 4) {
+      throw new Error(`set-dispatcher-address: DispatcherAddress still not ${target} after ${attempt - 1} attempts`);
+    }
+    console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${target} (${via})`);
+    const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', target, '--encode']);
+    try {
+      dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+    } catch (err) {
+      console.log(`  submission rejected (${(err as Error).message.split('\n')[0]}), will re-check`);
+    }
+    await sleep(6);
+  }
 }
 
 // ---------------------------------------------------------------------------

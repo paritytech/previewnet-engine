@@ -352,6 +352,7 @@ describe('generateForkToml — custom processes', () => {
   // one for that account. The grant is additive and idempotent enough to re-run.
   it('still grants the attestation allowance, for the identity backend attester', () => {
     assert.ok(toml.includes('increase-people-lite-attestation-allowance'));
+    assert.ok(toml.includes('increase-dotns-attestation-allowance'));
   });
 
   it('runs the identity backend against a fork too', () => {
@@ -484,7 +485,8 @@ describe('generateForkToml — non-previewnet bundles', () => {
   // ones that only need the chain to exist (dub, ipfs, eth-rpc, the product import) still do.
   it('leaves the sudo-dispatching services out of a fork without sudo', () => {
     const toml = polkadotToml();
-    for (const name of ['increase-people-lite-attestation-allowance', 'grant-invites']) {
+    for (const name of ['increase-people-lite-attestation-allowance',
+      'increase-dotns-attestation-allowance', 'grant-invites']) {
       assert.ok(!toml.includes(`name = "${name}"`), `${name} needs sudo`);
     }
     for (const name of ['eth-rpc', 'ipfs-daemon', 'dub-api', 'pin-design-families']) {
@@ -590,7 +592,8 @@ describe('generateForkToml — non-previewnet bundles', () => {
     assert.match(toml, /chain = "kusama"/);
     assert.ok(toml.includes('eth-rpc.sh'));
     for (const gone of ['dub-api', 'ipfs-daemon', 'pin-bulletin-products',
-      'increase-people-lite-attestation-allowance', 'pin-design-families', 'storage-provider-node']) {
+      'increase-people-lite-attestation-allowance', 'increase-dotns-attestation-allowance',
+      'pin-design-families', 'storage-provider-node']) {
       assert.ok(!toml.includes(gone), `${gone} should not run without its parachain`);
     }
     assert.ok(toml.includes('patch-bootnodes.sh'), 'patch-bootnodes is unconditional');
