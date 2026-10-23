@@ -53,9 +53,7 @@ export async function turn(ctx: ServiceContext): Promise<void> {
   const secret = secretOf();
 
   // Not DATA_DIR/turn: that is where zombienet writes this process's log.
-  const dataDir =
-    process.env.DATA_DIR || ctx.ports.PPN_DATA_DIR || path.join(path.dirname(ctx.sharedBinDir), 'data');
-  const state = path.join(dataDir, 'turn-state');
+  const state = path.join(ctx.dataDir, 'turn-state');
   const etcDir = path.join(state, 'etc');
   const runDir = path.join(state, 'run');
   fs.mkdirSync(etcDir, { recursive: true });

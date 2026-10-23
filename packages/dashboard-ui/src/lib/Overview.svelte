@@ -4,6 +4,7 @@
   import EndpointRow from './EndpointRow.svelte';
   import Contracts from './Contracts.svelte';
   import Ice from './Ice.svelte';
+  import Stack from './Stack.svelte';
 
   const relays = $derived(app.model?.chains.filter((c) => c.paraId === null) ?? []);
   const parachains = $derived(app.model?.chains.filter((c) => c.paraId !== null) ?? []);
@@ -16,6 +17,8 @@
       : []
   );
 </script>
+
+<Stack />
 
 {#if app.model}
   {#each sections as [title, entries] (title)}

@@ -574,6 +574,11 @@ ${section(serviceEnabled('patch-bootnodes'), `
 name = "patch-bootnodes"
 command = "{{SCRIPTS}}/patch-bootnodes.sh"
 `)}
+${section(serviceEnabled('trinity-stack'), `
+[[custom_processes]]
+name = "trinity-stack"
+command = "{{SCRIPTS}}/trinity-stack.sh"
+`)}
 ${section(serviceEnabled('pin-design-families'), `
 [[custom_processes]]
 name = "pin-design-families"

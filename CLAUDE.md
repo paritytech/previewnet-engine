@@ -135,6 +135,7 @@ docs/
 ├── POLKADOT-FORK.md          # Runbook: fork Polkadot with the fellowship runtimes on a dedicated machine
 ├── PROFILES.md               # dev/prod profiles: funded accounts, sudo, signing keys
 ├── RUNTIME-UPGRADE.md        # Upgrade the runtime of a running chain
+├── TRINITY-STACK.md          # The network's Trinity stack descriptor and light specs
 └── TURN.md                   # TURN/STUN relay (eturnal) behind DUB's turn-api
 
 bin/                          # Output directory (gitignored except ppn.mjs)
@@ -163,6 +164,7 @@ scripts/                      # Shell launchers zombienet execs; the logic lives
 ├── pin-bulletin-products.sh  # Launcher over `ppn service pin-bulletin-products`
 ├── force-open-hrmp.sh        # Force-open HRMP channels
 ├── patch-bootnodes.sh        # Patch bootnode addresses
+├── trinity-stack.sh          # Launcher over `ppn service trinity-stack`: descriptor and light specs
 ├── enact-upgrades.sh         # Launcher over `ppn service enact-upgrades`: applies what a bite authorized
 ├── grant-invites.sh          # Grants the backend's inviter account invites (both dims)
 ├── increase-people-lite-attestation-allowance.sh # Attestation allowance config

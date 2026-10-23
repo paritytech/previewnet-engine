@@ -16,4 +16,11 @@ export interface ServiceContext {
   relayWs: string;
   /** Sudo signing URI: the deployable profile's operator key, else //Alice. */
   sudoUri: string;
+  /**
+   * Where the chains keep their data and zombienet its logs: DATA_DIR from the environment
+   * (a deployment's supervisor), then PPN_DATA_DIR (what `ppn start` records), then data/.
+   */
+  dataDir: string;
+  /** The URL the network is published under: PPN_PUBLIC_URL, else the local dashboard. */
+  baseUrl: string;
 }

@@ -253,6 +253,10 @@ name = "patch-bootnodes"
 command = "{{SCRIPTS}}/patch-bootnodes.sh"
 
 [[custom_processes]]
+name = "trinity-stack"
+command = "{{SCRIPTS}}/trinity-stack.sh"
+
+[[custom_processes]]
 name = "pin-design-families"
 command = "{{SCRIPTS}}/pin-design-families.sh"
 

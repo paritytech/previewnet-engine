@@ -408,12 +408,14 @@ export function buildProgram(): Command {
         'a server needs it separately because a deployment spawns zombienet directly.'
     )
     .option('--fork', 'record this as a fork rather than a genesis spawn')
+    .option('--fork-manifest <path>', "the fork bundle's manifest.json, to record the bite; implies --fork")
     .option('--data-dir <path>', 'where the stamp goes; default $DATA_DIR, then $PPN_DATA_DIR')
     .action(async (network: string | undefined, opts: Record<string, unknown>) => {
       const { stampSpawn } = await import('./commands/stamp-spawn.js');
       try {
         await stampSpawn(network ? [network] : [], {
           fork: Boolean(opts.fork),
+          forkManifest: opts.forkManifest as string | undefined,
           dataDir: opts.dataDir as string | undefined,
         });
       } catch (err) {

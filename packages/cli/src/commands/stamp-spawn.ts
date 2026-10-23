@@ -18,6 +18,8 @@ import { writeSpawnStamp } from '../lib/spawn-stamp.js';
 export interface StampSpawnOptions {
   /** Fork mode. Servers spawn genesis today, so the default is genesis. */
   fork?: boolean;
+  /** The fork bundle's manifest.json, whose bite this records. Implies fork mode. */
+  forkManifest?: string;
   /** Override the data directory; otherwise resolved the way the dashboard resolves it. */
   dataDir?: string;
 }
@@ -42,10 +44,11 @@ export async function stampSpawn(args: string[], opts: StampSpawnOptions = {}): 
 
   const stamp = writeSpawnStamp(dataDir, {
     network,
-    mode: opts.fork ? 'fork' : 'genesis',
-    // A server spawns genesis from the checked-in config and has no bundle, so there is no
-    // manifest to read. A fork stamped this way carries the mode but no bite detail.
-    forkManifest: null,
+    mode: opts.fork || opts.forkManifest ? 'fork' : 'genesis',
+    // Where the bundle lives is the deployment's choice (a spawner VM fetches it to
+    // /opt/ppn/fork-bundle), so it names the manifest. Without one, a fork carries the mode
+    // but no bite detail.
+    forkManifest: opts.forkManifest ?? null,
     repoRoot: REPO,
   });
 
