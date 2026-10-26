@@ -33,7 +33,9 @@ holds an earlier run's files.
 
 The descriptor is built from the dashboard model, so its URLs are the ones the dashboard shows:
 
-- `id`, `name`: the network's, or `<name>-fork` and `Fork of <displayName>` for a fork.
+- `id`, `name`: the network's, or `<name>-fork` and `Fork of <displayName>` for a fork. A
+  deployment names its instance with `PPN_DISPLAY_NAME` in `config/ports.env`, such as
+  "Previewnet Staging", which replaces the display name here and in the dashboard.
 - `network`: the relay's chain, such as `paseo`.
 - `tld`: `stack.tld` in the network file, or `genesisConfig.networkSuffix`. A network with
   neither writes no descriptor.
