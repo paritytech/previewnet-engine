@@ -57,6 +57,7 @@ before(async () => {
       BIN: path.join(tmp, 'bin'),
       DATA_DIR: path.join(tmp, 'data'),
       DASHBOARD_PORT: String(PORT),
+      PPN_DISPLAY_NAME: 'Previewnet Staging',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -153,6 +154,8 @@ describe('dashboard API', () => {
     const { body } = await get('/api/network');
     assert.equal(body.schemaVersion, 1);
     assert.equal(body.network.name, 'previewnet');
+    // Instances of one network are told apart by the name their deployment gives them.
+    assert.equal(body.network.displayName, 'Previewnet Staging');
     assert.ok(body.chains.length >= 10);
     assert.ok(body.chains.every((c: { url: string }) => c.url.startsWith('ws://')));
   });

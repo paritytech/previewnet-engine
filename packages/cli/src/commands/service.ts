@@ -38,7 +38,11 @@ function loadContext(): ServiceContext {
       process.env[k] ??= v;
     }
   }
-  const net = loadCurrentNetwork();
+  // A deployment names its instance, such as "Previewnet Staging": several run the same network
+  // file, and the dashboard and the Trinity stack descriptor both show this name.
+  const displayName = process.env.PPN_DISPLAY_NAME || ports.PPN_DISPLAY_NAME;
+  const loaded = loadCurrentNetwork();
+  const net = displayName ? { ...loaded, displayName } : loaded;
   // `make start` exports BIN for the custom processes, and the test harness relies on it
   // to point a service at a fixture directory.
   const binDir = process.env.BIN
