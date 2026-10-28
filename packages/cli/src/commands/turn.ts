@@ -24,9 +24,10 @@ function listenIp(ctx: ServiceContext): string {
 const secretOf = () => turnSecret(process.env.TURN_SECRET, secretsFile() !== null);
 
 export function dubTurnEnv(ctx: ServiceContext): Record<string, string> {
-  // turn-api still requires a secret with no relay behind it; nothing checks it then.
+  // turn-api still requires a secret and at least one ICE server with no relay behind them;
+  // nothing reaches either then.
   if (!runsTurnRelay(ctx.net)) {
-    return { TURN_SECRET: process.env.TURN_SECRET || LOCAL_TURN_SECRET, ICE_SERVERS: '' };
+    return { TURN_SECRET: process.env.TURN_SECRET || LOCAL_TURN_SECRET, ICE_SERVERS: 'turn:127.0.0.1:3478?transport=udp' };
   }
   return {
     TURN_SECRET: secretOf().base64,
@@ -52,9 +53,7 @@ export async function turn(ctx: ServiceContext): Promise<void> {
   const secret = secretOf();
 
   // Not DATA_DIR/turn: that is where zombienet writes this process's log.
-  const dataDir =
-    process.env.DATA_DIR || ctx.ports.PPN_DATA_DIR || path.join(path.dirname(ctx.sharedBinDir), 'data');
-  const state = path.join(dataDir, 'turn-state');
+  const state = path.join(ctx.dataDir, 'turn-state');
   const etcDir = path.join(state, 'etc');
   const runDir = path.join(state, 'run');
   fs.mkdirSync(etcDir, { recursive: true });

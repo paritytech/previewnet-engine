@@ -87,3 +87,26 @@ export function headEnvLines(workDir: string): string[] {
     return `ZOMBIE_${parasHeadKey(paraId)}=${encodeHeadData(head)}`;
   });
 }
+
+/**
+ * Each chain's source block hash at its bite block, keyed as `biteBlocks` is.
+ *
+ * Read from the source while the bite is fresh, because the fork's own block at that height is
+ * not the source's: the bite imports its overrides into that block's state. Null when any
+ * chain's source does not answer, since a fork either names every chain's block or none.
+ */
+export async function biteHashes(
+  chains: ForkManifest['chains'],
+  biteBlocks: Record<string, number>,
+  call: typeof rpc = rpc
+): Promise<Record<string, string> | null> {
+  const hashes: Record<string, string> = {};
+  for (const chain of Object.values(chains)) {
+    const id = chain.paraId === null ? 'relay' : String(chain.paraId);
+    if (!chain.endpoint || biteBlocks[id] === undefined) return null;
+    const hash = await call<string | null>(chain.endpoint, 'chain_getBlockHash', [biteBlocks[id]]).catch(() => null);
+    if (!hash) return null;
+    hashes[id] = hash;
+  }
+  return hashes;
+}

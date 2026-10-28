@@ -251,6 +251,20 @@ export function buildProgram(): Command {
     });
 
   program
+    .command('secrets')
+    .command('check')
+    .argument('[file]', 'secrets file; default $PPN_SECRETS_FILE')
+    .summary('check a secrets file against config/secrets.env.example')
+    .description(
+      'Every key the profile requires is set, and nothing outside the example is there.\n' +
+        '`ppn start` refuses a file that fails this. The example says how to make each key.'
+    )
+    .action(async (file: string | undefined) => {
+      const { check } = await import('./commands/secrets.js');
+      check(file);
+    });
+
+  program
     .command('nginx-conf')
     .argument('<template>', 'nginx template with the GENERATED_* markers')
     .argument('<out>', 'where to write the rendered config')
@@ -342,6 +356,12 @@ export function buildProgram(): Command {
       .option('--collators <chain=n...>', 'with a bite: install this many collators on a parachain')
       .option('--data-dir <path>', 'where chain state goes; default data/ (suffixed per network and mode)')
       .option('--toml <path>', 'use this zombienet config instead of the generated one')
+      .addOption(
+        new Option(
+          '--node-verifier <verifier>',
+          "how zombie-cli checks node readiness: metric (zombie-cli's default) or none, which leaves it to you"
+        ).choices(['metric', 'none'])
+      )
       // Tri-state on purpose: unset leaves the decision to the descriptor's dotns.pinProducts,
       // and either flag overrides it for this run. Both carry .default(undefined) so commander
       // does not turn `--no-` into a default of true.
@@ -371,6 +391,7 @@ export function buildProgram(): Command {
         collators: opts.collators as string[] | undefined,
         dataDir: opts.dataDir as string | undefined,
         toml: opts.toml as string | undefined,
+        nodeVerifier: opts.nodeVerifier as 'metric' | 'none' | undefined,
       });
     } catch (err) {
       die(err instanceof Error ? err.message : String(err));
@@ -387,12 +408,14 @@ export function buildProgram(): Command {
         'a server needs it separately because a deployment spawns zombienet directly.'
     )
     .option('--fork', 'record this as a fork rather than a genesis spawn')
+    .option('--fork-manifest <path>', "the fork bundle's manifest.json, to record the bite; implies --fork")
     .option('--data-dir <path>', 'where the stamp goes; default $DATA_DIR, then $PPN_DATA_DIR')
     .action(async (network: string | undefined, opts: Record<string, unknown>) => {
       const { stampSpawn } = await import('./commands/stamp-spawn.js');
       try {
         await stampSpawn(network ? [network] : [], {
           fork: Boolean(opts.fork),
+          forkManifest: opts.forkManifest as string | undefined,
           dataDir: opts.dataDir as string | undefined,
         });
       } catch (err) {

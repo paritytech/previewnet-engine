@@ -3,7 +3,8 @@ import * as path from "node:path";
 import { sr25519CreateDerive } from "@polkadot-labs/hdkd";
 import { entropyToMiniSecret } from "@polkadot-labs/hdkd-helpers";
 import { blake2b } from "@noble/hashes/blake2.js";
-import { AccountId } from "polkadot-api";
+import { AccountId, createClient, type Binary } from "polkadot-api";
+import { getWsProvider } from "polkadot-api/ws-provider/node";
 import { randomBytes } from "node:crypto";
 import { waitForDubReady } from "./dub-ready";
 import { dubToken } from "./dub-auth";
@@ -16,7 +17,8 @@ import { dubToken } from "./dub-auth";
 // (a few hundred inherited from production).
 //
 // Deliberately no import from ./utils — that pulls the papi descriptors, which
-// need codegen against the runtime WASM. Everything here is HTTP plus crypto.
+// need codegen against the runtime WASM. Everything here is HTTP plus crypto, and
+// the one chain read goes through the untyped API.
 
 const SUCCESS = 1 as const;
 const FAILURE = 0 as const;
@@ -77,6 +79,7 @@ const READY_TIMEOUT_MS = 300_000;
 // wins one. It only elapses in full when something is actually broken.
 const LANDING_TIMEOUT_MS = 420_000;
 const POLL_MS = 5_000;
+const FINALITY_TIMEOUT_MS = 120_000;
 
 const accountId = AccountId();
 const toHex = (u8: Uint8Array) => "0x" + Buffer.from(u8).toString("hex");
@@ -122,6 +125,27 @@ async function signingContext(wsUri: string): Promise<Uint8Array | null> {
   const sigSuffix = new Uint8Array(32);
   sigSuffix.set(utf8("sig/"), 0);
   return blake2b256(cat(utf8("product/peopl."), suffix, utf8("/"), sigSuffix));
+}
+
+// The account's consumer record on People Chain, which is what the indexer projects
+// search from, so a projection the chain does not back cannot pass. Waits for it to be
+// finalized: the indexer can serve a record a few blocks before finality reaches it.
+async function finalizedConsumer(
+  wsUri: string,
+  address: string
+): Promise<{ lite_username: Binary; full_username?: Binary } | undefined> {
+  const client = createClient(getWsProvider(wsUri));
+  try {
+    const consumers = client.getUnsafeApi().query.Resources.Consumers;
+    const deadline = Date.now() + FINALITY_TIMEOUT_MS;
+    for (;;) {
+      const consumer = await consumers.getValue(address);
+      if (consumer !== undefined || Date.now() >= deadline) return consumer;
+      await sleep(POLL_MS);
+    }
+  } finally {
+    client.destroy();
+  }
 }
 
 const waitForReady = () =>
@@ -243,7 +267,9 @@ export async function run(
       );
       lastStatus = res.status;
       lastBody = await res.text();
-      let body: { usernames?: Array<{ username: string; accountId: string }> } = {};
+      let body: {
+        usernames?: Array<{ username: string; accountId: string; status: string }>;
+      } = {};
       try {
         body = JSON.parse(lastBody);
       } catch {
@@ -260,7 +286,21 @@ export async function run(
           console.error(`[TEST] FAIL account mismatch: ${hit.accountId} != ${address}`);
           return FAILURE;
         }
-        console.log(`[TEST] ok on chain and indexed: ${hit.username} -> ${hit.accountId}`);
+        if (hit.status !== "ASSIGNED") {
+          console.error(`[TEST] FAIL search status: ${hit.status}, want ASSIGNED`);
+          return FAILURE;
+        }
+        console.log(`[TEST] ok indexed: ${hit.username} -> ${hit.accountId} (${hit.status})`);
+
+        const consumer = await finalizedConsumer(networkInfo.nodesByName[nodeName].wsUri, address);
+        const lite = consumer?.lite_username.asText();
+        if (lite !== hit.username || consumer?.full_username !== undefined) {
+          console.error(
+            `[TEST] FAIL Resources.Consumers(${address}): lite ${lite}, full ${consumer?.full_username?.asText()}, want lite ${hit.username} and no full`
+          );
+          return FAILURE;
+        }
+        console.log(`[TEST] ok on chain: Resources.Consumers(${address}) is lite ${lite}`);
         console.log("[TEST] Registration end-to-end passed");
         return SUCCESS;
       }

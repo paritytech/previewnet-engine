@@ -254,6 +254,7 @@ INVITE_TICKETS_DATABASE_URL=postgres://…/invite_tickets              #   DATAB
 PEOPLE_RPC_URL=ws://127.0.0.1:$PEOPLE_PORT
 PEOPLE_NETWORK=paseo                                                 # westend2|paseo|polkadot
 ASSET_HUB_RPC_URL=ws://127.0.0.1:$ASSET_HUB_PORT
+TURN_PROVIDER=coturn                                                 # our eturnal, not Cloudflare
 TURN_REALM=previewnet.local
 ```
 
@@ -273,13 +274,15 @@ request.
 
 ### Attester
 
-`ATTESTER_ACCOUNT` needs no new chain-side setup: PPN's existing
-`increase-people-lite-attestation-allowance` custom process already sudo-grants 1000
+`ATTESTER_ACCOUNT` needs no new chain-side setup: PPN's
+`increase-people-lite-attestation-allowance` custom process sudo-grants 1000
 allowance to `5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`, the same account
-upstream defaults to. `ATTESTER_ALLOWANCE_FLOOR` (default 100) sits comfortably under
-that. Ordering between the allowance process and the chain writer still needs
-checking — the writer polls allowance every `ATTESTER_RESOURCE_POLL_SECS` (60s), so a
-late grant should self-heal, but that should be confirmed rather than assumed.
+upstream defaults to, and `increase-dotns-attestation-allowance` grants that account
+1000 on Asset Hub's DotnsGateway, which its dotNS reservations draw on. `ATTESTER_ALLOWANCE_FLOOR` (default 100) sits comfortably under
+that. A grant that lands after the writer starts is still picked up: the writer
+retries a rejected registration or reservation up to `CHAIN_WRITER_MAX_ATTEMPTS` (8)
+times, backing off from 2s up to 64s, so it covers a grant a few minutes late. The
+`ATTESTER_RESOURCE_POLL_SECS` (60s) poll only reports the allowance; it does not retry.
 
 ### Attester under the deployable profile
 
@@ -305,7 +308,7 @@ it. The backend attests as that same account, so it needs the matching key along
 the keys #140 already defines:
 
 ```sh
-PPN_IDENTITY_ATTESTER_URI="<mnemonic, 0x hex seed, or //derivation for PPN_ALLOWANCE_SS58>"
+PPN_DUB_ATTESTER_URI="<mnemonic, 0x hex seed, or //derivation for PPN_ALLOWANCE_SS58>"
 ```
 
 `scripts/dub/service.sh` reads both at exec time and overrides the Alice defaults
@@ -316,7 +319,7 @@ the generated TOML carries. Two things are worth knowing about that:
    while generating the config would never reach a server. The public SS58 would
    otherwise belong in the TOML with the rest of the non-secret env.
 2. **A missing key is fatal, deliberately.** With `PPN_ALLOWANCE_SS58` set and
-   `PPN_IDENTITY_ATTESTER_URI` absent, falling back to `//Alice` would leave the writer
+   `PPN_DUB_ATTESTER_URI` absent, falling back to `//Alice` would leave the writer
    signing as an account with no allowance: the API keeps returning `202` and every
    registration sits in the outbox failing `NoAttestationAllowance`. The services refuse
    to start instead, matching the allowance script's own hard-fail.

@@ -162,6 +162,10 @@ name = "increase-people-lite-attestation-allowance"
 command = "{{SCRIPTS}}/increase-people-lite-attestation-allowance.sh"
 
 [[custom_processes]]
+name = "increase-dotns-attestation-allowance"
+command = "{{SCRIPTS}}/increase-dotns-attestation-allowance.sh"
+
+[[custom_processes]]
 name = "grant-invites"
 command = "{{SCRIPTS}}/grant-invites.sh"
 
@@ -185,6 +189,7 @@ env = [
   { name = "ATTESTER_ACCOUNT", value = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" },
   { name = "INVITER_ADDRESS", value = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty" },
   { name = "BIND_ADDR", value = "127.0.0.1:8092" },
+  { name = "TURN_PROVIDER", value = "coturn" },
   { name = "TURN_REALM", value = "previewnet.local" },
 ]
 
@@ -246,6 +251,10 @@ command = "{{SCRIPTS}}/turn.sh"
 [[custom_processes]]
 name = "patch-bootnodes"
 command = "{{SCRIPTS}}/patch-bootnodes.sh"
+
+[[custom_processes]]
+name = "trinity-stack"
+command = "{{SCRIPTS}}/trinity-stack.sh"
 
 [[custom_processes]]
 name = "pin-design-families"

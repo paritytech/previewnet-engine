@@ -123,6 +123,15 @@ export async function startUpgrade(chain: string, wasm: File | { path: string })
   return events;
 }
 
+/** What `ppn service trinity-stack` wrote; null until it has. */
+export interface Stack {
+  generation: string;
+  state: { sequence: number; contentHash: string };
+  pointer: { url: string; key?: string };
+  link: string;
+}
+export const fetchStack = () => get<Stack | null>('/api/stack');
+
 export interface Addresses {
   dotns: Record<string, string> | null;
   dub: Record<string, string>;

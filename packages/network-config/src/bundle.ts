@@ -42,6 +42,12 @@ export interface ForkManifest {
   chains: Record<string, ForkManifestChain>;
   /** Keyed by para id, plus "relay". Written by bite.sh once each chain is bitten. */
   biteBlocks: Record<string, number>;
+  /**
+   * The source's block hash at each bite block, keyed as biteBlocks is. The fork's own block
+   * at that height differs, since the bite imports its overrides into it. Absent in bundles
+   * bitten before it was recorded, or when a source did not answer.
+   */
+  biteHashes?: Record<string, string>;
   /** Same keys as biteBlocks. Absent in bundles bitten before it was recorded. */
   snapshotBytes?: Record<string, number>;
   /**

@@ -30,7 +30,7 @@ alice-paseo-validator: parachain 1502 block height is at least 5 within 500 seco
 #
 # Registers a random account each run, so it behaves the same against a genesis
 # chain and a fork.
-# 900s, larger than the script's own budget (300s readiness + 420s landing). The inner
+# 900s, larger than the script's own budget (300s readiness + 420s landing + 120s finality). The inner
 # timeout has to be the one that fires: it reports which stage failed, whereas this one just
 # says the script did not return in time.
 people-collator1: js-script ./scripts/dist/test-dub-registration.js return is equal to 1 within 900 seconds

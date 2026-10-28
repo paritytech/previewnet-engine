@@ -547,6 +547,13 @@ name = "increase-people-lite-attestation-allowance"
 command = "{{SCRIPTS}}/increase-people-lite-attestation-allowance.sh"
 `
 )}${section(
+  has('people') && has('asset-hub') && serviceEnabled('increase-dotns-attestation-allowance'),
+  `
+[[custom_processes]]
+name = "increase-dotns-attestation-allowance"
+command = "{{SCRIPTS}}/increase-dotns-attestation-allowance.sh"
+`
+)}${section(
   has('people') && serviceEnabled('dub'),
   `
 [[custom_processes]]
@@ -566,6 +573,11 @@ ${section(serviceEnabled('patch-bootnodes'), `
 [[custom_processes]]
 name = "patch-bootnodes"
 command = "{{SCRIPTS}}/patch-bootnodes.sh"
+`)}
+${section(serviceEnabled('trinity-stack'), `
+[[custom_processes]]
+name = "trinity-stack"
+command = "{{SCRIPTS}}/trinity-stack.sh"
 `)}
 ${section(serviceEnabled('pin-design-families'), `
 [[custom_processes]]

@@ -18,6 +18,8 @@ import path from 'node:path';
 import { dashboardModel } from '@parity/ppn-network-config';
 import type { ServiceContext } from './service-context.js';
 import { PROVENANCE_FILE } from '../lib/provenance.js';
+import { chainSpecNames } from '../lib/chain-specs.js';
+import { STACK_FILE, STACK_STATE_FILE, lightSpecFile } from '../lib/stack-files.js';
 
 const LOG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 
@@ -89,20 +91,9 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
   // Environment first: the test harness points fixtures at ephemeral ports, and a server
   // can repoint without editing ports.env — the same precedence loadContext gives BIN.
   const port = Number(process.env.DASHBOARD_PORT || ctx.ports.DASHBOARD_PORT || 8090);
-  // Env first, then the ports file — the same precedence dataDir uses below, and for the
-  // same reason: the dashboard runs as a zombienet custom process, which is handed no
-  // environment. Setting PPN_PUBLIC_URL for the supervisor does not reach here, so a server
-  // that only did that advertised ws://127.0.0.1:8090 for every chain — an address no
-  // browser on the far side of a reverse proxy can use.
-  const baseUrl =
-    process.env.PPN_PUBLIC_URL || ctx.ports.PPN_PUBLIC_URL || `http://127.0.0.1:${port}`;
+  // Resolved once in loadContext, so the files trinity-stack writes are the ones served here.
+  const { baseUrl, dataDir } = ctx;
   const proxyEnabled = (process.env.DASHBOARD_PROXY ?? '1') !== '0';
-  // Per-mode (data/ vs data-fork/), resolved by `ppn start` and carried through
-  // ports.local.env because zombienet strips the environment of custom processes.
-  const dataDir =
-    process.env.DATA_DIR ||
-    ctx.ports.PPN_DATA_DIR ||
-    path.join(path.dirname(ctx.sharedBinDir), 'data');
 
   // Actions are sudo: a runtime upgrade is a root call. What may run one is decided by who can
   // reach this socket, because the bind is the one input that cannot be silently absent — an
@@ -126,39 +117,11 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
 
   const model = dashboardModel(ctx.net, baseUrl);
 
-  // Chain specs, for light clients (smoldot) — what the old landing page published. Which
-  // basename exists depends on the mode (genesis writes <chainId>.json, a fork the source's
-  // name), so the candidates are resolved against the data directory and a chain with no
-  // spec on disk simply gets no link.
-  // Names come from the descriptor where it knows them, but a fork's parachain specs land
-  // under the *source's* chain id (asset-hub-paseo.json, not asset-hub.json), which no
-  // descriptor field predicts. So the candidates are a hint and the disk is the authority:
-  // any <name>.json in the data directory that is not a plain spec or zombienet's own file
-  // is offered, matched to a chain by longest shared prefix.
+  // Chain specs, for light clients (smoldot) — what the old landing page published. A chain
+  // with no spec on disk simply gets no link.
   const specFile = (name: string) => path.join(dataDir, `${name}.json`);
-  const onDisk = (() => {
-    try {
-      return fs.readdirSync(dataDir)
-        .filter((f) => f.endsWith('.json'))
-        .map((f) => f.slice(0, -'.json'.length))
-        .filter((n) => LOG_NAME.test(n) && !n.endsWith('-plain') && n !== 'zombie' && n !== 'spawn');
-    } catch {
-      return [];
-    }
-  })();
-  const specFor = (c: { id: string; specCandidates?: string[] }): string | undefined => {
-    for (const n of c.specCandidates ?? []) if (onDisk.includes(n)) return n;
-    // A relay entry is relay-<validator>; its spec is the relay's, already in candidates.
-    if (c.id.startsWith('relay-')) return undefined;
-    // Otherwise take the on-disk name that contains the chain key (asset-hub-paseo for
-    // asset-hub); the longest match wins so `people` cannot claim `paseo-people`'s file
-    // ahead of a more specific candidate.
-    const matches = onDisk.filter((n) => n === c.id || n.includes(c.id));
-    return matches.sort((a, b) => b.length - a.length)[0];
-  };
-  for (const c of model.chains) {
-    const found = specFor(c);
-    if (found && fs.existsSync(specFile(found))) c.links.spec = `${baseUrl}/chainspecs/${found}.json`;
+  for (const [id, name] of chainSpecNames(dataDir, model.chains)) {
+    model.chains.find((c) => c.id === id)!.links.spec = `${baseUrl}/chainspecs/${name}.json`;
   }
   const routes = new Map<string, { port: number; ws: boolean; keepPrefix: boolean }>();
   for (const e of [...model.chains, ...model.services]) {
@@ -293,18 +256,39 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
     // The same files nginx publishes from ${DATA_DIR} on a server — served here so a laptop
     // (which has no nginx) offers the same light-client downloads. Whitelisted by name
     // against what the model resolved: no caller-supplied path reaches the filesystem.
+    // nginx's chainspecs location only matches raw specs, so on a server the light specs
+    // fall through to here as well.
     if (p.startsWith('/chainspecs/')) {
-      const name = p.slice('/chainspecs/'.length).replace(/\.json$/, '');
+      const file = p.slice('/chainspecs/'.length);
+      const light = file.endsWith('.smol.json');
+      const name = file.replace(light ? /\.smol\.json$/ : /\.json$/, '');
       const allowed = model.chains.some((c) => c.links.spec?.endsWith(`/${name}.json`));
       if (!allowed || !LOG_NAME.test(name)) return json(res, 404, { error: 'no such chain spec' });
+      const served = light ? path.join(dataDir, lightSpecFile(name)) : specFile(name);
+      if (!fs.existsSync(served)) return json(res, 404, { error: 'no such chain spec' });
       res.writeHead(200, {
         'content-type': 'application/json',
         'access-control-allow-origin': '*',
-        'content-disposition': `attachment; filename="${name}.json"`,
+        'content-disposition': `attachment; filename="${path.basename(served)}"`,
       });
-      fs.createReadStream(specFile(name)).on('error', () => res.destroy()).pipe(res);
+      fs.createReadStream(served).on('error', () => res.destroy()).pipe(res);
       return;
     }
+
+    // The Trinity stack descriptor, byte for byte: its signature and content hash cover the
+    // bytes as written. See docs/TRINITY-STACK.md.
+    if (p === '/.well-known/trinity-stack.json') {
+      const file = path.join(dataDir, STACK_FILE);
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'no descriptor yet' });
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-cache',
+      });
+      fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+      return;
+    }
+    if (p === '/api/stack') return json(res, 200, readJson(path.join(dataDir, STACK_STATE_FILE)));
 
     if (p === '/api/logs') {
       // Grouped for reading, not a-z: the chains you watch, the services that stay up, and

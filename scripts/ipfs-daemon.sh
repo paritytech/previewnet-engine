@@ -12,8 +12,9 @@ source "$PROJECT_DIR/config/ports.env"
 export IPFS_PATH="$BIN_DIR/.ipfs"
 LOCK_FILE="$IPFS_PATH/repo.lock"
 
-# Kill any process already on IPFS ports (prevents stale daemons from blocking startup)
-"$SCRIPT_DIR/kill-port.sh" "$IPFS_GATEWAY_PORT" "$IPFS_API_PORT" "$IPFS_SWARM_PORT"
+# A daemon that cannot bind its ports would restart below for ever: stop here instead, naming
+# whatever holds them (a stale daemon from a previous run, or someone else's).
+"$SCRIPT_DIR/require-free-ports.sh" "$IPFS_GATEWAY_PORT" "$IPFS_API_PORT" "$IPFS_SWARM_PORT" || exit 1
 
 IPFS_PID=""
 cleanup() {
