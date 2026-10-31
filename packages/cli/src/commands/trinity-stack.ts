@@ -67,6 +67,8 @@ export interface Settings {
   faucet?: string;
   expiresAt?: number;
   validFor?: number;
+  /** The dotNS deployment's contract addresses by contract name. */
+  dotnsContracts?: Record<string, string>;
 }
 
 /** One chain's genesis, its light spec written to disk, and its specs' hashes. */
@@ -157,6 +159,7 @@ export async function writeStack(
     forked,
     forkAt: bite ? Math.floor(Date.parse(bite.at) / 1000) : undefined,
     faucet: s.faucet,
+    dotnsContracts: s.dotnsContracts,
     expiresAt: s.expiresAt,
     validUntil: s.validFor ? Math.floor(now.getTime() / 1000) + s.validFor : undefined,
   });
@@ -178,6 +181,15 @@ export async function writeStack(
   writeIfChanged(stateFile, new TextEncoder().encode(JSON.stringify(written, null, 2) + '\n'));
   const specsComplete = Object.values(chains).every((c) => !c?.fullSpec || c.lightSpec);
   return { written, complete: specsComplete && (!eth || chainId !== undefined) };
+}
+
+/** The address list `ppn fetch` writes from the dotns release, or undefined when there is none. */
+function readDotnsAddresses(binDir: string): Record<string, string> | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(binDir, 'dotns-addresses.json'), 'utf-8')) as Record<string, string>;
+  } catch {
+    return undefined;
+  }
 }
 
 function hexSecret(value: string | undefined): Uint8Array | undefined {
@@ -215,6 +227,9 @@ export async function trinityStack(ctx: ServiceContext): Promise<void> {
     faucet: setting('PPN_STACK_FAUCET_URL'),
     expiresAt: optionalNumber('PPN_STACK_EXPIRES_AT', setting('PPN_STACK_EXPIRES_AT')),
     validFor: optionalNumber('PPN_STACK_VALID_FOR', setting('PPN_STACK_VALID_FOR')),
+    // `ppn fetch` writes the release's list only for a genesis network, so on any other one a
+    // file in bin/ is left over from another network.
+    dotnsContracts: ctx.net.dotns?.addresses ?? (ctx.net.genesis ? readDotnsAddresses(ctx.binDir) : undefined),
   };
   // A copy must be replaced before its validUntil, or readers show the stack as stale.
   const refresh = Math.min(
