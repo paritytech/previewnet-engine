@@ -36,6 +36,8 @@ export interface StackFacts {
   /** When it was bitten, in Unix seconds, when the spawn recorded it. */
   forkAt?: number;
   faucet?: string;
+  /** The deployment's dotNS web gateway, which resolves names on this network only. */
+  webGateway?: string;
   expiresAt?: number;
   validUntil?: number;
 }
@@ -110,6 +112,7 @@ export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts:
   const storage = service('storage-provider-node');
   if (storage) services.push({ kind: 'storage-provider', urls: [withSlash(storage.url)] });
   if (facts.faucet) services.push({ kind: 'faucet', urls: [withSlash(facts.faucet)] });
+  if (facts.webGateway) services.push({ kind: 'web-gateway', urls: [facts.webGateway] });
 
   return {
     id: facts.forked ? `${net.name}-fork` : net.name,
@@ -121,5 +124,7 @@ export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts:
     ...(fork && { fork }),
     chains,
     services,
+    ...(net.stack?.assets && { assets: net.stack.assets }),
+    ...(net.stack?.coinage && { coinage: net.stack.coinage }),
   };
 }

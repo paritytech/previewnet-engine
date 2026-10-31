@@ -44,7 +44,10 @@ The descriptor is built from the dashboard model, so its URLs are the ones the d
 - `chains`: each chain's genesis hash, its RPC URLs, and its full and light specs with their
   SHA-256.
 - `services`: the DUB, TURN and STUN, the IPFS gateway, Bulletin as `hop`, eth-rpc with its
-  chain id, and the storage provider.
+  chain id, the storage provider, and the faucet and web gateway a deployment configures.
+- `assets` and `coinage`: `stack.assets` and `stack.coinage` in the network file, for a network
+  whose runtime has them. Previewnet pays in pUSD (asset 50000413 on Asset Hub) and runs Coinage
+  instance 0 on People.
 - `fork` and each chain's `forkedAt`: on a fork whose spawn stamp records the bite and whose
   network file names the source's descriptor in `stack.pointer`. `forkedAt` is the source's
   block, whose hash `ppn bite` reads from the source and records as `biteHashes`: the fork's
@@ -85,6 +88,7 @@ into `config/ports.env`, where each has an empty default. The key goes in the se
 | --- | --- |
 | `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. Ignored on a fork, which is always published unsigned: a descriptor signed with its source's key would be the source. |
 | `PPN_STACK_FAUCET_URL` | Adds a `faucet` service. |
+| `PPN_STACK_WEB_GATEWAY_URL` | Adds a `web-gateway` service. Only the instance the gateway resolves names against sets it, so staging leaves it empty when the gateway serves production. |
 | `PPN_STACK_EXPIRES_AT` | Unix seconds when the network is torn down, for spawner instances. |
 | `PPN_STACK_VALID_FOR` | Seconds a reader may use a copy before fetching it again. |
 | `PPN_STACK_REFRESH_SECONDS` | How often the files are rewritten. |
