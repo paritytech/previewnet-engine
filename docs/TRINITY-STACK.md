@@ -45,6 +45,13 @@ The descriptor is built from the dashboard model, so its URLs are the ones the d
   SHA-256.
 - `services`: the DUB, TURN and STUN, the IPFS gateway, Bulletin as `hop`, eth-rpc with its
   chain id, and the storage provider.
+- `dotns`: the dotNS contract addresses by `DotnsConstants` key, such as `storeFactory`, plus
+  `protocolRegistry` for the registry itself, so readers take them from the descriptor rather
+  than read them from Asset Hub. They come from `dotns.addresses` in the network file, or else
+  from `bin/dotns-addresses.json` on a genesis network, the address list `ppn fetch` takes from
+  the dotns release.
+  Contracts with no key, such as the store beacons, are left out, and a network with neither
+  list publishes no `dotns`.
 - `fork` and each chain's `forkedAt`: on a fork whose spawn stamp records the bite and whose
   network file names the source's descriptor in `stack.pointer`. `forkedAt` is the source's
   block, whose hash `ppn bite` reads from the source and records as `biteHashes`: the fork's
