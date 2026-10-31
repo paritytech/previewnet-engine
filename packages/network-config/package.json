@@ -13,7 +13,7 @@
     "postpack": "rm -rf config && rm -f LICENSE"
   },
   "dependencies": {
-    "@parity/trinity-stack": "^0.1.0",
+    "@parity/trinity-stack": "^0.2.0",
     "@polkadot/keyring": "^13.5.9",
     "@polkadot/types": "^15.10.2",
     "@polkadot/util": "13.5.9",

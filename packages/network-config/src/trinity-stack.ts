@@ -38,6 +38,40 @@ export interface StackFacts {
   faucet?: string;
   expiresAt?: number;
   validUntil?: number;
+  /** The dotNS deployment's contract addresses by contract name, as dotns's release lists them. */
+  dotnsContracts?: Record<string, string>;
+}
+
+/**
+ * dotNS's `DotnsConstants` key for each contract name in a dotns release's address list, plus
+ * `protocolRegistry` for the registry itself. The beacons and the pricing contract have no key.
+ */
+const DOTNS_KEYS: Record<string, string> = {
+  DotnsRegistrar: 'registrar',
+  DotnsRegistrarController: 'controller',
+  DotnsRegistry: 'registry',
+  DotnsReverseResolver: 'reverseResolver',
+  PopRules: 'popRules',
+  StoreFactory: 'storeFactory',
+  DotnsResolver: 'resolver',
+  DotnsContentResolver: 'contentResolver',
+  DotnsPopController: 'popController',
+  DotnsPopResolver: 'popResolver',
+  DotnsPopLens: 'popLens',
+  DotnsNameEscrow: 'nameEscrow',
+  Multicall3: 'multicall3',
+  Create3Factory: 'create3Factory',
+  DotnsNameWhitelist: 'nameWhitelist',
+  DotnsCostModelRegistry: 'costModel',
+  DotnsProtocolRegistry: 'protocolRegistry',
+};
+
+/** A descriptor's `dotns` from a contract-name address list; undefined when no name maps. */
+function dotnsByKey(contracts: Record<string, string> | undefined): Record<string, string> | undefined {
+  const entries = Object.entries(contracts ?? {}).flatMap(([name, address]) =>
+    DOTNS_KEYS[name] ? [[DOTNS_KEYS[name], address.toLowerCase()] as const] : []
+  );
+  return entries.length > 0 ? Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b))) : undefined;
 }
 
 /** The chain key a dashboard chain entry belongs to: every `relay-*` validator is the relay. */
@@ -110,6 +144,7 @@ export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts:
   const storage = service('storage-provider-node');
   if (storage) services.push({ kind: 'storage-provider', urls: [withSlash(storage.url)] });
   if (facts.faucet) services.push({ kind: 'faucet', urls: [withSlash(facts.faucet)] });
+  const dotns = chains.some((c) => c.role === 'AssetHub') ? dotnsByKey(facts.dotnsContracts) : undefined;
 
   return {
     id: facts.forked ? `${net.name}-fork` : net.name,
@@ -121,5 +156,6 @@ export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts:
     ...(fork && { fork }),
     chains,
     services,
+    ...(dotns && { dotns }),
   };
 }
