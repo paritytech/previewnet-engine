@@ -88,7 +88,7 @@ into `config/ports.env`, where each has an empty default. The key goes in the se
 | --- | --- |
 | `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. Ignored on a fork, which is always published unsigned: a descriptor signed with its source's key would be the source. |
 | `PPN_STACK_FAUCET_URL` | Adds a `faucet` service. |
-| `PPN_STACK_WEB_GATEWAY_URL` | Adds a `web-gateway` service. Only the instance the gateway resolves names against sets it, so staging leaves it empty when the gateway serves production. |
+| `PPN_STACK_WEB_GATEWAY_URL` | Adds a `web-gateway` service, published as written: its path ends in `/`, and a query may follow, as in `https://testnet.li/?network=previewnet`. Only the instance the gateway resolves names against sets it, so staging leaves it empty when the gateway serves production. |
 | `PPN_STACK_EXPIRES_AT` | Unix seconds when the network is torn down, for spawner instances. |
 | `PPN_STACK_VALID_FOR` | Seconds a reader may use a copy before fetching it again. |
 | `PPN_STACK_REFRESH_SECONDS` | How often the files are rewritten. |

@@ -36,7 +36,7 @@ export interface StackFacts {
   /** When it was bitten, in Unix seconds, when the spawn recorded it. */
   forkAt?: number;
   faucet?: string;
-  /** The deployment's dotNS web gateway, which resolves names on this network only. */
+  /** Published as written, unlike `faucet`: the path has to end in `/`, and a query may follow. */
   webGateway?: string;
   expiresAt?: number;
   validUntil?: number;

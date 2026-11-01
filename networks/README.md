@@ -56,6 +56,8 @@ or `PPN_NETWORK=<name>` in the environment of the scripts.
 | `dotns.gateway` | IPFS gateway the product bytes are fetched from. Omitted → `bite.source`, which is right where the source network's front door is also its gateway (previewnet, devnet) and wrong where it is not: paseo-next-v2's `https://dot.li` is a single-page app that returns its own HTML for every path, 200 included. |
 | `stack.tld` | The dotNS TLD the network's Trinity stack descriptor names. Omitted → `genesisConfig.networkSuffix`; still absent → no descriptor is written. See `docs/TRINITY-STACK.md`. |
 | `stack.pointer` | `{ url, key? }` where the live network publishes its own descriptor. A fork names it as `fork.of`; omitted → the fork's descriptor carries no `fork`. |
+| `stack.assets` | `[{ role, chain, pallet, id }]`, published as the descriptor's `assets`, such as the asset a wallet pays in. `chain` is a chain role the network runs. |
+| `stack.coinage` | `{ chain, instance }`, published as the descriptor's `coinage`: the chain role and instance of the Coinage pallet. |
 
 `_todo` fields (at any level) are blocking stubs: human notes about what still has
 to be confirmed. The loader ignores them; `make bite` refuses to bite a network
