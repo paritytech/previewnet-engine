@@ -47,11 +47,13 @@ The descriptor is built from the dashboard model, so its URLs are the ones the d
   chain id, and the storage provider.
 - `dotns`: the dotNS contract addresses by `DotnsConstants` key, such as `storeFactory`, plus
   `protocolRegistry` for the registry itself, so readers take them from the descriptor rather
-  than read them from Asset Hub. They come from `dotns.addresses` in the network file, or else
-  from `bin/dotns-addresses.json` on a genesis network, the address list `ppn fetch` takes from
-  the dotns release.
-  Contracts with no key, such as the store beacons, are left out, and a network with neither
-  list publishes no `dotns`.
+  than read them from Asset Hub.
+  - A genesis network takes them from `bin/dotns-addresses.json`, the address list `ppn fetch`
+    takes from the dotns release. Contracts with no key, such as the store beacons, are left out.
+  - A fork takes the keys from its source's descriptor, at `stack.pointer`, and each address from
+    its own registry's `get(key)`, since the bite copied the source's registry. A key the registry
+    does not hold, such as a release's `multicall3`, keeps the source's address. While the source
+    descriptor or eth-rpc does not answer, the fork publishes no `dotns` and tries again in 30s.
 - `fork` and each chain's `forkedAt`: on a fork whose spawn stamp records the bite and whose
   network file names the source's descriptor in `stack.pointer`. `forkedAt` is the source's
   block, whose hash `ppn bite` reads from the source and records as `biteHashes`: the fork's

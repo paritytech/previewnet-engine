@@ -12,6 +12,7 @@ import path from 'node:path';
 import {
   chainKey,
   dashboardModel,
+  dotnsFromContracts,
   trinityStackModel,
   trinityStackUrl,
   type ChainKey,
@@ -19,7 +20,7 @@ import {
   type StackChainFacts,
   type StackFacts,
 } from '@parity/ppn-network-config';
-import { encodeLink, lightSpecGenesis, publicKey, publish } from '@parity/trinity-stack';
+import { encodeLink, lightSpecGenesis, publicKey, publish, read, type Fetch, type Pointer } from '@parity/trinity-stack';
 import type { ServiceContext } from './service-context.js';
 import { rpc } from '../fork/rpc.js';
 import { chainSpecNames } from '../lib/chain-specs.js';
@@ -67,8 +68,10 @@ export interface Settings {
   faucet?: string;
   expiresAt?: number;
   validFor?: number;
-  /** The dotNS deployment's contract addresses by contract name. */
+  /** The dotNS deployment's contract addresses by contract name, from the dotns release. */
   dotnsContracts?: Record<string, string>;
+  /** Fetches a fork's source descriptor; a fake in tests. */
+  fetch: Fetch;
 }
 
 /** One chain's genesis, its light spec written to disk, and its specs' hashes. */
@@ -126,6 +129,44 @@ async function ethChainId(s: Settings, directUrl: string): Promise<number | unde
   }
 }
 
+/** The selector of the dotNS protocol registry's `get(bytes32)`. */
+const REGISTRY_GET = '0x8eaa6ac0';
+
+/**
+ * A fork's dotNS addresses: each key its source's descriptor lists, with the address the fork's
+ * own registry returns for it, since a registry rewired after the bite differs from the source.
+ * A key the registry does not hold, such as a release's Multicall3, keeps the source's address.
+ * Incomplete while the source descriptor or the fork's eth-rpc does not answer.
+ */
+async function forkDotns(
+  s: Settings,
+  source: Pointer,
+  ethUrl: string
+): Promise<{ dotns?: Record<string, string>; complete: boolean }> {
+  let listed: Record<string, string> | undefined;
+  try {
+    listed = (await read(source, { fetch: s.fetch })).descriptor.dotns;
+  } catch {
+    return { complete: false };
+  }
+  const registry = listed?.protocolRegistry;
+  if (!listed || !registry) return { complete: true };
+
+  const dotns: Record<string, string> = {};
+  for (const [key, address] of Object.entries(listed)) {
+    const data = REGISTRY_GET + Buffer.from(key).toString('hex').padEnd(64, '0');
+    let word: string;
+    try {
+      word = await s.call<string>(ethUrl, 'eth_call', [{ to: registry, data }, 'latest']);
+    } catch {
+      return { complete: false };
+    }
+    const registered = `0x${word.slice(-40)}`.toLowerCase();
+    dotns[key] = /^0x0{40}$/.test(registered) ? address.toLowerCase() : registered;
+  }
+  return { dotns, complete: true };
+}
+
 /**
  * Writes the light specs and the descriptor once. Returns what the dashboard shows, and whether
  * the descriptor is complete: a relay has no checkpoint until it finalizes a block, and eth-rpc
@@ -152,6 +193,12 @@ export async function writeStack(
   }
   const eth = model.services.find((e) => e.id === 'eth-rpc');
   const chainId = eth && (await ethChainId(s, eth.directUrl));
+  // A genesis network runs the release's dotNS; a fork runs whatever its source had at the bite.
+  const source = ctx.net.stack?.pointer;
+  const dotnsFacts =
+    forked && source && eth
+      ? await forkDotns(s, source, eth.directUrl)
+      : { dotns: forked ? undefined : dotnsFromContracts(s.dotnsContracts), complete: true };
   const now = s.now();
   const stack = trinityStackModel(ctx.net, model, {
     chains,
@@ -159,7 +206,7 @@ export async function writeStack(
     forked,
     forkAt: bite ? Math.floor(Date.parse(bite.at) / 1000) : undefined,
     faucet: s.faucet,
-    dotnsContracts: s.dotnsContracts,
+    dotns: dotnsFacts.dotns,
     expiresAt: s.expiresAt,
     validUntil: s.validFor ? Math.floor(now.getTime() / 1000) + s.validFor : undefined,
   });
@@ -180,7 +227,7 @@ export async function writeStack(
   const written: StackStateFile = { generation, state: published.state, pointer, link: encodeLink(pointer) };
   writeIfChanged(stateFile, new TextEncoder().encode(JSON.stringify(written, null, 2) + '\n'));
   const specsComplete = Object.values(chains).every((c) => !c?.fullSpec || c.lightSpec);
-  return { written, complete: specsComplete && (!eth || chainId !== undefined) };
+  return { written, complete: specsComplete && (!eth || chainId !== undefined) && dotnsFacts.complete };
 }
 
 /** The address list `ppn fetch` writes from the dotns release, or undefined when there is none. */
@@ -219,6 +266,7 @@ export async function trinityStack(ctx: ServiceContext): Promise<void> {
   }
   const s: Settings = {
     call: rpc,
+    fetch,
     now: () => new Date(),
     baseUrl: ctx.baseUrl,
     dataDir: ctx.dataDir,
@@ -228,8 +276,8 @@ export async function trinityStack(ctx: ServiceContext): Promise<void> {
     expiresAt: optionalNumber('PPN_STACK_EXPIRES_AT', setting('PPN_STACK_EXPIRES_AT')),
     validFor: optionalNumber('PPN_STACK_VALID_FOR', setting('PPN_STACK_VALID_FOR')),
     // `ppn fetch` writes the release's list only for a genesis network, so on any other one a
-    // file in bin/ is left over from another network.
-    dotnsContracts: ctx.net.dotns?.addresses ?? (ctx.net.genesis ? readDotnsAddresses(ctx.binDir) : undefined),
+    // file in bin/ is left over from another network. A fork reads its source's instead.
+    dotnsContracts: ctx.net.genesis ? readDotnsAddresses(ctx.binDir) : undefined,
   };
   // A copy must be replaced before its validUntil, or readers show the stack as stale.
   const refresh = Math.min(
