@@ -190,6 +190,7 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
       "--rpc-max-connections=500",
       '--force-authoring',
       '--ipfs-server',
+      '--authoring=slot-based',
       '--unsafe-rpc-external',
       '--rpc-max-response-size=50',
       `--listen-addr=/ip4/${P2P_LISTEN_IP}/udp/${P2P_PORTS['bulletin']}/webrtc-direct`,
