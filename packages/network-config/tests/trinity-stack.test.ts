@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { dashboardModel } from '../src/dashboard-model.js';
 import { loadDescriptorOnly } from '../src/load.js';
-import { trinityStackModel, trinityStackUrl, type StackFacts } from '../src/trinity-stack.js';
+import { dotnsFromContracts, trinityStackModel, trinityStackUrl, type StackFacts } from '../src/trinity-stack.js';
 
 const BASE = 'https://previewnet.substrate.dev';
 const WSS = 'wss://previewnet.substrate.dev';
@@ -72,6 +72,26 @@ describe('trinityStackModel — previewnet', () => {
     assert.equal(configured.expiresAt, 2000000000);
     assert.equal(configured.validUntil, 1900000000);
   });
+
+  // Readers look a contract up by its DotnsConstants key, so a contract name left as the release
+  // spells it, or a beacon with no key, would be an address nobody finds.
+  it('states the dotNS addresses by DotnsConstants key, lowercase, without contracts that have none', () => {
+    const dotns = dotnsFromContracts({
+      DotnsRegistrar: '0x4f06E818Ba3d987704fd91cf3d868E4b019106Ab',
+      DotnsProtocolRegistry: '0xD19e3D0C97CF501125a04A97405e3e6592fa846E',
+      DotnsCostModelRegistry: '0x8bfd1f0957e73716732e725802f13830B5682da4',
+      Multicall3: '0xB4468000abD87D3c56cbFBd153161223D7b109e5',
+      LabelStoreBeacon: '0x2227d9807f5a71332aaa0640643030f2a3bf84cd',
+      DotnsFlatPricing: '0xD839B281dF72Df44fF275305E72cAEEc0fDAA648',
+    });
+    assert.deepEqual(dotns, {
+      costModel: '0x8bfd1f0957e73716732e725802f13830b5682da4',
+      multicall3: '0xb4468000abd87d3c56cbfbd153161223d7b109e5',
+      protocolRegistry: '0xd19e3d0c97cf501125a04a97405e3e6592fa846e',
+      registrar: '0x4f06e818ba3d987704fd91cf3d868e4b019106ab',
+    });
+    assert.equal(dotnsFromContracts({ LabelStoreBeacon: '0x2227d9807f5a71332aaa0640643030f2a3bf84cd' }), undefined);
+  });
 });
 
 describe('trinityStackModel — forks', () => {
@@ -112,7 +132,7 @@ describe('trinityStackModel — forks', () => {
   });
 
   it('refuses a network with no TLD', () => {
-    const devnet = loadDescriptorOnly('devnet');
+    const devnet = { ...loadDescriptorOnly('devnet'), stack: undefined };
     assert.throws(() => trinityStackModel(devnet, dashboardModel(devnet, 'http://127.0.0.1:8090'), facts()), /no stack\.tld/);
   });
 

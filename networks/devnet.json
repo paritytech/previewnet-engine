@@ -109,5 +109,11 @@
       "StoreFactory": "0xD81DC23FAa69B311C1FC553Ea63798772e7D253D",
       "Multicall3": "0x929EdB8d61461c29d07deC834ef747EbFDcf0B74"
     }
+  },
+  "stack": {
+    "tld": "dot",
+    "pointer": {
+      "url": "https://stack.api.polkadotcommunity.foundation/.well-known/trinity-stack.json"
+    }
   }
 }

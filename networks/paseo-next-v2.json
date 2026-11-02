@@ -83,5 +83,12 @@
     "_note": "Same DotNS deployment as previewnet — the factory deployer key pins these addresses, so the resolver is at the same address on both. Verified 2026-08-19 by scanning it on paseo-asset-hub-next. The gateway is named explicitly because bite.source (https://dot.li) is the app, not an IPFS gateway.",
     "resolver": "0x7F74D7CD50f5a834270E2ad395a01b01891AB37d",
     "gateway": "https://paseo-bulletin-next-ipfs.polkadot.io"
+  },
+  "stack": {
+    "tld": "paseo",
+    "pointer": {
+      "url": "https://stack-paseo-next.parity-testnet.parity.io/.well-known/trinity-stack.json",
+      "key": "0x2b89d8ca74aa2e11ab55f5af1168cd6929b88d1998aecd979b42cfc1078d5377"
+    }
   }
 }
