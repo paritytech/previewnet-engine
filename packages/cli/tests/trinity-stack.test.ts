@@ -53,6 +53,8 @@ const failing = (failed: string): Settings['call'] => async (url, method, params
 let dataDir: string;
 const settings = (extra: Partial<Settings> = {}): Settings => ({
   call: fakeNodes,
+  // No source descriptor answers unless a test serves one.
+  fetch: async () => new Response(null, { status: 404 }),
   now: () => T0,
   baseUrl: 'http://127.0.0.1:8090',
   dataDir,
@@ -154,6 +156,53 @@ describe('writeStack — what it writes', () => {
     assert.equal(descriptor.id, 'previewnet-fork');
     assert.equal(descriptor.fork, undefined);
     assert.ok(descriptor.chains.every((c) => c.forkedAt === undefined));
+  });
+
+  // The bite copies the source's registry, so the fork has the source's keys; a key rewired on
+  // either side since then is what the fork's own registry now returns.
+  it("publishes its source's dotNS keys with the addresses the fork's registry returns", async () => {
+    const registry = '0xd19e3d0c97cf501125a04a97405e3e6592fa846e';
+    const sourceDir = dataDir;
+    await writeStack(
+      { net },
+      settings({
+        dotnsContracts: {
+          DotnsProtocolRegistry: registry,
+          DotnsRegistrar: '0x4f06e818ba3d987704fd91cf3d868e4b019106ab',
+          Multicall3: '0xb4468000abd87d3c56cbfbd153161223d7b109e5',
+        },
+      })
+    );
+    const sourceDocument = fs.readFileSync(path.join(sourceDir, 'trinity-stack.json'));
+
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-stack-'));
+    writeSpecs('127.0.0.1');
+    stamp({ mode: 'fork', bite: bite({ hashes }) });
+    const rewiredRegistrar = '0x' + '12'.repeat(20);
+    const forkRegistry: Record<string, string> = { protocolRegistry: registry, registrar: rewiredRegistrar };
+    const call: Settings['call'] = async (url, method, params = []) => {
+      if (method !== 'eth_call') return fakeNodes(url, method, params);
+      const { data } = params[0] as { data: string };
+      const key = Buffer.from(data.slice(10), 'hex').toString().replace(/\0+$/, '');
+      return ('0x' + (forkRegistry[key] ?? '0x' + '00'.repeat(20)).slice(2).padStart(64, '0')) as never;
+    };
+    const fetch: Settings['fetch'] = async (url) =>
+      url === net.stack!.pointer!.url ? new Response(sourceDocument) : new Response(null, { status: 404 });
+
+    const { written, complete } = await writeStack({ net }, settings({ call, fetch }));
+    assert.equal(complete, true);
+    assert.deepEqual(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, {
+      multicall3: '0xb4468000abd87d3c56cbfbd153161223d7b109e5',
+      protocolRegistry: registry,
+      registrar: rewiredRegistrar,
+    });
+  });
+
+  it('publishes a fork without dotNS while its source descriptor does not answer, and tries again', async () => {
+    stamp({ mode: 'fork', bite: bite({ hashes }) });
+    const { written, complete } = await writeStack({ net }, settings());
+    assert.equal(complete, false);
+    assert.equal(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, undefined);
   });
 });
 

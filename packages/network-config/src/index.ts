@@ -51,7 +51,7 @@ export type {
   DashboardEndpoint,
   DashboardIce,
 } from './dashboard-model.js';
-export { trinityStackModel, trinityStackUrl, chainKey } from './trinity-stack.js';
+export { trinityStackModel, trinityStackUrl, chainKey, dotnsFromContracts } from './trinity-stack.js';
 export type { StackFacts, StackChainFacts } from './trinity-stack.js';
 export { hrmpChannels } from './toml-generator.js';
 export type { HrmpChannel } from './toml-generator.js';
