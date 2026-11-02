@@ -191,6 +191,8 @@
   "stack": {
     "pointer": {
       "url": "https://previewnet.substrate.dev/.well-known/trinity-stack.json"
-    }
+    },
+    "assets": [{ "role": "payment", "chain": "AssetHub", "pallet": "Assets", "id": 50000413 }],
+    "coinage": { "chain": "People", "instance": 0 }
   }
 }

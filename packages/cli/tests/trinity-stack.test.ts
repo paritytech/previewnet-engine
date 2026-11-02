@@ -245,6 +245,14 @@ describe('writeStack — what it refuses or defers', () => {
     await assert.rejects(writeStack({ net }, settings({ call: wrongRoot })), /light spec implies genesis/);
   });
 
+  it('rejects a web gateway URL whose path does not end in /, and writes nothing', async () => {
+    await assert.rejects(
+      writeStack({ net }, settings({ webGateway: 'https://testnet.li?network=previewnet' })),
+      /must end in \//
+    );
+    assert.equal(fs.existsSync(path.join(dataDir, 'trinity-stack.json')), false);
+  });
+
   it('publishes without the relay light spec until the relay has finalized a block', async () => {
     const { written, complete } = await writeStack({ net }, settings({ call: failing('sync_state_genSyncSpec') }));
     assert.equal(complete, false);

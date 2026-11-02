@@ -66,6 +66,7 @@ export interface Settings {
   bootnodeHost: string;
   secret?: Uint8Array;
   faucet?: string;
+  webGateway?: string;
   expiresAt?: number;
   validFor?: number;
   /** The dotNS deployment's contract addresses by contract name, from the dotns release. */
@@ -206,6 +207,7 @@ export async function writeStack(
     forked,
     forkAt: bite ? Math.floor(Date.parse(bite.at) / 1000) : undefined,
     faucet: s.faucet,
+    webGateway: s.webGateway,
     dotns: dotnsFacts.dotns,
     expiresAt: s.expiresAt,
     validUntil: s.validFor ? Math.floor(now.getTime() / 1000) + s.validFor : undefined,
@@ -273,6 +275,7 @@ export async function trinityStack(ctx: ServiceContext): Promise<void> {
     bootnodeHost: setting('BOOTNODE_HOSTNAME') || '127.0.0.1',
     secret: hexSecret(setting('PPN_STACK_SECRET')),
     faucet: setting('PPN_STACK_FAUCET_URL'),
+    webGateway: setting('PPN_STACK_WEB_GATEWAY_URL'),
     expiresAt: optionalNumber('PPN_STACK_EXPIRES_AT', setting('PPN_STACK_EXPIRES_AT')),
     validFor: optionalNumber('PPN_STACK_VALID_FOR', setting('PPN_STACK_VALID_FOR')),
     // `ppn fetch` writes the release's list only for a genesis network, so on any other one a

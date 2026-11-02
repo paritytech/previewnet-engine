@@ -36,6 +36,8 @@ export interface StackFacts {
   /** When it was bitten, in Unix seconds, when the spawn recorded it. */
   forkAt?: number;
   faucet?: string;
+  /** Published as written, unlike `faucet`: the path has to end in `/`, and a query may follow. */
+  webGateway?: string;
   expiresAt?: number;
   validUntil?: number;
   /** dotNS contract addresses by protocol registry key. */
@@ -144,6 +146,7 @@ export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts:
   const storage = service('storage-provider-node');
   if (storage) services.push({ kind: 'storage-provider', urls: [withSlash(storage.url)] });
   if (facts.faucet) services.push({ kind: 'faucet', urls: [withSlash(facts.faucet)] });
+  if (facts.webGateway) services.push({ kind: 'web-gateway', urls: [facts.webGateway] });
   const dotns = chains.some((c) => c.role === 'AssetHub') ? facts.dotns : undefined;
 
   return {
@@ -156,6 +159,8 @@ export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts:
     ...(fork && { fork }),
     chains,
     services,
+    ...(net.stack?.assets && { assets: net.stack.assets }),
+    ...(net.stack?.coinage && { coinage: net.stack.coinage }),
     ...(dotns && { dotns }),
   };
 }

@@ -54,6 +54,8 @@ describe('trinityStackModel — previewnet', () => {
         { kind: 'eth-rpc', urls: [`${BASE}/eth-rpc`], chainId: 420420417 },
         { kind: 'storage-provider', urls: [`${BASE}/web3-storage-provider/`] },
       ],
+      assets: [{ role: 'payment', chain: 'AssetHub', pallet: 'Assets', id: 50000413 }],
+      coinage: { chain: 'People', instance: 0 },
     });
   });
 
@@ -62,13 +64,21 @@ describe('trinityStackModel — previewnet', () => {
     assert.equal(stack.services.find((s) => s.kind === 'eth-rpc'), undefined);
   });
 
-  it('adds the faucet and lifetimes a deployment configures', () => {
+  it('adds the faucet, web gateway and lifetimes a deployment configures', () => {
     const configured = trinityStackModel(
       net,
       model,
-      facts({ faucet: 'https://faucet.example', expiresAt: 2000000000, validUntil: 1900000000 })
+      facts({
+        faucet: 'https://faucet.example',
+        webGateway: 'https://testnet.li/?network=previewnet',
+        expiresAt: 2000000000,
+        validUntil: 1900000000,
+      })
     );
-    assert.deepEqual(configured.services.at(-1), { kind: 'faucet', urls: ['https://faucet.example/'] });
+    assert.deepEqual(configured.services.slice(-2), [
+      { kind: 'faucet', urls: ['https://faucet.example/'] },
+      { kind: 'web-gateway', urls: ['https://testnet.li/?network=previewnet'] },
+    ]);
     assert.equal(configured.expiresAt, 2000000000);
     assert.equal(configured.validUntil, 1900000000);
   });
