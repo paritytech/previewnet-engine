@@ -301,4 +301,31 @@ describe('dashboard API', () => {
       assert.ok(e.checkedAt, `${e.id}: no checkedAt`);
     }
   });
+
+  // A client finds a person on the DUB by `GET /dub/api/v1/usernames/search?prefix=`; without
+  // the query the backend answers an unfiltered page and the person never shows up.
+  it('proxies a request with its query string', async () => {
+    const { body } = await get('/api/network');
+    const dub = (body as { services: { id: string; port: number }[] }).services.find((s) => s.id === 'dub')!;
+    let seen: string | undefined;
+    const stub = http.createServer((req, res) => {
+      seen = req.url;
+      res.end('{}');
+    });
+    const bound = await new Promise<boolean>((resolve) => {
+      stub.once('error', () => resolve(false));
+      stub.listen(dub.port, '127.0.0.1', () => resolve(true));
+    });
+    if (!bound) {
+      console.log(`# skipped: port ${dub.port} is already in use`);
+      return;
+    }
+    try {
+      const res = await fetch(`${BASE}/dub/api/v1/usernames/search?prefix=alice&limit=5`);
+      assert.equal(res.status, 200);
+      assert.equal(seen, '/api/v1/usernames/search?prefix=alice&limit=5');
+    } finally {
+      stub.close();
+    }
+  });
 });

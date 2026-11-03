@@ -430,7 +430,7 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
         // "Provided Host header is not whitelisted". Same rewrite nginx does per location.
         const upstream = http.request(
           { host: '127.0.0.1', port: route.target.port,
-            path: route.target.keepPrefix ? route.matched + route.rest : (route.rest || '/'),
+            path: upstreamPath(route, url.search),
             method: req.method,
             headers: { ...req.headers, host: `127.0.0.1:${route.target.port}` } },
           (up) => {
@@ -471,7 +471,7 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
       const headers = Object.entries({ ...req.headers, host: `127.0.0.1:${route.target.port}` })
         .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
         .join('\r\n');
-      upstream.write(`${req.method} ${route.target.keepPrefix ? route.matched + route.rest : (route.rest || '/')} HTTP/1.1\r\n${headers}\r\n\r\n`);
+      upstream.write(`${req.method} ${upstreamPath(route, url.search)} HTTP/1.1\r\n${headers}\r\n\r\n`);
       if (head.length) upstream.write(head);
       upstream.pipe(socket);
       socket.pipe(upstream);
@@ -489,6 +489,11 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
 
   // zombienet owns the lifecycle; hold the process open until it kills us.
   await new Promise(() => {});
+}
+
+/** The path and query a matched request is forwarded upstream with. */
+function upstreamPath(route: NonNullable<ReturnType<typeof matchRoute>>, search: string): string {
+  return (route.target.keepPrefix ? route.matched + route.rest : route.rest || '/') + search;
 }
 
 /** Longest-prefix route match; returns the remainder to forward upstream. */
