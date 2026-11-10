@@ -25,6 +25,7 @@ import {
 } from '@parity/ppn-network-config';
 import { encodeLink, lightSpecGenesis, publicKey, publish, read, type Fetch, type Pointer } from '@parity/trinity-stack';
 import type { ServiceContext } from './service-context.js';
+import { keyOf } from '../fork/codec.js';
 import { rpc } from '../fork/rpc.js';
 import { chainSpecNames } from '../lib/chain-specs.js';
 import { foreignBootnodes, lightClientBootnodes, lightSpec } from '../lib/light-spec.js';
@@ -154,19 +155,52 @@ async function sourceBiteHashes(
   return hashes;
 }
 
-/** The selector of the dotNS protocol registry's `get(bytes32)`. */
+/** The selectors of the dotNS protocol registry's `get(bytes32)` and a dispatcher's `protocolRegistry()`. */
 const REGISTRY_GET = '0x8eaa6ac0';
+const PROTOCOL_REGISTRY = '0x7656419f';
+const DISPATCHER_ADDRESS_KEY = '0x' + keyOf('DotnsGateway', 'DispatcherAddress');
+
+/** The address an ABI-encoded return word carries, or undefined for an empty or zero word. */
+function addressIn(word: string): string | undefined {
+  const address = `0x${word.slice(2).slice(-40)}`.toLowerCase();
+  return /^0x[0-9a-f]{40}$/.test(address) && !/^0x0{40}$/.test(address) ? address : undefined;
+}
+
+const hasCode = async (s: Settings, ethUrl: string, address: string) =>
+  (await s.call<string>(ethUrl, 'eth_getCode', [address, 'latest'])) !== '0x';
+
+/**
+ * The fork's dotNS registry: its source's when the bite copied it, otherwise the one the
+ * DotnsGateway dispatcher on Asset Hub reports, for a dotNS deployed on the fork after the
+ * bite. Undefined when there is neither.
+ */
+async function forkRegistry(
+  s: Settings,
+  sourceRegistry: string,
+  ethUrl: string,
+  assetHubUrl: string | undefined
+): Promise<string | undefined> {
+  if (await hasCode(s, ethUrl, sourceRegistry)) return sourceRegistry.toLowerCase();
+  if (!assetHubUrl) return undefined;
+  const dispatcher = await s.call<string | null>(assetHubUrl, 'state_getStorage', [DISPATCHER_ADDRESS_KEY]);
+  if (!dispatcher) return undefined;
+  // eth-rpc just answered, so a failure here is a dispatcher without `protocolRegistry()`.
+  const word = await s.call<string>(ethUrl, 'eth_call', [{ to: dispatcher, data: PROTOCOL_REGISTRY }, 'latest']).catch(() => '0x');
+  return addressIn(word);
+}
 
 /**
  * A fork's dotNS addresses: each key its source's descriptor lists, with the address the fork's
  * own registry returns for it, since a registry rewired after the bite differs from the source.
- * A key the registry does not hold, such as a release's Multicall3, keeps the source's address.
- * Incomplete while the source descriptor or the fork's eth-rpc does not answer.
+ * A key the registry does not hold, such as a release's Multicall3, keeps the source's address
+ * when that has code on the fork, and is left out otherwise. Incomplete while the source
+ * descriptor or the fork's nodes do not answer.
  */
 async function forkDotns(
   s: Settings,
   source: Pointer,
-  ethUrl: string
+  ethUrl: string,
+  assetHubUrl: string | undefined
 ): Promise<{ dotns?: Record<string, string>; complete: boolean }> {
   let listed: Record<string, string> | undefined;
   try {
@@ -174,22 +208,22 @@ async function forkDotns(
   } catch {
     return { complete: false };
   }
-  const registry = listed?.protocolRegistry;
-  if (!listed || !registry) return { complete: true };
+  if (!listed?.protocolRegistry) return { complete: true };
 
-  const dotns: Record<string, string> = {};
-  for (const [key, address] of Object.entries(listed)) {
-    const data = REGISTRY_GET + Buffer.from(key).toString('hex').padEnd(64, '0');
-    let word: string;
-    try {
-      word = await s.call<string>(ethUrl, 'eth_call', [{ to: registry, data }, 'latest']);
-    } catch {
-      return { complete: false };
+  try {
+    const registry = await forkRegistry(s, listed.protocolRegistry, ethUrl, assetHubUrl);
+    if (!registry) return { complete: true };
+    const dotns: Record<string, string> = {};
+    for (const [key, address] of Object.entries(listed)) {
+      const data = REGISTRY_GET + Buffer.from(key).toString('hex').padEnd(64, '0');
+      const registered = addressIn(await s.call<string>(ethUrl, 'eth_call', [{ to: registry, data }, 'latest']));
+      if (registered) dotns[key] = registered;
+      else if (await hasCode(s, ethUrl, address)) dotns[key] = address.toLowerCase();
     }
-    const registered = `0x${word.slice(-40)}`.toLowerCase();
-    dotns[key] = /^0x0{40}$/.test(registered) ? address.toLowerCase() : registered;
+    return { dotns, complete: true };
+  } catch {
+    return { complete: false };
   }
-  return { dotns, complete: true };
 }
 
 /**
@@ -222,9 +256,10 @@ export async function writeStack(
   const chainId = eth && (await ethChainId(s, eth.directUrl));
   // A genesis network runs the release's dotNS; a fork runs whatever its source had at the bite.
   const source = ctx.net.stack?.pointer;
+  const assetHub = nodes.find(([key]) => key === 'asset-hub')?.[1];
   const dotnsFacts =
     forked && source && eth
-      ? await forkDotns(s, source, eth.directUrl)
+      ? await forkDotns(s, source, eth.directUrl, assetHub && asHttp(assetHub.directUrl))
       : { dotns: forked ? undefined : dotnsFromContracts(s.dotnsContracts), complete: true };
   const now = s.now();
   const stack = trinityStackModel(ctx.net, model, {
