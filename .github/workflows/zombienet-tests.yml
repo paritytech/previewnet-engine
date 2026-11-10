@@ -113,6 +113,40 @@ jobs:
           grep -q "increase_attestation_allowance $PPN_ALLOWANCE_SS58 1000" /tmp/dot-calls.txt \
             || { echo "allowance not granted to PPN_ALLOWANCE_SS58:"; cat /tmp/dot-calls.txt; exit 1; }
 
+      - name: DotnsGateway allowance script — deployable without PPN_ALLOWANCE_SS58 hard-fails
+        env:
+          PPN_PROFILE: deployable
+        run: |
+          if bash scripts/increase-dotns-attestation-allowance.sh 2>/dev/null; then
+            echo "expected non-zero exit when PPN_ALLOWANCE_SS58 missing"; exit 1
+          fi
+
+      - name: DotnsGateway allowance script — grants to PPN_ALLOWANCE_SS58, never Alice
+        env:
+          PPN_PROFILE: deployable
+          PPN_ALLOWANCE_SS58: 5ERKU2mm7E9o9mLcMGkPMNSPStFT51U5d1SS4YXCafe6riPA
+          ALLOWANCE_ACCOUNT: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+          WAIT_SECONDS: 0
+        run: |
+          # The stub reads the allowance back as 0 until a sudo call is made, then 1000,
+          # so the script's read-back loop ends.
+          mkdir -p /tmp/stub-dotns
+          cat > /tmp/stub-dotns/dot <<'STUB'
+          #!/usr/bin/env bash
+          echo "$@" >> /tmp/dotns-calls.txt
+          case "$1" in
+            *.query.DotnsGateway.AttestationAllowance)
+              if grep -q "Sudo.sudo" /tmp/dotns-calls.txt; then echo 1000; else echo 0; fi ;;
+          esac
+          STUB
+          sed -i 's/^          //' /tmp/stub-dotns/dot
+          chmod +x /tmp/stub-dotns/dot
+          PATH=/tmp/stub-dotns:$PATH bash scripts/increase-dotns-attestation-allowance.sh
+          grep -q "increase_attestation_allowance $PPN_ALLOWANCE_SS58 1000" /tmp/dotns-calls.txt \
+            || { echo "allowance not granted to PPN_ALLOWANCE_SS58:"; cat /tmp/dotns-calls.txt; exit 1; }
+          ! grep -q 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY /tmp/dotns-calls.txt \
+            || { echo "granted to Alice:"; cat /tmp/dotns-calls.txt; exit 1; }
+
   # Smoke test: run the install magic link end-to-end, then start the network
   # Install the published packages the way a user would, into a workspace that is not a
   # checkout, and start a network from it.

@@ -16,6 +16,22 @@ export interface ForkManifestChain {
   genesis: string;
 }
 
+/**
+ * How many nodes and cores a bite laid the network out with, when `ppn bite --cores/--collators`
+ * asked for something other than the default (one collator per parachain, three cores for Asset
+ * Hub and one for everything else, the descriptor's validators). Fixed at bite time: the
+ * authority sets and the core layout are state inside the snapshots, so a spawn can only follow
+ * what the bundle says.
+ */
+export interface ForkTopology {
+  /** Relay validators — at least one per core, so this grows with `cores`. */
+  validators: number;
+  /** Cores per parachain key, only the ones that differ from the default. */
+  cores: Record<string, number>;
+  /** Collators per parachain key, only the ones that differ from one. */
+  collators: Record<string, number>;
+}
+
 export interface ForkManifest {
   bittenAt: string;
   source: string;
@@ -26,6 +42,12 @@ export interface ForkManifest {
   chains: Record<string, ForkManifestChain>;
   /** Keyed by para id, plus "relay". Written by bite.sh once each chain is bitten. */
   biteBlocks: Record<string, number>;
+  /**
+   * The source's block hash at each bite block, keyed as biteBlocks is. The fork's own block
+   * at that height differs, since the bite imports its overrides into it. Absent in bundles
+   * bitten before it was recorded, or when a source did not answer.
+   */
+  biteHashes?: Record<string, string>;
   /** Same keys as biteBlocks. Absent in bundles bitten before it was recorded. */
   snapshotBytes?: Record<string, number>;
   /**
@@ -35,5 +57,7 @@ export interface ForkManifest {
    * `ppn runtime-upgrade` submits the apply half, which needs no privilege.
    */
   seededUpgrades?: Record<string, { file: string; codeHash: string; checkVersion: boolean }>;
+  /** Absent when the bite was asked for nothing beyond the defaults. */
+  topology?: ForkTopology;
 }
 

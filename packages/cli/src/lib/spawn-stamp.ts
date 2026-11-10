@@ -14,6 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { distManifest } from './version.js';
 
 export const SPAWN_FILE = 'spawn.json';
 
@@ -21,6 +22,8 @@ export interface Bite {
   at: string;
   source: string;
   blocks: Record<string, number>;
+  /** The source's hash at each of `blocks`, when the bundle recorded them. */
+  hashes?: Record<string, string>;
 }
 
 export interface SpawnStamp {
@@ -51,20 +54,10 @@ function biteFrom(manifest: string | null | undefined): Bite | null {
   if (!manifest || !fs.existsSync(manifest)) return null;
   try {
     const m = JSON.parse(fs.readFileSync(manifest, 'utf-8'));
-    return { at: m.bittenAt, source: m.source, blocks: m.biteBlocks };
+    return { at: m.bittenAt, source: m.source, blocks: m.biteBlocks, ...(m.biteHashes && { hashes: m.biteHashes }) };
   } catch {
     // A half-written manifest is not worth failing a spawn over; the mode still says `fork`.
     return null;
-  }
-}
-
-function packedVersion(repoRoot: string): string | undefined {
-  const dist = path.join(repoRoot, '.ppn-dist.json');
-  if (!fs.existsSync(dist)) return undefined;
-  try {
-    return JSON.parse(fs.readFileSync(dist, 'utf-8')).version;
-  } catch {
-    return undefined;
   }
 }
 
@@ -75,7 +68,7 @@ function packedVersion(repoRoot: string): string | undefined {
  * service starts, which may be the first thing to touch a freshly wiped DATA_DIR.
  */
 export function writeSpawnStamp(dataDir: string, input: StampSpawnInput): SpawnStamp {
-  const version = packedVersion(input.repoRoot);
+  const version = distManifest(input.repoRoot)?.version;
   const stamp: SpawnStamp = {
     spawnedAt: new Date().toISOString(),
     network: input.network,

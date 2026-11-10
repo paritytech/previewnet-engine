@@ -239,6 +239,15 @@ jobs:
       - name: List bin contents
         run: ls -la bin/
 
+      # The CLI in the image reports the version these package.json files carry.
+      - name: Stamp the release version
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          for pkg in . packages/network-config packages/cli; do
+            (cd "$pkg" && npm pkg set version="${TAG#v}")
+          done
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 

@@ -7,7 +7,14 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { dataDirFor, binDirFor, forkDirFor, checkPorts, forkDataVerdict } from '../src/commands/start.js';
+import {
+  dataDirFor,
+  binDirFor,
+  forkDirFor,
+  checkPorts,
+  forkDataVerdict,
+  assertBundleTopology,
+} from '../src/commands/start.js';
 import { forkBundleName, forkBundleAsset } from '../src/lib/fork-bundle-name.js';
 import { writeSpawnStamp, SPAWN_FILE } from '../src/lib/spawn-stamp.js';
 
@@ -105,6 +112,48 @@ describe('checkPorts', () => {
     } finally {
       await new Promise((r) => held.close(r));
     }
+  });
+});
+
+// `--cores`/`--collators` are fixed at bite time, so a spawn can only refuse a bundle bitten
+// differently. The check runs once a bundle is in place however it got there — on disk,
+// downloaded, or just bitten — because a downloaded nightly bundle carries the defaults, and
+// spawning it for a run that asked for a layout used to ignore the flags without a word.
+describe('assertBundleTopology', () => {
+  const PEOPLE = { validators: 8, cores: { people: 3 }, collators: { people: 5 } };
+  const bundle = (topology?: typeof PEOPLE) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-topology-'));
+    fs.writeFileSync(
+      path.join(dir, 'manifest.json'),
+      JSON.stringify({ bittenAt: '2026-09-01T18:30:00.000Z', biteBlocks: { relay: 1 }, ...(topology ? { topology } : {}) })
+    );
+    return dir;
+  };
+
+  it('passes a default bundle for a run that asks for nothing', () => {
+    assert.doesNotThrow(() => assertBundleTopology(bundle(), 'previewnet', undefined));
+  });
+
+  it('passes a bundle bitten with exactly what the run asks for', () => {
+    assert.doesNotThrow(() => assertBundleTopology(bundle(PEOPLE), 'previewnet', PEOPLE));
+  });
+
+  // The downloaded-nightly case: flags given, bundle bitten with the defaults.
+  it('refuses a default bundle for a run that asks for a layout, saying how to re-bite', () => {
+    assert.throws(
+      () => assertBundleTopology(bundle(), 'previewnet', PEOPLE),
+      (err: Error) =>
+        err.message.includes('was bitten with the defaults') &&
+        err.message.includes('ppn start previewnet --fork --fresh-bite --cores people=3 --collators people=5')
+    );
+  });
+
+  it('refuses a laid-out bundle for a run that asks for another layout, or for none', () => {
+    assert.throws(
+      () => assertBundleTopology(bundle(PEOPLE), 'previewnet', { ...PEOPLE, collators: { people: 4 } }),
+      /bitten with --cores people=3 --collators people=5/
+    );
+    assert.throws(() => assertBundleTopology(bundle(PEOPLE), 'previewnet', undefined), /--fresh-bite$/m);
   });
 });
 

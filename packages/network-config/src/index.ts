@@ -32,6 +32,8 @@ export {
   paraIds,
   RELAY_BASE_PORT,
   VALIDATORS,
+  relayNodeName,
+  collatorNodeName,
   POPULAR_LOG_TARGETS,
   LOG_LEVELS,
   buildArgs,
@@ -50,6 +52,8 @@ export type {
   DashboardEndpoint,
   DashboardIce,
 } from './dashboard-model.js';
+export { trinityStackModel, trinityStackUrl, chainKey, dotnsFromContracts } from './trinity-stack.js';
+export type { StackFacts, StackChainFacts } from './trinity-stack.js';
 export { hrmpChannels } from './toml-generator.js';
 export type { HrmpChannel } from './toml-generator.js';
 export { generateForkToml, FORK_PROCESSES } from './fork-toml.js';

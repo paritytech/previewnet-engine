@@ -70,6 +70,12 @@ Run `PPN_PROFILE=deployable` on anything long-lived: it strips the well-known de
 requires you to supply sudo and faucet accounts. `local` (the default) keeps `//Alice` as a
 funded sudo and is right for laptops and CI only. See [PROFILES.md](PROFILES.md).
 
+Every server names a secrets file with `PPN_SECRETS_FILE`, whatever its profile: without one,
+the identity backend and the TURN relay run on public dev keys. Its keys, and how to make each,
+are in [`config/secrets.env.example`](../config/secrets.env.example). Run
+`ppn secrets check <file>` before you stop the running network; `ppn start` refuses a file that
+fails it.
+
 ## What you still have to build
 
 Honestly: the boring parts. Process supervision, TLS, a reverse proxy, log shipping, backups,

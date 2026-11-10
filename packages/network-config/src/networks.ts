@@ -23,6 +23,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Asset, Coinage, Pointer } from '@parity/trinity-stack';
 import { defaultHome, packageRoot, networksDirs } from './repo-root.js';
 
 /**
@@ -179,6 +180,21 @@ export type NetworkChain = Omit<NetworkParachain, 'key' | 'paraId'> & {
 /** false disables a service; an object configures it (its binary, when it has one). */
 export type ServiceConfig = boolean | { binary?: BinaryRef };
 
+/**
+ * A Trinity stack descriptor's facts about the live network that the rest of the file does
+ * not carry. See docs/TRINITY-STACK.md.
+ */
+export interface NetworkStack {
+  /** The dotNS TLD. A genesis network defaults to `genesisConfig.networkSuffix`. */
+  tld?: string;
+  /** Where the live network's own descriptor is published: a fork's `fork.of`. */
+  pointer?: Pointer;
+  /** The descriptor's `assets`, such as the asset a wallet pays in, when the runtime has them. */
+  assets?: Asset[];
+  /** The descriptor's `coinage`: the chain role and instance of the Coinage pallet. */
+  coinage?: Coinage;
+}
+
 export interface NetworkDef {
   name: string;
   displayName: string;
@@ -310,6 +326,8 @@ export interface NetworkDef {
     collection: string;
     size: number;
   };
+  /** What the network's Trinity stack descriptor says that no other field does. */
+  stack?: NetworkStack;
   /** Every `_todo` note found in the file — non-empty means the descriptor is a stub. */
   todos: string[];
 }
@@ -594,6 +612,16 @@ export function loadDescriptor(name: string): NetworkDef {
   ) as Record<string, BinaryRef>;
   for (const [tool, ref] of Object.entries(tools)) checkBinary(`tools."${tool}"`, ref);
 
+  const stack: NetworkStack | undefined = raw.stack;
+  if (stack !== undefined) {
+    if (stack.tld !== undefined && !/^[a-z0-9-]+$/.test(stack.tld)) {
+      bad('stack.tld must be a bare lowercase label');
+    }
+    if (stack.pointer !== undefined && !/^https:\/\//.test(stack.pointer.url ?? '')) {
+      bad('stack.pointer.url must be an https URL');
+    }
+  }
+
   const dg = raw.bite.doppelganger;
   if (dg && (!dg.repo || !dg.tag)) bad('bite.doppelganger needs repo and tag');
 
@@ -628,6 +656,7 @@ export function loadDescriptor(name: string): NetworkDef {
     seedAsset: raw.seedAsset,
     attestation: raw.attestation,
     onboarding: raw.onboarding,
+    stack,
     todos,
   };
 }
