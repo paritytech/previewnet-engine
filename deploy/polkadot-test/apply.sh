@@ -95,6 +95,11 @@ if ! sudo test -f "$SECRETS_FILE"; then
   sudo chown "root:$RUN_USER" "$SECRETS_FILE" && sudo chmod 0640 "$SECRETS_FILE"
   say "created $SECRETS_FILE"
 fi
+# `ppn start` rejects a secrets file without a profile; the fork runs with the dev accounts.
+if ! sudo grep -q '^PPN_PROFILE=' "$SECRETS_FILE"; then
+  echo 'PPN_PROFILE=local' | sudo tee -a "$SECRETS_FILE" >/dev/null
+  say "$SECRETS_FILE: added PPN_PROFILE=local"
+fi
 sed -i \
   -e "s|^BOOTNODE_HOSTNAME=.*|BOOTNODE_HOSTNAME=$DOMAIN|" \
   -e "s|^PPN_PUBLIC_URL=.*|PPN_PUBLIC_URL=https://$DOMAIN|" \
