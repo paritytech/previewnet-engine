@@ -149,10 +149,27 @@ describe('writeStack — what it writes', () => {
     ]);
   });
 
-  it("names a fork from a bundle that predates biteHashes, but claims no source block", async () => {
+  // A bundle bitten before biteHashes were recorded: the source still has those blocks.
+  it("reads the source's blocks from the source when the bundle predates biteHashes", async () => {
     stamp({ mode: 'fork', bite: bite() });
-    const { written } = await writeStack({ net }, settings());
+    const sourceHash = `0x${'cd'.repeat(32)}`;
+    const call: Settings['call'] = async (url, method, params = []) =>
+      new URL(url).hostname === '127.0.0.1' ? fakeNodes(url, method, params) : (sourceHash as never);
+    const { written } = await writeStack({ net }, settings({ call }));
     const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.deepEqual(descriptor.fork, { of: net.stack!.pointer, at: Date.parse('2026-10-20T12:00:00Z') / 1000 });
+    assert.deepEqual(descriptor.chains[0].forkedAt, { number: 100, hash: sourceHash });
+  });
+
+  it("names a fork without source blocks while its source does not answer, and tries again", async () => {
+    stamp({ mode: 'fork', bite: bite() });
+    const call: Settings['call'] = async (url, method, params = []) => {
+      if (new URL(url).hostname !== '127.0.0.1') throw new Error('source unreachable');
+      return fakeNodes(url, method, params);
+    };
+    const { written, complete } = await writeStack({ net }, settings({ call }));
+    const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.equal(complete, false);
     assert.equal(descriptor.id, 'previewnet-fork');
     assert.equal(descriptor.fork, undefined);
     assert.ok(descriptor.chains.every((c) => c.forkedAt === undefined));

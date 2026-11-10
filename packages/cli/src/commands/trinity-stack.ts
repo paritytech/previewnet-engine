@@ -13,10 +13,13 @@ import {
   chainKey,
   dashboardModel,
   dotnsFromContracts,
+  endpointUrl,
+  networkChains,
   trinityStackModel,
   trinityStackUrl,
   type ChainKey,
   type DashboardChain,
+  type NetworkDef,
   type StackChainFacts,
   type StackFacts,
 } from '@parity/ppn-network-config';
@@ -130,6 +133,27 @@ async function ethChainId(s: Settings, directUrl: string): Promise<number | unde
   }
 }
 
+/**
+ * The source's hash at each chain's bite block, for a bundle bitten before `ppn bite` recorded
+ * them. Undefined while any chain's source does not answer.
+ */
+async function sourceBiteHashes(
+  s: Settings,
+  net: NetworkDef,
+  blocks: Record<string, number>
+): Promise<Record<string, string> | undefined> {
+  const hashes: Record<string, string> = {};
+  for (const chain of networkChains(net)) {
+    const id = chain.paraId === null ? 'relay' : String(chain.paraId);
+    if (blocks[id] === undefined) continue;
+    const url = asHttp(endpointUrl(net, chain.rpc));
+    const hash = await s.call<string | null>(url, 'chain_getBlockHash', [blocks[id]]).catch(() => null);
+    if (!hash) return undefined;
+    hashes[id] = hash;
+  }
+  return hashes;
+}
+
 /** The selector of the dotNS protocol registry's `get(bytes32)`. */
 const REGISTRY_GET = '0x8eaa6ac0';
 
@@ -170,8 +194,8 @@ async function forkDotns(
 
 /**
  * Writes the light specs and the descriptor once. Returns what the dashboard shows, and whether
- * the descriptor is complete: a relay has no checkpoint until it finalizes a block, and eth-rpc
- * is left out until it answers.
+ * the descriptor is complete: a relay has no checkpoint until it finalizes a block, eth-rpc
+ * is left out until it answers, and a fork's source blocks until its source answers.
  */
 export async function writeStack(
   ctx: Pick<ServiceContext, 'net'>,
@@ -183,12 +207,14 @@ export async function writeStack(
   const bite = forked ? spawn.bite : null;
   const specs = chainSpecNames(s.dataDir, model.chains);
 
+  // The source's blocks: the fork's own block at that height differs.
+  const biteHashes = bite && (bite.hashes ?? (await sourceBiteHashes(s, ctx.net, bite.blocks)));
+  const nodes = chainNodes(model.chains);
   const chains: StackFacts['chains'] = {};
-  for (const [key, node] of chainNodes(model.chains)) {
-    // The source's block, as the bite recorded it: the fork's own block at that height differs.
+  for (const [key, node] of nodes) {
     const id = node.paraId === null ? 'relay' : String(node.paraId);
     const number = bite?.blocks[id];
-    const hash = bite?.hashes?.[id];
+    const hash = biteHashes?.[id];
     const forkedAt = number !== undefined && hash ? { number, hash } : undefined;
     chains[key] = await chainFacts(s, key, node, specs.get(node.id), forkedAt);
   }
@@ -229,7 +255,8 @@ export async function writeStack(
   const written: StackStateFile = { generation, state: published.state, pointer, link: encodeLink(pointer) };
   writeIfChanged(stateFile, new TextEncoder().encode(JSON.stringify(written, null, 2) + '\n'));
   const specsComplete = Object.values(chains).every((c) => !c?.fullSpec || c.lightSpec);
-  return { written, complete: specsComplete && (!eth || chainId !== undefined) && dotnsFacts.complete };
+  const complete = specsComplete && (!eth || chainId !== undefined) && dotnsFacts.complete && (!bite || !!biteHashes);
+  return { written, complete };
 }
 
 /** The address list `ppn fetch` writes from the dotns release, or undefined when there is none. */
