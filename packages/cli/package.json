@@ -28,7 +28,7 @@
     "@parity/trinity-stack": "^0.2.0",
     "commander": "^15.0.0",
     "polkadot-api": "^1.23.3",
-    "toml": "^4.2.0"
+    "toml": "^5.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
