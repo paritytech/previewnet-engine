@@ -134,9 +134,15 @@ function prometheusPort(rpcPort: number): number {
   return rpcPort + requiredPort('PROMETHEUS_PORT_OFFSET');
 }
 
-/** RPC ports of a parachain's RPC nodes: the chain's own port + 1..rpcNodes. */
+/** RPC ports of a parachain's RPC nodes: the chain's own port + 1..rpcNodes. Throws on a port another chain uses. */
 function rpcNodePorts(p: NetworkParachain): number[] {
-  return Array.from({ length: p.rpcNodes }, (_, i) => PORTS[p.key] + i + 1);
+  const ports = Array.from({ length: p.rpcNodes }, (_, i) => PORTS[p.key] + i + 1);
+  const used = [...Object.values(PORTS), ...VALIDATORS.map((_, i) => RELAY_BASE_PORT + i)];
+  const clash = ports.find((port) => used.includes(port));
+  if (clash !== undefined) {
+    throw new Error(`${p.rpcNodes} RPC nodes for ${p.key} would take port ${clash}, which ports.env gives another node`);
+  }
+  return ports;
 }
 
 // Authoring flags a full node does not take, and the collator's fixed listen address.
