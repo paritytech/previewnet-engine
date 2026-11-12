@@ -1,0 +1,76 @@
+{
+  "name": "westend",
+  "displayName": "Westend",
+  "description": "Fork-only, bitten on the fly. Relay, Asset Hub and People: the system chains polkadot-sdk's Westend runtimes are released for, without the Individuality pallets. The relay and Asset Hub have sudo; People does not, so a People runtime under test is authorized at bite time (`--upgrade people=<wasm>`).",
+  "genesis": false,
+  "sudo": true,
+  "bite": {
+    "prebaked": false,
+    "source": "wss://westend-rpc.polkadot.io",
+    "doppelganger": {
+      "repo": "paritytech/doppelganger-wrapper",
+      "tag": "v0.2.3"
+    },
+    "sharedRelay": true
+  },
+  "releases": {
+    "polkadot-sdk": {
+      "repo": "paritytech/release-automation",
+      "tag": "latest"
+    }
+  },
+  "relay": {
+    "chain": "westend",
+    "spec": "westend",
+    "rpc": "wss://westend-rpc.polkadot.io",
+    "specSource": "builtin",
+    "validators": 6,
+    "binary": {
+      "name": "polkadot",
+      "release": "polkadot-sdk"
+    }
+  },
+  "parachains": [
+    {
+      "key": "asset-hub",
+      "paraId": 1000,
+      "spec": "asset-hub",
+      "rpc": "wss://westend-asset-hub-rpc.polkadot.io",
+      "specSource": "builtin:asset-hub-westend",
+      "binary": {
+        "name": "polkadot-parachain",
+        "release": "polkadot-sdk"
+      }
+    },
+    {
+      "key": "people",
+      "paraId": 1004,
+      "spec": "people",
+      "rpc": "wss://westend-people-rpc.polkadot.io",
+      "specSource": "builtin:people-westend",
+      "binary": {
+        "name": "polkadot-parachain",
+        "release": "polkadot-sdk"
+      }
+    }
+  ],
+  "services": {
+    "eth-rpc": {
+      "binary": {
+        "name": "eth-rpc",
+        "release": "polkadot-sdk"
+      }
+    },
+    "pin-design-families": false,
+    "increase-people-lite-attestation-allowance": false,
+    "increase-dotns-attestation-allowance": false,
+    "grant-invites": false,
+    "_note": "Westend runs none of the Individuality pallets these processes grant from."
+  },
+  "stack": {
+    "tld": "westend",
+    "pointer": {
+      "url": "https://stack-westend.parity-testnet.parity.io/.well-known/trinity-stack.json"
+    }
+  }
+}
