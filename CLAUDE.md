@@ -64,7 +64,11 @@ make start FORK=1 NETWORK=devnet  # Fork a different network (networks/*.json)
 make start FORK=1 FRESH_BITE=1  # Fork, biting production now instead of using a bundle
 make start FORK=1 CLEAN=1       # Fork, back at its bite block (a stopped fork otherwise resumes)
 make bite NETWORK=polkadot UPGRADES="people=<wasm>"  # Bite with a runtime authorized at import (no-sudo networks)
+make start FORK=1 FRESH_BITE=1 CORES=people=3 COLLATORS=people=5  # Bite with People on 3 cores and 5 collators
 ```
+
+`CORES`/`COLLATORS` are bite-time: the authority sets and the core layout are state inside the
+bundle, so they need a fresh bite, and the relay grows to one validator per core (max 10).
 
 Fork mode continues from a real block rather than resetting to genesis, so contracts,
 registrations and balances are already present. A fork that is started again resumes where it
@@ -131,6 +135,7 @@ docs/
 ├── POLKADOT-FORK.md          # Runbook: fork Polkadot with the fellowship runtimes on a dedicated machine
 ├── PROFILES.md               # dev/prod profiles: funded accounts, sudo, signing keys
 ├── RUNTIME-UPGRADE.md        # Upgrade the runtime of a running chain
+├── TRINITY-STACK.md          # The network's Trinity stack descriptor and light specs
 └── TURN.md                   # TURN/STUN relay (eturnal) behind DUB's turn-api
 
 bin/                          # Output directory (gitignored except ppn.mjs)
@@ -159,13 +164,15 @@ scripts/                      # Shell launchers zombienet execs; the logic lives
 ├── pin-bulletin-products.sh  # Launcher over `ppn service pin-bulletin-products`
 ├── force-open-hrmp.sh        # Force-open HRMP channels
 ├── patch-bootnodes.sh        # Patch bootnode addresses
+├── trinity-stack.sh          # Launcher over `ppn service trinity-stack`: descriptor and light specs
 ├── enact-upgrades.sh         # Launcher over `ppn service enact-upgrades`: applies what a bite authorized
 ├── grant-invites.sh          # Grants the backend's inviter account invites (both dims)
 ├── increase-people-lite-attestation-allowance.sh # Attestation allowance config
+├── increase-dotns-attestation-allowance.sh # The same attester's DotnsGateway allowance on Asset Hub
 ├── docker-entrypoint.sh      # Docker container entrypoint
 ├── ensure-dot-cli.sh         # Installs dot CLI tool
 ├── install.sh                # Installation script
-├── kill-port.sh              # Kill processes on specific ports
+├── require-free-ports.sh     # Refuse ports something already listens on (never kills)
 ├── validate-ports.sh         # Port configuration validator
 ├── run-tests.sh              # Integration test runner
 └── dub/                      # device-uniqueness-backend (see docs/DEVICE-UNIQUENESS-BACKEND.md)

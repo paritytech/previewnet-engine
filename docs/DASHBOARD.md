@@ -25,6 +25,7 @@ CONTRACT        network.json (schemaVersion'd)
                     │
 SERVICE PLANE   ppn service dashboard — one zombienet custom_process, like eth-rpc
                     /api/network /api/provenance /api/addresses /api/health /api/logs/:id
+                    /api/stack /.well-known/trinity-stack.json /chainspecs/*
                     plus the UI's static assets, plus (locally) a path→port proxy
                     │
 UI PLANE        static SPA = render(contract + health polling). Knows no domain, no port.
@@ -44,6 +45,11 @@ The model emits one route table (`/relay/alice`, `/asset-hub`, `/eth-rpc`, …).
 - **Localhost**: the dashboard itself proxies the same paths to the local ports (WebSocket
   included), so `ws://127.0.0.1:<port>/asset-hub` mirrors `wss://<domain>/asset-hub`.
   Disabled on servers with `DASHBOARD_PROXY=0`.
+
+The dashboard also serves the files `ppn service trinity-stack` writes: the descriptor at
+`/.well-known/trinity-stack.json`, byte for byte, and each chain's light spec at
+`/chainspecs/<name>.smol.json`. The overview shows the stack's link and QR code from
+`/api/stack`. See [TRINITY-STACK.md](TRINITY-STACK.md).
 
 ### Provenance is stamped, not derived
 

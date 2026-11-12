@@ -42,13 +42,26 @@
   const spawn = $derived(app.provenance?.spawn ?? null);
   const fetchedAt = $derived(app.provenance?.provenance?.fetchedAt ?? null);
 
+  // The same network runs in many places at once: production, staging, spawner forks, laptops.
+  // The name says which network and whether this is a fork of it, the host says which one.
+  const name = $derived(
+    app.model
+      ? `${spawn?.mode === 'fork' ? 'Fork of ' : ''}${app.model.network.displayName}`
+      : 'Product Preview Network'
+  );
+  const host = $derived(app.model ? new URL(app.model.baseUrl).host : null);
+  $effect(() => {
+    document.title = host ? `${name} · ${host}` : name;
+  });
+
   init();
 </script>
 
 <div class="mx-auto max-w-[1200px] bg-surface-main px-4 py-8 font-sans text-fg-primary sm:px-12">
   <header class="mb-8">
     <h1 class="text-[22px] font-semibold leading-tight">
-      {app.model?.network.displayName ?? 'Product Preview Network'}
+      {name}
+      {#if host}<span class="ml-2 font-mono text-[15px] font-normal text-fg-tertiary">{host}</span>{/if}
     </h1>
     <div class="mt-1.5 flex flex-wrap gap-4 text-[13px] text-fg-tertiary">
       {#if spawn || app.model}

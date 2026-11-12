@@ -3,7 +3,8 @@ import * as path from "node:path";
 import { sr25519CreateDerive } from "@polkadot-labs/hdkd";
 import { entropyToMiniSecret } from "@polkadot-labs/hdkd-helpers";
 import { blake2b } from "@noble/hashes/blake2.js";
-import { AccountId } from "polkadot-api";
+import { AccountId, createClient, type Binary } from "polkadot-api";
+import { getWsProvider } from "polkadot-api/ws-provider/node";
 import { randomBytes } from "node:crypto";
 import { waitForDubReady } from "./dub-ready";
 import { dubToken } from "./dub-auth";
@@ -16,7 +17,8 @@ import { dubToken } from "./dub-auth";
 // (a few hundred inherited from production).
 //
 // Deliberately no import from ./utils — that pulls the papi descriptors, which
-// need codegen against the runtime WASM. Everything here is HTTP plus crypto.
+// need codegen against the runtime WASM. Everything here is HTTP plus crypto, and
+// the one chain read goes through the untyped API.
 
 const SUCCESS = 1 as const;
 const FAILURE = 0 as const;
@@ -52,6 +54,10 @@ const BASE = `http://127.0.0.1:${GATEWAY_PORT}`;
 // The message prefix pallet people-lite signs over, from its MSG_PREFIX const.
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
 
+// twox128("NetworkSuffix") ++ twox128("NetworkSuffix"): the People chain's network suffix.
+const NETWORK_SUFFIX_KEY =
+  "0x63c2d4c355d2d188c234d0a0669dc90863c2d4c355d2d188c234d0a0669dc908";
+
 // The host SDK derives the lite-person account at this path; matching it means
 // the account we attest is the one a real user would have.
 const LITE_PERSON_DERIVATION = "//wallet//sso";
@@ -73,6 +79,7 @@ const READY_TIMEOUT_MS = 300_000;
 // wins one. It only elapses in full when something is actually broken.
 const LANDING_TIMEOUT_MS = 420_000;
 const POLL_MS = 5_000;
+const FINALITY_TIMEOUT_MS = 120_000;
 
 const accountId = AccountId();
 const toHex = (u8: Uint8Array) => "0x" + Buffer.from(u8).toString("hex");
@@ -81,12 +88,72 @@ const cat = (...arrs: Uint8Array[]) => new Uint8Array(Buffer.concat(arrs.map(Buf
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function rpc<T>(wsUri: string, method: string, params: unknown[] = []): Promise<T> {
+  const res = await fetch(wsUri.replace(/^ws/, "http"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
+  });
+  return ((await res.json()) as { result: T }).result;
+}
+
+/**
+ * The personhood signing context the People runtime expects account signatures
+ * over non-transaction messages in, or `null` for the plain message
+ * (paritytech/individuality-community#105).
+ *
+ * The context is blake2_256("product/peopl.<suffix>/" ++ "sig/" ++ 28 zero
+ * bytes), with the chain's own network suffix: `testnet` on a genesis network,
+ * the live value on a fork. Version-gated: individuality releases up to 3004000
+ * check the plain message, and later ones only the message in the context.
+ * Plain JSON-RPC, so no papi descriptors. Delete the gate once the pinned
+ * release carries the change.
+ */
+async function signingContext(wsUri: string): Promise<Uint8Array | null> {
+  const version = await rpc<{ specName: string; specVersion: number }>(
+    wsUri,
+    "state_getRuntimeVersion"
+  );
+  if (version.specName !== "next-people-paseo" || version.specVersion <= 3_004_000) return null;
+
+  const stored = await rpc<string | null>(wsUri, "state_getStorage", [NETWORK_SUFFIX_KEY]);
+  if (!stored) throw new Error("People chain has no NetworkSuffix in storage");
+  // A SCALE BoundedVec<u8, 16>: a one-byte compact length (len << 2), then the bytes.
+  const bytes = Buffer.from(stored.replace(/^0x/, ""), "hex");
+  const suffix = bytes.subarray(1, 1 + (bytes[0] >> 2));
+  const utf8 = (text: string) => new TextEncoder().encode(text);
+  const sigSuffix = new Uint8Array(32);
+  sigSuffix.set(utf8("sig/"), 0);
+  return blake2b256(cat(utf8("product/peopl."), suffix, utf8("/"), sigSuffix));
+}
+
+// The account's consumer record on People Chain, which is what the indexer projects
+// search from, so a projection the chain does not back cannot pass. Waits for it to be
+// finalized: the indexer can serve a record a few blocks before finality reaches it.
+async function finalizedConsumer(
+  wsUri: string,
+  address: string
+): Promise<{ lite_username: Binary; full_username?: Binary } | undefined> {
+  const client = createClient(getWsProvider(wsUri));
+  try {
+    const consumers = client.getUnsafeApi().query.Resources.Consumers;
+    const deadline = Date.now() + FINALITY_TIMEOUT_MS;
+    for (;;) {
+      const consumer = await consumers.getValue(address);
+      if (consumer !== undefined || Date.now() >= deadline) return consumer;
+      await sleep(POLL_MS);
+    }
+  } finally {
+    client.destroy();
+  }
+}
+
 const waitForReady = () =>
   waitForDubReady({ timeoutMs: READY_TIMEOUT_MS, pollMs: POLL_MS, log: console.log });
 
 export async function run(
   nodeName: string,
-  _networkInfo: NetworkInfo,
+  networkInfo: NetworkInfo,
   _args: string[]
 ): Promise<number> {
   try {
@@ -108,9 +175,14 @@ export async function run(
     const ringVrfKey = verifiable.member_from_entropy(verifiableEntropy);
 
     // Both signatures are over the same message the pallet reconstructs:
-    // MSG_PREFIX || candidate || ring_vrf_key (people-lite/src/lib.rs).
+    // MSG_PREFIX || candidate || ring_vrf_key (people-lite/src/lib.rs). Newer
+    // runtimes check the account signatures over the personhood signing context
+    // followed by the message. The ring VRF proof always signs the plain message.
+    const context = await signingContext(networkInfo.nodesByName[nodeName].wsUri);
+    console.log(`[TEST] account signatures in the signing context: ${context !== null}`);
+    const accountPayload = (msg: Uint8Array) => (context ? cat(context, msg) : msg);
     const message = cat(MSG_PREFIX, publicKey, ringVrfKey);
-    const candidateSignature = keyPair.sign(message);
+    const candidateSignature = keyPair.sign(accountPayload(message));
     const proofOfOwnership = verifiable.sign(verifiableEntropy, message);
 
     // 65 bytes. The leading byte must be 0: the indexer's search excludes
@@ -154,7 +226,7 @@ export async function run(
       usernameBytes,
       Uint8Array.from([0]) // Option::None reserved_username
     );
-    const consumerRegistrationSignature = keyPair.sign(consumerPayload);
+    const consumerRegistrationSignature = keyPair.sign(accountPayload(consumerPayload));
 
     // --- register ----------------------------------------------------------
     const regRes = await fetch(`${BASE}/api/v1/usernames`, {
@@ -195,7 +267,9 @@ export async function run(
       );
       lastStatus = res.status;
       lastBody = await res.text();
-      let body: { usernames?: Array<{ username: string; accountId: string }> } = {};
+      let body: {
+        usernames?: Array<{ username: string; accountId: string; status: string }>;
+      } = {};
       try {
         body = JSON.parse(lastBody);
       } catch {
@@ -212,7 +286,21 @@ export async function run(
           console.error(`[TEST] FAIL account mismatch: ${hit.accountId} != ${address}`);
           return FAILURE;
         }
-        console.log(`[TEST] ok on chain and indexed: ${hit.username} -> ${hit.accountId}`);
+        if (hit.status !== "ASSIGNED") {
+          console.error(`[TEST] FAIL search status: ${hit.status}, want ASSIGNED`);
+          return FAILURE;
+        }
+        console.log(`[TEST] ok indexed: ${hit.username} -> ${hit.accountId} (${hit.status})`);
+
+        const consumer = await finalizedConsumer(networkInfo.nodesByName[nodeName].wsUri, address);
+        const lite = consumer?.lite_username.asText();
+        if (lite !== hit.username || consumer?.full_username !== undefined) {
+          console.error(
+            `[TEST] FAIL Resources.Consumers(${address}): lite ${lite}, full ${consumer?.full_username?.asText()}, want lite ${hit.username} and no full`
+          );
+          return FAILURE;
+        }
+        console.log(`[TEST] ok on chain: Resources.Consumers(${address}) is lite ${lite}`);
         console.log("[TEST] Registration end-to-end passed");
         return SUCCESS;
       }

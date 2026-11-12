@@ -111,5 +111,11 @@
     "collection": "pop:polkadot.network/people-lite",
     "size": 1,
     "_note": "Onboard each lite person into a ring on their own, rather than holding the first two until a third registers. Unlike the other seeds this one replaces a value rather than supplying a missing one: live Polkadot People already carries the collection, created at LitePeopleOnboardingSize = 3, and the fork inherits that. set_onboarding_size takes ManagerOrigin, which is RootOrTechnicalMaintenance on people-polkadot, and a fork can raise neither arm. The people collection keeps the 10 it inherits; only the lite one was asked for."
+  },
+  "stack": {
+    "tld": "dot",
+    "pointer": {
+      "url": "https://stack.api.pcf.network/.well-known/trinity-stack.json"
+    }
   }
 }

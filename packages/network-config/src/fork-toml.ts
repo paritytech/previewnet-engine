@@ -39,7 +39,8 @@
 
 import fs from 'node:fs';
 import {
-  VALIDATORS,
+  relayNodeName,
+  collatorNodeName,
   PORTS,
   P2P_PORTS,
   RELAY_BASE_PORT,
@@ -58,7 +59,7 @@ import { dubCustomProcesses } from './dub.js';
 // Bundle manifest — built by ./fork/manifest.ts, extended with biteBlocks by bite.sh
 // ---------------------------------------------------------------------------
 
-export type { ForkManifest, ForkManifestChain } from './bundle.js';
+export type { ForkManifest, ForkManifestChain, ForkTopology } from './bundle.js';
 
 // Services, data loading, and spec publishing — see note 4 above.
 //
@@ -80,10 +81,14 @@ const PROCESS_GATES: Record<string, Parachain | null> = {
   'storage-provider-node': 'web3-storage',
   'pin-design-families': 'people',
   'patch-bootnodes': null,
+  // The fork's Trinity stack descriptor: what a host imports to reach it.
+  'trinity-stack': null,
   // Imports the DotNS products whose bytes a warp-synced bulletin cannot have. Best
   // effort: without it the fork runs, but content published before the bite 404s.
   'pin-bulletin-products': 'bulletin',
   'increase-people-lite-attestation-allowance': 'people',
+  // The same attester reserves dotNS names on Asset Hub, under its own DotnsGateway allowance.
+  'increase-dotns-attestation-allowance': 'asset-hub',
   // Same reason as the allowance grant: a fork inherits the source network's invites, which
   // say nothing about the account signing here, and without invites the ticket pool fails
   // every batch it submits.
@@ -97,7 +102,11 @@ const PROCESS_GATES: Record<string, Parachain | null> = {
 // Processes whose only move is a sudo call. A fork of a network without sudo (kusama,
 // polkadot) cannot dispatch root, so these would only fail there; what they grant has to
 // come from the source chain's own state.
-const SUDO_PROCESSES = new Set(['increase-people-lite-attestation-allowance', 'grant-invites']);
+const SUDO_PROCESSES = new Set([
+  'increase-people-lite-attestation-allowance',
+  'increase-dotns-attestation-allowance',
+  'grant-invites',
+]);
 
 const FORK_PROCESSES = Object.keys(PROCESS_GATES);
 
@@ -192,11 +201,14 @@ function chainIdOf(specPath: string): string {
   return JSON.parse(fs.readFileSync(specPath, 'utf-8')).id;
 }
 
+// As many as the bite installed keys for: the well-known six, then names zombienet derives
+// keys from (see relayNodeName). One RPC port each, counting up from the relay base port.
 function relayNodes(count: number): string {
-  return VALIDATORS.slice(0, count).map(
-    (name, i) => `
+  return Array.from(
+    { length: count },
+    (_, i) => `
 [[relaychain.nodes]]
-name = "${name}"
+name = "${relayNodeName(i)}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
 env = [{ name = "ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION", value = "1" }]`
@@ -246,6 +258,30 @@ function parachainSection(
   }
   const envLine = env.length ? `\nenv = [${env.join(', ')}]` : '';
 
+  // As many collators as the bite installed as authorities (manifest.topology), every one
+  // restoring the same snapshot. Only the first holds the documented ports; the rest take
+  // whatever zombienet hands out, and drop a fixed listen address that would collide.
+  const count = manifest.topology?.collators[key] ?? 1;
+  const collators = Array.from({ length: count }, (_, i) =>
+    i === 0
+      ? `
+[[parachains.collators]]
+name = "${collatorNodeName(paraId, i)}"
+rpc_port = ${PORTS[key]}
+p2p_port = ${P2P_PORTS[key]}
+command = "${scriptsDir}/omni-node.sh"
+${restoreSnapshots ? `db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"` : ''}${envLine}
+args = ${tomlArgs(args)}
+`
+      : `
+[[parachains.collators]]
+name = "${collatorNodeName(paraId, i)}"
+command = "${scriptsDir}/omni-node.sh"
+${restoreSnapshots ? `db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"` : ''}${envLine}
+args = ${tomlArgs(args.filter((a) => !a.startsWith('--listen-addr=')))}
+`
+  );
+
   return `
 ## ${chain.specName} (${paraId}) — bitten at block ${manifest.biteBlocks[paraId]}
 [[parachains]]
@@ -253,15 +289,7 @@ id = ${paraId}
 cumulus_based = true
 chain = "${chainIdOf(specPath)}"
 chain_spec_path = "${specPath}"
-
-[[parachains.collators]]
-name = "Collator-${paraId}"
-rpc_port = ${PORTS[key]}
-p2p_port = ${P2P_PORTS[key]}
-command = "${scriptsDir}/omni-node.sh"
-${restoreSnapshots ? `db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"` : ''}${envLine}
-args = ${tomlArgs(args)}
-`;
+${collators.join('')}`;
 }
 
 /**
@@ -295,6 +323,8 @@ function customProcesses(
     if (gate !== null && !present.has(gate)) return false;
     if (name === 'pin-bulletin-products' && !pinsProducts(net)) return false;
     if (name === 'enact-upgrades' && !seeded) return false;
+    // Only the identity backend spends it, and that runs on People.
+    if (name === 'increase-dotns-attestation-allowance' && !present.has('people')) return false;
     if (SUDO_PROCESSES.has(name) && !net.sudo) return false;
     return net.services[name] !== false;
   })
@@ -371,7 +401,9 @@ export function generateForkToml(options: GenerateForkTomlOptions): string {
 # DO NOT EDIT — regenerate with: ppn fork toml <bundle> <out>
 # Forked ${net.name}, bitten ${manifest.bittenAt} from ${manifest.source}
 # Production node version at bite time: ${manifest.nodeVersion}
-# Bite blocks: ${JSON.stringify(manifest.biteBlocks)}
+# Bite blocks: ${JSON.stringify(manifest.biteBlocks)}${
+    manifest.topology ? `\n# Topology: ${JSON.stringify(manifest.topology)}` : ''
+  }
 
 [settings]
 timeout = 1200
@@ -382,7 +414,7 @@ chain = "${chainIdOf(relaySpecPath)}"
 chain_spec_path = "${relaySpecPath}"
 default_command = "${binDir}/${net.relay.binary.name}"
 ${restoreSnapshots ? `default_db_snapshot = "${bundleDir}/snapshots/relay.tgz"\n` : ''}default_args = ${tomlArgs(relayArgs)}
-${relayNodes(net.relay.validators)}
+${relayNodes(manifest.topology?.validators ?? net.relay.validators)}
 ${parachains
     .map((p) =>
       parachainSection(p, manifest, bundleDir, scriptsDir, enableHop, net, restoreSnapshots, options.binDir)

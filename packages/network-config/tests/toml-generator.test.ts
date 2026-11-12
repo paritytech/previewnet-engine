@@ -109,6 +109,7 @@ describe('generateToml', () => {
     assert.ok(toml.includes('name = "ipfs-swarm"'));
     assert.ok(toml.includes('name = "force-open-hrmp"'));
     assert.ok(toml.includes('name = "increase-people-lite-attestation-allowance"'));
+    assert.ok(toml.includes('name = "increase-dotns-attestation-allowance"'));
     assert.ok(!toml.includes('name = "inject-bootnodes"'));
     assert.ok(toml.includes('name = "patch-bootnodes"'));
     assert.ok(toml.includes('name = "assign-cores"'));
@@ -139,6 +140,7 @@ describe('generateToml', () => {
     assert.ok(!toml.includes('name = "ipfs-daemon"'));
     assert.ok(!toml.includes('name = "force-open-hrmp"'));
     assert.ok(!toml.includes('name = "increase-people-lite-attestation-allowance"'));
+    assert.ok(!toml.includes('name = "increase-dotns-attestation-allowance"'));
   });
 
   it('generates TOML for people + bulletin', () => {

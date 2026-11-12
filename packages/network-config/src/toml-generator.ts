@@ -20,6 +20,24 @@ import { dubCustomProcesses } from './dub.js';
 
 const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'] as const;
 
+/**
+ * The name of the i-th relay node in fork mode. The first six are the well-known names, which
+ * zombienet maps to the well-known dev keys; past them zombienet derives a node's keys from
+ * `//<Name>` — the same rule that makes `Collator-<paraId>` work — so any name serves, as long
+ * as the bite installs the keys derived from it (cli fork/validators.ts).
+ */
+function relayNodeName(i: number): string {
+  return VALIDATORS[i] ?? `Validator-${i + 1}`;
+}
+
+/**
+ * The name of the i-th collator of a parachain. The first keeps the name every bite has used,
+ * so a bundle bitten before collator counts existed still spawns; the rest are numbered from 2.
+ */
+function collatorNodeName(paraId: number, i: number): string {
+  return i === 0 ? `Collator-${paraId}` : `Collator-${paraId}-${i + 1}`;
+}
+
 const VALID_PARACHAINS: Parachain[] = PARACHAIN_KEYS;
 
 // Genesis is previewnet-only by design (see networks/README.md), but everything about
@@ -199,6 +217,7 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
       "--rpc-max-connections=500",
       '--force-authoring',
       '--ipfs-server',
+      '--authoring=slot-based',
       '--unsafe-rpc-external',
       '--rpc-max-response-size=50',
       `--listen-addr=/ip4/${P2P_LISTEN_IP}/udp/${P2P_PORTS['bulletin']}/webrtc-direct`,
@@ -556,6 +575,13 @@ name = "increase-people-lite-attestation-allowance"
 command = "{{SCRIPTS}}/increase-people-lite-attestation-allowance.sh"
 `
 )}${section(
+  has('people') && has('asset-hub') && serviceEnabled('increase-dotns-attestation-allowance'),
+  `
+[[custom_processes]]
+name = "increase-dotns-attestation-allowance"
+command = "{{SCRIPTS}}/increase-dotns-attestation-allowance.sh"
+`
+)}${section(
   has('people') && serviceEnabled('dub'),
   `
 [[custom_processes]]
@@ -581,6 +607,11 @@ ${section(serviceEnabled('patch-bootnodes'), `
 [[custom_processes]]
 name = "patch-bootnodes"
 command = "{{SCRIPTS}}/patch-bootnodes.sh"
+`)}
+${section(serviceEnabled('trinity-stack'), `
+[[custom_processes]]
+name = "trinity-stack"
+command = "{{SCRIPTS}}/trinity-stack.sh"
 `)}
 ${section(serviceEnabled('pin-design-families'), `
 [[custom_processes]]
@@ -614,6 +645,8 @@ export {
   LOG_LEVELS,
   // Shared with fork-toml.ts so that fork mode and genesis mode cannot drift apart.
   VALIDATORS,
+  relayNodeName,
+  collatorNodeName,
   PORTS,
   paraIds,
   RELAY_BASE_PORT,

@@ -1,0 +1,359 @@
+// Tests for packages/cli/src/commands/trinity-stack.ts
+// Run with: tsx --test tests/trinity-stack.test.ts
+//
+// The writer runs against a fixture data directory and fake nodes, and what it writes is read
+// back with @parity/trinity-stack, the reader hosts use: the descriptor must open with the
+// pointer the dashboard shows, and each spec it names must match the bytes on disk. The
+// generation and sequence rules are what tell readers to drop caches and refuse rollbacks.
+
+import { describe, it, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { loadDescriptorOnly, P2P_PORTS, PORTS, RELAY_BASE_PORT } from '@parity/ppn-network-config';
+import { checkSpec, lightSpecGenesis, open } from '@parity/trinity-stack';
+import { trinityStack, writeStack, type Settings } from '../src/commands/trinity-stack.js';
+import type { ServiceContext } from '../src/commands/service-context.js';
+
+const net = loadDescriptorOnly('previewnet');
+const SPECS: Record<string, { port: number; p2p: number }> = {
+  'paseo-local': { port: RELAY_BASE_PORT, p2p: P2P_PORTS.relay },
+  'asset-hub-local': { port: PORTS['asset-hub'], p2p: P2P_PORTS['asset-hub'] },
+  'individuality-local': { port: PORTS.people, p2p: P2P_PORTS.people },
+  'bulletin-local': { port: PORTS.bulletin, p2p: P2P_PORTS.bulletin },
+  'web3-storage-local': { port: PORTS['web3-storage'], p2p: P2P_PORTS['web3-storage'] },
+};
+const T0 = new Date('2026-10-21T00:00:00Z');
+const later = (seconds: number) => () => new Date(T0.getTime() + seconds * 1000);
+
+const stateRoot = (port: number) => `0x${port.toString(16).padStart(64, '0')}`;
+const genesisOf = (port: number) =>
+  lightSpecGenesis(new TextEncoder().encode(JSON.stringify({ genesis: { stateRootHash: stateRoot(port) } })));
+
+/** A node per chain port, answering what the writer asks. */
+const fakeNodes: Settings['call'] = async <T,>(url: string, method: string, params: unknown[] = []) => {
+  const port = Number(new URL(url).port);
+  const answers: Record<string, unknown> = {
+    chain_getBlockHash: params[0] === 0 ? genesisOf(port) : `0x${'ab'.repeat(32)}`,
+    chain_getHeader: { stateRoot: stateRoot(port) },
+    system_localPeerId: `12D3KooW${port}`,
+    sync_state_genSyncSpec: { lightSyncState: { finalizedBlockHeader: '0x00' } },
+    eth_chainId: '0x190f1b41',
+  };
+  if (!(method in answers)) throw new Error(`unexpected ${method}`);
+  return answers[method] as T;
+};
+/** The same nodes, with one method failing. */
+const failing = (failed: string): Settings['call'] => async (url, method, params) => {
+  if (method === failed) throw new Error(`${failed} unavailable`);
+  return fakeNodes(url, method, params);
+};
+
+let dataDir: string;
+const settings = (extra: Partial<Settings> = {}): Settings => ({
+  call: fakeNodes,
+  // No source descriptor answers unless a test serves one.
+  fetch: async () => new Response(null, { status: 404 }),
+  now: () => T0,
+  baseUrl: 'http://127.0.0.1:8090',
+  dataDir,
+  bootnodeHost: '127.0.0.1',
+  ...extra,
+});
+const read = (file: string) => new Uint8Array(fs.readFileSync(path.join(dataDir, file)));
+const readJson = (file: string) => JSON.parse(fs.readFileSync(path.join(dataDir, file), 'utf-8'));
+const writeSpecs = (host: string) => {
+  const hostPart = host === '127.0.0.1' ? '/ip4/127.0.0.1' : `/dns4/${host}`;
+  for (const [name, { p2p }] of Object.entries(SPECS)) {
+    const spec = { id: name, bootNodes: [`${hostPart}/tcp/${p2p}/ws/p2p/12D3KooWzombie`], genesis: { raw: { top: {} } } };
+    fs.writeFileSync(path.join(dataDir, `${name}.json`), JSON.stringify(spec, null, 2));
+  }
+};
+const stamp = (extra: Record<string, unknown> = {}) =>
+  fs.writeFileSync(
+    path.join(dataDir, 'spawn.json'),
+    JSON.stringify({ spawnedAt: '2026-10-21T00:00:00.000Z', network: 'previewnet', mode: 'genesis', bite: null, profile: 'local', ...extra })
+  );
+
+beforeEach(() => {
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-stack-'));
+  writeSpecs('127.0.0.1');
+  stamp();
+});
+
+describe('writeStack — what it writes', () => {
+  it('writes a descriptor the pointer opens, naming specs that match the files', async () => {
+    const { written, complete } = await writeStack({ net }, settings());
+    assert.equal(complete, true);
+    const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.equal(written.pointer.url, 'http://127.0.0.1:8090/.well-known/trinity-stack.json');
+    assert.equal(descriptor.chains.length, 5);
+    for (const chain of descriptor.chains) {
+      const name = path.basename(new URL(chain.fullSpec!.url).pathname, '.json');
+      checkSpec(chain.fullSpec!, read(`${name}.json`));
+      checkSpec(chain.lightSpec!, read(`${name}.smol.json`));
+      assert.equal(lightSpecGenesis(read(`${name}.smol.json`)), chain.genesisHash);
+    }
+  });
+
+  it('points light clients at the nodes it runs, and gives the relay a checkpoint', async () => {
+    await writeStack({ net }, settings());
+    const relay = readJson('paseo-local.smol.json');
+    assert.deepEqual(relay.bootNodes, [`/ip4/127.0.0.1/tcp/${P2P_PORTS.relay}/ws/p2p/12D3KooW${RELAY_BASE_PORT}`]);
+    assert.deepEqual(relay.lightSyncState, { finalizedBlockHeader: '0x00' });
+    assert.deepEqual(relay.genesis, { stateRootHash: stateRoot(RELAY_BASE_PORT) });
+  });
+
+  it('behind https, offers native light clients ws and browsers wss', async () => {
+    writeSpecs('ppn.example');
+    await writeStack({ net }, settings({ baseUrl: 'https://ppn.example', bootnodeHost: 'ppn.example' }));
+    assert.deepEqual(readJson('asset-hub-local.smol.json').bootNodes, [
+      `/dns4/ppn.example/tcp/${P2P_PORTS['asset-hub']}/ws/p2p/12D3KooW${PORTS['asset-hub']}`,
+      `/dns4/ppn.example/tcp/31335/wss/p2p/12D3KooW${PORTS['asset-hub']}`,
+    ]);
+  });
+
+  it('signs with the deployment key, and the pointer carries it', async () => {
+    const { written } = await writeStack({ net }, settings({ secret: new Uint8Array(32).fill(7) }));
+    assert.match(written.pointer.key ?? '', /^0x[0-9a-f]{64}$/);
+    assert.ok(open(read('trinity-stack.json'), written.pointer).signed);
+  });
+
+  it('never signs a fork, whose machine may hold its source key', async () => {
+    stamp({ mode: 'fork' });
+    const { written } = await writeStack({ net }, settings({ secret: new Uint8Array(32).fill(7) }));
+    assert.equal(written.pointer.key, undefined);
+    assert.equal(open(read('trinity-stack.json'), written.pointer).signed, false);
+  });
+
+  const blocks = { relay: 100, '1500': 200, '1502': 300, '1501': 400, '1600': 500 };
+  const hashes = Object.fromEntries(Object.keys(blocks).map((id, i) => [id, `0x${String(i + 1).repeat(64)}`]));
+  const bite = (extra: Record<string, unknown> = {}) => ({
+    at: '2026-10-20T12:00:00.000Z', source: 'https://previewnet.substrate.dev', blocks, ...extra,
+  });
+
+  it("describes a fork with the source's block each chain was bitten at", async () => {
+    stamp({ mode: 'fork', bite: bite({ hashes }) });
+    const { written } = await writeStack({ net }, settings());
+    const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.equal(descriptor.id, 'previewnet-fork');
+    assert.deepEqual(descriptor.fork, { of: net.stack!.pointer, at: Date.parse('2026-10-20T12:00:00Z') / 1000 });
+    // The recorded source hashes, not the fork's own blocks, which the fake answers as 0xabab…
+    assert.deepEqual(descriptor.chains.map((c) => c.forkedAt), [
+      { number: 100, hash: hashes.relay },
+      { number: 200, hash: hashes['1500'] },
+      { number: 300, hash: hashes['1502'] },
+      { number: 400, hash: hashes['1501'] },
+      { number: 500, hash: hashes['1600'] },
+    ]);
+  });
+
+  // A bundle bitten before biteHashes were recorded: the source still has those blocks.
+  it("reads the source's blocks from the source when the bundle predates biteHashes", async () => {
+    stamp({ mode: 'fork', bite: bite() });
+    const sourceHash = `0x${'cd'.repeat(32)}`;
+    const call: Settings['call'] = async (url, method, params = []) =>
+      new URL(url).hostname === '127.0.0.1' ? fakeNodes(url, method, params) : (sourceHash as never);
+    const { written } = await writeStack({ net }, settings({ call }));
+    const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.deepEqual(descriptor.fork, { of: net.stack!.pointer, at: Date.parse('2026-10-20T12:00:00Z') / 1000 });
+    assert.deepEqual(descriptor.chains[0].forkedAt, { number: 100, hash: sourceHash });
+  });
+
+  it("names a fork without source blocks while its source does not answer, and tries again", async () => {
+    stamp({ mode: 'fork', bite: bite() });
+    const call: Settings['call'] = async (url, method, params = []) => {
+      if (new URL(url).hostname !== '127.0.0.1') throw new Error('source unreachable');
+      return fakeNodes(url, method, params);
+    };
+    const { written, complete } = await writeStack({ net }, settings({ call }));
+    const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.equal(complete, false);
+    assert.equal(descriptor.id, 'previewnet-fork');
+    assert.equal(descriptor.fork, undefined);
+    assert.ok(descriptor.chains.every((c) => c.forkedAt === undefined));
+  });
+
+  // The bite copies the source's registry, so the fork has the source's keys; a key rewired on
+  // either side since then is what the fork's own registry now returns.
+  const sourceRegistry = '0xd19e3d0c97cf501125a04a97405e3e6592fa846e';
+  const multicall3 = '0xb4468000abd87d3c56cbfbd153161223d7b109e5';
+  /** A source descriptor listing three dotNS keys, and a fresh fork data directory to write into. */
+  const forkOfSource = async (): Promise<Settings['fetch']> => {
+    await writeStack(
+      { net },
+      settings({
+        dotnsContracts: {
+          DotnsProtocolRegistry: sourceRegistry,
+          DotnsRegistrar: '0x4f06e818ba3d987704fd91cf3d868e4b019106ab',
+          Multicall3: multicall3,
+        },
+      })
+    );
+    const sourceDocument = fs.readFileSync(path.join(dataDir, 'trinity-stack.json'));
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-stack-'));
+    writeSpecs('127.0.0.1');
+    stamp({ mode: 'fork', bite: bite({ hashes }) });
+    return async (url) =>
+      url === net.stack!.pointer!.url ? new Response(sourceDocument) : new Response(null, { status: 404 });
+  };
+  const word = (address: string) => '0x' + address.slice(2).padStart(64, '0');
+  /** The fork's nodes: contracts with code, each registry's entries, and the dispatcher Asset Hub stores. */
+  const forkChain = (contracts: string[], registries: Record<string, Record<string, string>>, dispatcher?: { address: string; registry: string }): Settings['call'] =>
+    async (url, method, params = []) => {
+      if (method === 'eth_getCode') return (contracts.includes(params[0] as string) ? '0x6080' : '0x') as never;
+      if (method === 'state_getStorage') return (dispatcher?.address ?? null) as never;
+      if (method !== 'eth_call') return fakeNodes(url, method, params);
+      const { to, data } = params[0] as { to: string; data: string };
+      if (to === dispatcher?.address) return word(dispatcher.registry) as never;
+      if (!registries[to]) return '0x' as never;
+      const key = Buffer.from(data.slice(10), 'hex').toString().replace(/\0+$/, '');
+      return word(registries[to][key] ?? '0x' + '00'.repeat(20)) as never;
+    };
+
+  it("publishes its source's dotNS keys with the addresses the fork's registry returns", async () => {
+    const fetch = await forkOfSource();
+    const rewiredRegistrar = '0x' + '12'.repeat(20);
+    const call = forkChain([sourceRegistry, multicall3], {
+      [sourceRegistry]: { protocolRegistry: sourceRegistry, registrar: rewiredRegistrar },
+    });
+
+    const { written, complete } = await writeStack({ net }, settings({ call, fetch }));
+    assert.equal(complete, true);
+    assert.deepEqual(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, {
+      multicall3,
+      protocolRegistry: sourceRegistry,
+      registrar: rewiredRegistrar,
+    });
+  });
+
+  // dotNS deployed on the fork after the bite: the source's contracts do not exist here, and
+  // the registry is found through the dispatcher the chain's DotnsGateway calls into.
+  it("takes the registry from Asset Hub's dotNS dispatcher when the source's is not on the fork", async () => {
+    const fetch = await forkOfSource();
+    const ownRegistry = '0x' + '34'.repeat(20);
+    const ownRegistrar = '0x' + '56'.repeat(20);
+    const call = forkChain(
+      [ownRegistry],
+      { [ownRegistry]: { protocolRegistry: ownRegistry, registrar: ownRegistrar } },
+      { address: '0x' + '78'.repeat(20), registry: ownRegistry }
+    );
+
+    const { written, complete } = await writeStack({ net }, settings({ call, fetch }));
+    assert.equal(complete, true);
+    // Multicall3 is neither registered nor deployed at the source's address, so it is left out.
+    assert.deepEqual(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, {
+      protocolRegistry: ownRegistry,
+      registrar: ownRegistrar,
+    });
+  });
+
+  it("publishes no dotNS when neither the source's registry nor a dispatcher is on the fork", async () => {
+    const fetch = await forkOfSource();
+    const { written, complete } = await writeStack({ net }, settings({ call: forkChain([], {}), fetch }));
+    assert.equal(complete, true);
+    assert.equal(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, undefined);
+  });
+
+  it('publishes a fork without dotNS while its source descriptor does not answer, and tries again', async () => {
+    stamp({ mode: 'fork', bite: bite({ hashes }) });
+    const { written, complete } = await writeStack({ net }, settings());
+    assert.equal(complete, false);
+    assert.equal(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, undefined);
+  });
+});
+
+describe('writeStack — generation and sequence', () => {
+  it('keeps the generation when the network resumes, though the spawn is stamped again', async () => {
+    const first = await writeStack({ net }, settings());
+    stamp({ spawnedAt: '2026-10-22T00:00:00.000Z' });
+    const second = await writeStack({ net }, settings({ now: later(86400) }));
+    assert.equal(second.written.generation, first.written.generation);
+  });
+
+  it('mints a new generation when the data directory is wiped', async () => {
+    const first = await writeStack({ net }, settings());
+    fs.rmSync(path.join(dataDir, 'trinity-stack.state.json'));
+    stamp({ spawnedAt: '2026-10-22T00:00:00.000Z' });
+    const second = await writeStack({ net }, settings({ now: later(86400) }));
+    assert.notEqual(second.written.generation, first.written.generation);
+    assert.equal(second.written.generation, '2026-10-22T00:00:00.000Z');
+  });
+
+  it('keeps the sequence and the bytes when nothing changed, however much later', async () => {
+    const first = await writeStack({ net }, settings());
+    const bytes = read('trinity-stack.json');
+    const second = await writeStack({ net }, settings({ now: later(1000) }));
+    assert.deepEqual(second.written.state, first.written.state);
+    assert.deepEqual(read('trinity-stack.json'), bytes);
+  });
+
+  it('raises the sequence when the content changes', async () => {
+    const first = await writeStack({ net }, settings());
+    const second = await writeStack({ net }, settings({ now: later(1000), faucet: 'https://faucet.example' }));
+    assert.equal(second.written.state.sequence, first.written.state.sequence + 1000);
+  });
+});
+
+describe('writeStack — what it refuses or defers', () => {
+  it('refuses a light spec that does not imply the chain genesis', async () => {
+    const wrongRoot: Settings['call'] = async (url, method, params) =>
+      method === 'chain_getHeader' ? ({ stateRoot: stateRoot(1) } as never) : fakeNodes(url, method, params);
+    await assert.rejects(writeStack({ net }, settings({ call: wrongRoot })), /light spec implies genesis/);
+  });
+
+  it('rejects a web gateway URL whose path does not end in /, and writes nothing', async () => {
+    await assert.rejects(
+      writeStack({ net }, settings({ webGateway: 'https://testnet.li?network=previewnet' })),
+      /must end in \//
+    );
+    assert.equal(fs.existsSync(path.join(dataDir, 'trinity-stack.json')), false);
+  });
+
+  it('publishes without the relay light spec until the relay has finalized a block', async () => {
+    const { written, complete } = await writeStack({ net }, settings({ call: failing('sync_state_genSyncSpec') }));
+    assert.equal(complete, false);
+    const relay = open(read('trinity-stack.json'), written.pointer).descriptor.chains[0];
+    assert.equal(relay.lightSpec, undefined);
+    assert.ok(relay.fullSpec);
+  });
+
+  it('publishes without eth-rpc until it answers', async () => {
+    const { written, complete } = await writeStack({ net }, settings({ call: failing('eth_chainId') }));
+    assert.equal(complete, false);
+    const { descriptor } = open(read('trinity-stack.json'), written.pointer);
+    assert.equal(descriptor.services.find((s) => s.kind === 'eth-rpc'), undefined);
+  });
+
+  it("refuses a spec that still names the source network's nodes", async () => {
+    const file = path.join(dataDir, 'asset-hub-local.json');
+    const spec = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    spec.bootNodes.push('/dns/asset-hub-paseo.example/tcp/30333/p2p/12D3KooWsource');
+    fs.writeFileSync(file, JSON.stringify(spec));
+    await assert.rejects(writeStack({ net }, settings()), /names nodes this network does not run/);
+    assert.equal(fs.existsSync(path.join(dataDir, 'trinity-stack.json')), false);
+  });
+
+  it('waits for patch-bootnodes on a server', async () => {
+    await assert.rejects(
+      writeStack({ net }, settings({ baseUrl: 'https://ppn.example', bootnodeHost: 'ppn.example' })),
+      /not patched to ppn\.example yet/
+    );
+  });
+
+  it('writes nothing for an ephemeral run, whose data directory is an earlier run', async () => {
+    const ctx: ServiceContext = {
+      net,
+      ports: { PPN_EPHEMERAL: '1' },
+      binDir: dataDir,
+      sharedBinDir: dataDir,
+      relayWs: 'ws://127.0.0.1:1',
+      sudoUri: '//Alice',
+      dataDir,
+      baseUrl: 'http://127.0.0.1:8090',
+    };
+    await trinityStack(ctx);
+    assert.equal(fs.existsSync(path.join(dataDir, 'trinity-stack.json')), false);
+  });
+});

@@ -38,19 +38,28 @@ function loadContext(): ServiceContext {
       process.env[k] ??= v;
     }
   }
-  const net = loadCurrentNetwork();
+  // A deployment names its instance, such as "Previewnet Staging": several run the same network
+  // file, and the dashboard and the Trinity stack descriptor both show this name.
+  const displayName = process.env.PPN_DISPLAY_NAME || ports.PPN_DISPLAY_NAME;
+  const loaded = loadCurrentNetwork();
+  const net = displayName ? { ...loaded, displayName } : loaded;
   // `make start` exports BIN for the custom processes, and the test harness relies on it
   // to point a service at a fixture directory.
   const binDir = process.env.BIN
     ? path.resolve(process.env.BIN)
     : path.join(WS, 'bin', net.name === 'previewnet' ? '' : net.name);
+  const sharedBinDir = net.name === 'previewnet' || process.env.BIN ? binDir : path.dirname(binDir);
+  const dashboardPort = process.env.DASHBOARD_PORT || ports.DASHBOARD_PORT || '8090';
   return {
     net,
     ports,
     binDir,
-    sharedBinDir: net.name === 'previewnet' || process.env.BIN ? binDir : path.dirname(binDir),
+    sharedBinDir,
     relayWs: process.env.RELAY_WS || `ws://127.0.0.1:${ports.RELAY_ALICE_PORT}`,
     sudoUri: process.env.PPN_SUDO_URI || '//Alice',
+    dataDir:
+      process.env.DATA_DIR || process.env.PPN_DATA_DIR || ports.PPN_DATA_DIR || path.join(path.dirname(sharedBinDir), 'data'),
+    baseUrl: (process.env.PPN_PUBLIC_URL || ports.PPN_PUBLIC_URL || `http://127.0.0.1:${dashboardPort}`).replace(/\/$/, ''),
   };
 }
 
@@ -74,9 +83,11 @@ const services: Record<string, Service> = {
   'dub-turn-env': async (ctx) => (await import('./turn.js')).printDubTurnEnv(ctx),
   'force-open-hrmp': forceOpenHrmp,
   'increase-people-lite-attestation-allowance': increaseAttestationAllowance,
+  'increase-dotns-attestation-allowance': increaseDotnsAttestationAllowance,
   'grant-invites': grantInvites,
   'set-dispatcher-address': setDispatcherAddress,
   'patch-bootnodes': patchBootnodes,
+  'trinity-stack': async (ctx) => (await import('./trinity-stack.js')).trinityStack(ctx),
   'storage-provider-node': storageProviderNode,
   'pin-bulletin-products': pinBulletinProducts,
   'enact-upgrades': enactUpgrades,
@@ -309,6 +320,23 @@ const dotRun = (args: string[]) =>
     env: dotEnv(),
   }).trim();
 
+/** Whether `chain` has `pallet`. Only dot's unknown-pallet error means no; anything else throws. */
+function dotHasPallet(chain: string, pallet: string, storage: string, key: string): boolean {
+  try {
+    execFileSync('dot', [`${chain}.query.${pallet}.${storage}`, key], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: dotEnv(),
+    });
+    return true;
+  } catch (err) {
+    const stderr = String((err as { stderr?: unknown }).stderr ?? '');
+    if (stderr.includes(`Unknown pallet "${pallet}"`)) return false;
+    process.stderr.write(stderr);
+    throw err;
+  }
+}
+
 async function chainReachable(httpUrl: string, attempts: number, gapSeconds: number): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -392,19 +420,7 @@ async function forceOpenHrmp(ctx: ServiceContext, _deps: ServiceDeps = {}): Prom
  */
 async function increaseAttestationAllowance(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
   const ALLOWANCE_COUNT = '1000';
-  const profile = process.env.PPN_PROFILE ?? 'local';
-  // In deployable mode Alice has been stripped from balances, so granting to her would be
-  // silently useless — the recipient must be named.
-  if (profile === 'deployable' && !process.env.PPN_ALLOWANCE_SS58) {
-    throw new Error(
-      'the deployable profile requires PPN_ALLOWANCE_SS58 (the attestation allowance\n' +
-        '       recipient) in the file named by PPN_SECRETS_FILE'
-    );
-  }
-  const account =
-    process.env.PPN_ALLOWANCE_SS58 ||
-    process.env.ALLOWANCE_ACCOUNT ||
-    '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  const account = attesterAccount();
 
   await waitSeconds('the People chain', 20);
   const peopleWs = `ws://127.0.0.1:${ctx.ports.PEOPLE_PORT}`;
@@ -418,6 +434,85 @@ async function increaseAttestationAllowance(ctx: ServiceContext, _deps: ServiceD
     '--encode',
   ]);
   dotRun(['People.tx.Sudo.sudo', encoded, '--from', from]);
+}
+
+/**
+ * The account the identity backend's chain writer signs as, on People and on Asset Hub.
+ * In deployable mode Alice has been stripped from balances, so granting to her would be
+ * silently useless — the recipient must be named.
+ */
+function attesterAccount(): string {
+  const profile = process.env.PPN_PROFILE ?? 'local';
+  if (profile === 'deployable' && !process.env.PPN_ALLOWANCE_SS58) {
+    throw new Error(
+      'the deployable profile requires PPN_ALLOWANCE_SS58 (the attestation allowance\n' +
+        '       recipient) in the file named by PPN_SECRETS_FILE'
+    );
+  }
+  return (
+    process.env.PPN_ALLOWANCE_SS58 ||
+    process.env.ALLOWANCE_ACCOUNT ||
+    '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// increase-dotns-attestation-allowance
+// ---------------------------------------------------------------------------
+
+/**
+ * Grant the same attester its DotnsGateway allowance on Asset Hub. Without it the People
+ * registration lands but every dotNS reservation fails with NoAttestationAllowance, so an
+ * attested person never gets a dotNS name. Additive, so re-running is safe; runs in fork
+ * mode for the same reason as the People grant.
+ */
+async function increaseDotnsAttestationAllowance(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
+  const ALLOWANCE_COUNT = 1000;
+  const account = attesterAccount();
+
+  await waitSeconds('Asset Hub', 20);
+  dotRun(['chain', 'add', 'AssetHub', '--rpc', `ws://127.0.0.1:${ctx.ports.ASSET_HUB_PORT}`]);
+  const from = dotSudoAccount();
+  // A fork whose bite authorized an Asset Hub upgrade may only gain the pallet once
+  // enact-upgrades has applied it, so look again for a while before skipping.
+  for (let check = 1; !dotHasPallet('AssetHub', 'DotnsGateway', 'AttestationAllowance', account); check++) {
+    if (check >= 5) {
+      console.log('increase-dotns-attestation-allowance: Asset Hub has no DotnsGateway — nothing to grant');
+      return;
+    }
+    await sleep(30);
+    dotRun(['chain', 'update', 'AssetHub']);
+  }
+  // NaN on unexpected output, which fails the check below loudly.
+  const available = () =>
+    Number(dotRun(['AssetHub.query.DotnsGateway.AttestationAllowance', account]).trim() || '0');
+
+  // Verified by reading the allowance back: set-dispatcher-address signs as the same sudo
+  // account on Asset Hub, and a submission can lose its nonce to it.
+  for (let attempt = 1; ; attempt++) {
+    if (available() >= ALLOWANCE_COUNT) {
+      console.log(`increase-dotns-attestation-allowance: ${account} holds a DotnsGateway allowance`);
+      return;
+    }
+    if (attempt > 4) {
+      throw new Error(
+        `increase-dotns-attestation-allowance: ${account} still short after ${attempt - 1} attempts`
+      );
+    }
+    console.log(`increase-dotns-attestation-allowance: ${ALLOWANCE_COUNT} to ${account}`);
+    const encoded = dotRun([
+      'AssetHub.tx.DotnsGateway.increase_attestation_allowance',
+      account,
+      String(ALLOWANCE_COUNT),
+      '--encode',
+    ]);
+    try {
+      dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+    } catch (err) {
+      console.log(`  submission rejected (${(err as Error).message.split('\n')[0]}), will re-check`);
+    }
+    await sleep(6);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -529,9 +624,28 @@ async function setDispatcherAddress(ctx: ServiceContext, _deps: ServiceDeps = {}
   await waitSeconds('Asset Hub', 20);
   dotRun(['chain', 'add', 'AssetHub', '--rpc', `ws://127.0.0.1:${ctx.ports.ASSET_HUB_PORT}`]);
   const from = dotSudoAccount();
-  console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${target} (${via})`);
-  const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', target, '--encode']);
-  dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+  const current = () =>
+    dotRun(['AssetHub.query.DotnsGateway.DispatcherAddress']).replace(/"/g, '').toLowerCase();
+
+  // Verified by reading the address back: increase-dotns-attestation-allowance signs as the
+  // same sudo account on Asset Hub, and a submission can lose its nonce to it.
+  for (let attempt = 1; ; attempt++) {
+    if (current() === String(target).toLowerCase()) {
+      console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress is ${target} (${via})`);
+      return;
+    }
+    if (attempt > 4) {
+      throw new Error(`set-dispatcher-address: DispatcherAddress still not ${target} after ${attempt - 1} attempts`);
+    }
+    console.log(`set-dispatcher-address: DotnsGateway.DispatcherAddress = ${target} (${via})`);
+    const encoded = dotRun(['AssetHub.tx.DotnsGateway.set_dispatcher_address', target, '--encode']);
+    try {
+      dotRun(['AssetHub.tx.Sudo.sudo', encoded, '--from', from]);
+    } catch (err) {
+      console.log(`  submission rejected (${(err as Error).message.split('\n')[0]}), will re-check`);
+    }
+    await sleep(6);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -549,10 +663,8 @@ async function patchBootnodes(ctx: ServiceContext, _deps: ServiceDeps = {}): Pro
     console.log('patch-bootnodes: BOOTNODE_HOSTNAME is 127.0.0.1, nothing to advertise');
     return;
   }
-  // Where the specs are depends on the mode: data/ for genesis, data-fork-<network>/ for a
-  // fork. `ppn start` records the answer in ports.local.env, which ctx.ports merges in; a
-  // deployment that spawns zombie-cli itself sets DATA_DIR. Only then the genesis default.
-  const dir = process.env.DATA_DIR || ctx.ports.PPN_DATA_DIR || path.join(WS, 'data');
+  // Where the specs are depends on the mode: data/ for genesis, data-fork-<network>/ for a fork.
+  const dir = ctx.dataDir;
   if (!fs.existsSync(dir)) throw new Error(`DATA_DIR does not exist: ${dir}`);
 
   // A raw chainspec is any top-level JSON with an id and a bootNodes list. Matching by
@@ -561,7 +673,8 @@ async function patchBootnodes(ctx: ServiceContext, _deps: ServiceDeps = {}): Pro
   const rawSpecs = () =>
     fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith('.json') && !f.endsWith('-plain.json') && f !== 'zombie.json')
+      // Light specs are excluded: trinity-stack writes their bootnodes and hashes their bytes.
+      .filter((f) => f.endsWith('.json') && !f.endsWith('-plain.json') && !f.endsWith('.smol.json') && f !== 'zombie.json')
       .filter((f) => {
         try {
           const s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
@@ -642,7 +755,7 @@ async function storageProviderNode(ctx: ServiceContext, _deps: ServiceDeps = {})
     const storagePath =
       process.env.STORAGE_PATH ||
       ctx.ports.WEB3_STORAGE_PROVIDER_DATA_DIR ||
-      path.join(process.env.DATA_DIR || ctx.ports.PPN_DATA_DIR || path.join(WS, 'data'), 'web3-storage-provider');
+      path.join(ctx.dataDir, 'web3-storage-provider');
     fs.mkdirSync(storagePath, { recursive: true });
     storageArgs.length = 0;
     storageArgs.push('--storage-mode', 'disk', '--storage-path', storagePath);

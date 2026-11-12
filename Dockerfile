@@ -101,5 +101,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
         -d '{"jsonrpc":"2.0","method":"system_health","params":[],"id":1}' \
         http://localhost:10000 || exit 1
 
+# The CLI reads its install type from this, because the image has no .git or dist manifest.
+ENV PPN_INSTALL=docker
+
 # Start network via entrypoint script (prints info, handles regenerate)
 ENTRYPOINT ["/ppn/scripts/docker-entrypoint.sh"]

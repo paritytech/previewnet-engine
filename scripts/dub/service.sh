@@ -154,12 +154,13 @@ if [[ -z "${JWT_ED25519_PUBLIC_KEY:-}" && -z "${JWT_JWKS_JSON:-}" ]]; then
     export JWT_ED25519_PUBLIC_KEY
 fi
 
-# 2. Free our own port. A leftover process from a previous run holds it, and the
-#    supervision loop below would otherwise respawn against "Address already in
-#    use (os error 48)" forever. BIND_ADDR comes from the TOML env and is only
-#    set for the services that listen, so this is a no-op for the workers.
+# 2. Refuse a port that is already held. The supervision loop below would otherwise
+#    respawn against "Address already in use (os error 48)" forever. The holder is
+#    not ours to stop: it may be a leftover of a previous run (`ppn kill`), or
+#    anyone's. BIND_ADDR comes from the TOML env and is only set for the services
+#    that listen, so this is a no-op for the workers.
 if [[ -n "${BIND_ADDR:-}" ]]; then
-    "$PROJECT_DIR/scripts/kill-port.sh" "${BIND_ADDR##*:}" >/dev/null 2>&1 || true
+    "$PROJECT_DIR/scripts/require-free-ports.sh" "${BIND_ADDR##*:}" || exit 1
 fi
 
 # 3. Wait for Postgres. Every service connects and applies migrations before
