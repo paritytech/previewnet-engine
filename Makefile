@@ -240,7 +240,7 @@ build build-spawner:
 # Regenerate local-dev.toml from @ppn/network-config (dev only).
 # Run this after editing the generator — do not edit local-dev.toml directly.
 generate-toml: build-spawner
-	@node $(CURDIR)/bin/ppn.mjs genesis-toml > $(CONFIG_DIR)/local-dev.toml
+	@PPN_NETWORK_OVERLAY= node $(CURDIR)/bin/ppn.mjs genesis-toml > $(CONFIG_DIR)/local-dev.toml
 	@echo "✓ local-dev.toml regenerated"
 
 # =============================================================================
