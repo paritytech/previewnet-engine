@@ -45,8 +45,8 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
   const section = object(net.name, raw[net.name], ['relay', 'parachains']);
   const relay = object(`${net.name}.relay`, section.relay ?? {}, RELAY_FIELDS);
   const parachains = object(`${net.name}.parachains`, section.parachains ?? {});
-  const declared = net.parachains.map((p) => p.key);
-  const undeclared = Object.keys(parachains).filter((key) => !declared.includes(key as never));
+  const declared: string[] = net.parachains.map((p) => p.key);
+  const undeclared = Object.keys(parachains).filter((key) => !declared.includes(key));
   if (undeclared.length) {
     bad(`${net.name} has no parachains ${undeclared.join(', ')} (declared: ${declared.join(', ')})`);
   }
