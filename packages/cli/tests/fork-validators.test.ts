@@ -12,15 +12,18 @@ import {
   collatorKeys,
   devValidators,
   paraCandidates,
+  paraCollators,
   paraInjects,
   relayCandidates,
   relayInjects,
   sessionKeys,
+  sessionKeyFields,
   authorizedUpgradeCandidate,
   type DevValidator,
 } from '../src/fork/validators.js';
 import { verify, verifyInjects } from '../src/fork/overrides.js';
-import { compactLen, keyOf, u32le } from '../src/fork/codec.js';
+import { compactLen, keyOf, twox64Concat, u32le } from '../src/fork/codec.js';
+import { TypeRegistry } from '@polkadot/types';
 import { PARACHAINS } from '../src/fork/chains.js';
 
 // Captured from the override files of a bite that produced a verified working fork, before
@@ -191,11 +194,14 @@ describe('para overrides', () => {
     assert.notEqual(a, await collatorKey(1500), 'para id must change the key');
   });
 
+  // Every parachain bitten before authority_discovery joined SessionKeys had Aura alone.
+  const AURA_ONLY = [{ keyTypeId: 'aura', scheme: 'sr25519' as const }];
+
   it('matches the values a verified bite produced, for every parachain', async () => {
     for (const { paraId } of PARACHAINS) {
-      const collator = await collatorKey(paraId);
-      const candidates = paraCandidates([collator]);
-      const injects = paraInjects([collator]);
+      const collators = await paraCollators(paraId, 1, 'sr25519', AURA_ONLY);
+      const candidates = paraCandidates(collators);
+      const injects = paraInjects(collators);
       for (const [key, value] of Object.entries(GOLDEN[paraId].overrides)) {
         assert.equal(candidates[key], value, `para ${paraId} override ${key} changed`);
       }
@@ -207,7 +213,7 @@ describe('para overrides', () => {
 
   it('installs exactly one collator as the authority by default', async () => {
     const collator = await collatorKey(1500);
-    const candidates = paraCandidates([collator]);
+    const candidates = paraCandidates(await paraCollators(1500, 1, 'sr25519', AURA_ONLY));
     assert.equal(candidates[keyOf('CollatorSelection', 'DesiredCandidates')], '01000000');
     for (const [pallet, item] of [['Aura', 'Authorities'], ['AuraExt', 'Authorities'], ['Session', 'Validators']]) {
       assert.equal(candidates[keyOf(pallet, item)], compactLen(1) + collator, `${pallet}::${item}`);
@@ -231,20 +237,93 @@ describe('para overrides', () => {
 
   it('installs every collator it is given as an authority', async () => {
     const five = await collatorKeys(1502, 5);
-    const candidates = paraCandidates(five);
+    const collators = await paraCollators(1502, 5, 'sr25519', AURA_ONLY);
+    const candidates = paraCandidates(collators);
     assert.equal(candidates[keyOf('CollatorSelection', 'DesiredCandidates')], u32le(5));
     for (const [pallet, item] of [['Aura', 'Authorities'], ['AuraExt', 'Authorities'], ['Session', 'Validators'], ['CollatorSelection', 'Invulnerables']]) {
       assert.equal(candidates[keyOf(pallet, item)], compactLen(5) + five.join(''), `${pallet}::${item}`);
     }
     assert.equal(candidates[keyOf('Session', 'QueuedKeys')], compactLen(5) + five.map((c) => c + c).join(''));
     // One NextKeys entry and one KeyOwner entry per collator.
-    assert.equal(Object.keys(paraInjects(five)).length, 10);
+    assert.equal(Object.keys(paraInjects(collators)).length, 10);
   });
 
   // Zeroing it, as zombie-bite does, desyncs the parachain from the relay's preserved Dmp.
   it('leaves ParachainSystem::LastDmqMqcHead alone', async () => {
-    const candidates = paraCandidates([await collatorKey(1500)]);
+    const candidates = paraCandidates(await paraCollators(1500, 1, 'sr25519', AURA_ONLY));
     assert.equal(candidates[keyOf('ParachainSystem', 'LastDmqMqcHead')], undefined);
+  });
+});
+
+// polkadot-sdk parachains carry `SessionKeys { aura, authority_discovery }` (Westend's Asset Hub
+// and People already do). Session::QueuedKeys and NextKeys decode as that struct, so a value
+// carrying only the Aura key fails the runtime's round-trip and the bite stops there.
+describe('para session keys', () => {
+  const WESTEND_ASSET_HUB = [
+    { name: 'aura', typePath: ['sp_consensus_aura', 'sr25519', 'app_sr25519', 'Public'] },
+    { name: 'authority_discovery', typePath: ['sp_authority_discovery', 'app', 'Public'] },
+  ];
+
+  const registry = new TypeRegistry();
+  registry.register({ TwoKeySessionKeys: { aura: '[u8;32]', authority_discovery: '[u8;32]' } });
+  const roundTrips = (type: string, hex: string) => registry.createType(type, '0x' + hex).toHex() === '0x' + hex;
+
+  it('reads the KeyTypeId and curve of every SessionKeys field', () => {
+    assert.deepEqual(sessionKeyFields(WESTEND_ASSET_HUB, 'sr25519'), [
+      { keyTypeId: 'aura', scheme: 'sr25519' },
+      { keyTypeId: 'audi', scheme: 'sr25519' },
+    ]);
+  });
+
+  it('writes a key for every field, each round-tripping through the runtime type', async () => {
+    const collators = await paraCollators(1000, 2, 'sr25519', sessionKeyFields(WESTEND_ASSET_HUB, 'sr25519'));
+    const account = await collatorKey(1000);
+    assert.deepEqual(collators[0].sessionKeys.map((key) => key.publicKey), [account, account]);
+
+    const queued = paraCandidates(collators)[keyOf('Session', 'QueuedKeys')];
+    assert.ok(roundTrips('Vec<(AccountId32, TwoKeySessionKeys)>', queued));
+    const [[, firstKeys]] = registry.createType('Vec<(AccountId32, TwoKeySessionKeys)>', '0x' + queued).toJSON() as [string, unknown][];
+    assert.deepEqual(firstKeys, { aura: '0x' + account, authority_discovery: '0x' + account });
+
+    const injects = paraInjects(collators);
+    const nextKeys = injects[keyOf('Session', 'NextKeys') + twox64Concat(account)];
+    assert.ok(roundTrips('TwoKeySessionKeys', nextKeys));
+  });
+
+  // `KeyOwner::get((KeyTypeId, key))` is how the runtime finds the account behind a key, so each
+  // entry has to sit at the Twox64Concat key of that tuple, one per key.
+  it('records the owner of every key under its own KeyTypeId', async () => {
+    const collators = await paraCollators(1000, 1, 'sr25519', sessionKeyFields(WESTEND_ASSET_HUB, 'sr25519'));
+    const account = collators[0].account;
+    const injects = paraInjects(collators);
+    for (const keyTypeId of ['aura', 'audi']) {
+      const owned = registry.createType('([u8;4], Bytes)', [Buffer.from(keyTypeId), '0x' + account]).toHex().slice(2);
+      assert.equal(injects[keyOf('Session', 'KeyOwner') + twox64Concat(owned)], account);
+    }
+  });
+
+  it('derives a field on another curve from the same seed', async () => {
+    const fields = sessionKeyFields(
+      [
+        { name: 'aura', typePath: ['sp_consensus_aura', 'ed25519', 'app_ed25519', 'Public'] },
+        { name: 'authority_discovery', typePath: ['sp_authority_discovery', 'app', 'Public'] },
+      ],
+      'ed25519'
+    );
+    const [collator] = await paraCollators(1000, 1, 'ed25519', fields);
+    assert.equal(collator.account, await collatorKey(1000, 'ed25519'));
+    assert.deepEqual(collator.sessionKeys.map((key) => key.publicKey), [
+      await collatorKey(1000, 'ed25519'),
+      await collatorKey(1000, 'sr25519'),
+    ]);
+  });
+
+  it('rejects a field it cannot key, and an Aura curve the descriptor disagrees with', () => {
+    assert.throws(
+      () => sessionKeyFields([{ name: 'beefy', typePath: ['sp_consensus_beefy', 'ecdsa_crypto', 'Public'] }], 'sr25519'),
+      /SessionKeys field "beefy"/
+    );
+    assert.throws(() => sessionKeyFields(WESTEND_ASSET_HUB, 'ed25519'), /declares ed25519 Aura keys/);
   });
 });
 
