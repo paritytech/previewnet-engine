@@ -60,14 +60,14 @@ describe('network overlay: RPC nodes in front of People', () => {
     for (const [i, block] of rpc.entries()) {
       assert.ok(block.includes('validator = false'));
       assert.ok(block.includes(`rpc_port = ${PORTS.people + i + 1}`));
+      assert.ok(block.includes(`prometheus_port = ${PORTS.people + i + 1 + 10000}`));
       assert.ok(!argsOf(block).some((a) => a.startsWith('--force-authoring') || a.startsWith('--authoring')));
       assert.ok(argsOf(block).includes('--enable-statement-store'));
     }
     assert.ok(argsOf(collator).includes('--force-authoring'));
   });
 
-  // The engine's own table sets --rpc-max-connections=500; dropping the deployment's value
-  // in favour of it is what capped a game at a few hundred players.
+  // A deployment has to be able to raise a limit the engine's table sets.
   it('gives the deployment the last word on a flag the engine also sets', () => {
     assert.ok(argsOf(collator).includes('--rpc-max-connections=50'));
     assert.ok(!argsOf(collator).includes('--rpc-max-connections=500'));
@@ -89,10 +89,11 @@ describe('network overlay: RPC nodes in front of People', () => {
     assert.doesNotMatch(upstream, new RegExp(`:${PORTS.people};`));
   });
 
-  it('leaves the other network untouched', () => {
+  it('applies each network its own section only', () => {
     const devnet = loadNetwork('devnet');
     assert.deepEqual(devnet.relay.extraArgs, ['--rpc-max-connections=7']);
     assert.ok(devnet.parachains.every((p) => p.rpcNodes === 0));
+    assert.deepEqual(loadNetwork('previewnet').relay.extraArgs, []);
   });
 });
 
@@ -108,6 +109,8 @@ describe('network overlay: a mistake fails instead of deploying defaults', () =>
     rejects({ previewnet: { parachains: { people: { rpcNode: 2 } } } }, /unknown fields rpcNode/));
   it('rejects more RPC nodes than the port gap holds', () =>
     rejects({ previewnet: { parachains: { people: { rpcNodes: 10 } } } }, /rpcNodes must be an integer 0\.\.9/));
+  it('rejects a fractional RPC node count', () =>
+    rejects({ previewnet: { parachains: { people: { rpcNodes: 1.5 } } } }, /rpcNodes must be an integer/));
   it('rejects args that are not flags', () =>
     rejects({ previewnet: { relay: { extraArgs: ['rpc-max-connections=1'] } } }, /must be an array of "--flag" strings/));
   it('rejects a file that is not there', () =>
