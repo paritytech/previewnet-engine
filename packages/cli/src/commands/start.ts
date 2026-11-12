@@ -321,7 +321,15 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
   if (!opts.fork) {
     const { run: generate } = await import('./generate.js');
     await generate([binDir], { ifNeeded: true });
-    return opts.toml ?? path.join(REPO, 'zombienet-configs', 'local-dev.toml');
+    if (opts.toml) return opts.toml;
+    // The checked-in config has no overlay in it, so an overlay's nodes need one generated.
+    if (!process.env.PPN_NETWORK_OVERLAY) return path.join(REPO, 'zombienet-configs', 'local-dev.toml');
+    const overlaid = path.join(WS, 'zombienet-configs', 'local-dev.overlay.toml');
+    fs.mkdirSync(path.dirname(overlaid), { recursive: true });
+    const generated = spawnSync(nodeBin, [ppn, 'genesis-toml'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'inherit'] });
+    if (generated.status !== 0) throw new Error('ppn genesis-toml failed');
+    fs.writeFileSync(overlaid, generated.stdout);
+    return overlaid;
   }
 
   const forkDir = forkDirFor(netDef.name);
