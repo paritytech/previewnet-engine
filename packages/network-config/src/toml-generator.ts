@@ -129,6 +129,11 @@ const PORTS: Record<Parachain, number> = {
   'web3-storage': requiredPort('WEB3_STORAGE_PORT'),
 };
 
+/** The Prometheus port of a node whose RPC port is `rpcPort`. */
+function prometheusPort(rpcPort: number): number {
+  return rpcPort + requiredPort('PROMETHEUS_PORT_OFFSET');
+}
+
 /** RPC ports of a parachain's RPC nodes: the chain's own port + 1..rpcNodes. */
 function rpcNodePorts(p: NetworkParachain): number[] {
   return Array.from({ length: p.rpcNodes }, (_, i) => PORTS[p.key] + i + 1);
@@ -151,6 +156,7 @@ function rpcNodeBlocks(p: NetworkParachain, collatorArgs: string[], launch: stri
 name = "${p.key}-rpc${i + 1}"
 validator = false
 rpc_port = ${port}
+prometheus_port = ${prometheusPort(port)}
 ${launch}
 args = ${tomlArgs(args)}
 `
@@ -328,6 +334,7 @@ chain_spec_path = "{{BIN}}/${genesisSpecOf(key).file}"
 name = "${key}-collator1"
 rpc_port = ${PORTS[key]}
 p2p_port = ${P2P_PORTS[key]}
+prometheus_port = ${prometheusPort(PORTS[key])}
 ${launch}
 args = ${tomlArgs(args)}
 ${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
@@ -341,6 +348,7 @@ function validatorNodes(count: number): string {
 name = "${v}-${genesisConfig().validatorNameSuffix}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
+prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}
 balance = 1000000000000000`
     )
     .join('\n');
@@ -624,6 +632,7 @@ export {
   addMissing,
   tomlArgs,
   requiredPort,
+  prometheusPort,
   rpcNodePorts,
   rpcNodeBlocks,
 };

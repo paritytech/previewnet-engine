@@ -48,6 +48,7 @@ import {
   addMissing,
   tomlArgs,
   requiredPort,
+  prometheusPort,
   rpcNodeBlocks,
 } from './toml-generator.js';
 import type { Parachain } from './types.js';
@@ -213,6 +214,7 @@ function relayNodes(count: number): string {
 name = "${relayNodeName(i)}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
+prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}
 env = [{ name = "ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION", value = "1" }]`
   ).join('\n');
 }
@@ -271,6 +273,7 @@ function parachainSection(
 name = "${collatorNodeName(paraId, i)}"
 rpc_port = ${PORTS[key]}
 p2p_port = ${P2P_PORTS[key]}
+prometheus_port = ${prometheusPort(PORTS[key])}
 ${launch}
 args = ${tomlArgs(args)}
 `

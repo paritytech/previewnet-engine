@@ -234,6 +234,15 @@ describe('generateToml', () => {
     assert.ok(toml.includes(`p2p_port = ${P2P_PORTS.bulletin}`)); // bulletin
   });
 
+  // Metrics are scraped from fixed ports, so every node with a fixed RPC port needs one too,
+  // and no two may collide.
+  it('gives every node a Prometheus port at its RPC port plus the offset', () => {
+    const toml = generateToml([...VALID_PARACHAINS]);
+    const rpc = [...toml.matchAll(/^rpc_port = (\d+)$/gm)].map((m) => Number(m[1]));
+    const prometheus = [...toml.matchAll(/^prometheus_port = (\d+)$/gm)].map((m) => Number(m[1]));
+    assert.deepEqual(prometheus, rpc.map((port) => port + 10000));
+  });
+
   it('does not produce triple blank lines', () => {
     const combos: Parachain[][] = [
       ['asset-hub'],

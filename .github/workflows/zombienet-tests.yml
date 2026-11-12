@@ -365,7 +365,7 @@ jobs:
           # Additional wait for nodes to be ready
           sleep 30
 
-      - name: Verify the People RPC node serves the chain
+      - name: Verify the People RPC node serves the chain and its metrics
         run: |
           source ./config/ports.env
           RPC_PORT=$((PEOPLE_PORT + 1))
@@ -384,6 +384,8 @@ jobs:
           roles=$(rpc system_nodeRoles)
           echo "people-rpc1 roles: $roles"
           [ "$roles" = '["Full"]' ] || { echo "ERROR: people-rpc1 should be a full node, is $roles"; exit 1; }
+          curl -sf -m 5 "http://127.0.0.1:$((RPC_PORT + PROMETHEUS_PORT_OFFSET))/metrics" | grep -q '^substrate_block_height' \
+            || { echo "ERROR: no metrics on $((RPC_PORT + PROMETHEUS_PORT_OFFSET))"; exit 1; }
 
       - name: Verify raw chainspecs have bootNodes
         run: |
