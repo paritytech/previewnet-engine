@@ -630,3 +630,21 @@ describe('generateForkToml — provenance', () => {
     assert.ok(toml.endsWith('\n'));
   });
 });
+
+describe('generateForkToml — RPC nodes from the network overlay', () => {
+  it('restores each RPC node from the chain snapshot, on the ports after the collator', () => {
+    const overlay = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'overlay-')), 'overlay.json');
+    fs.writeFileSync(overlay, JSON.stringify({ previewnet: { parachains: { people: { rpcNodes: 1 } } } }));
+    process.env.PPN_NETWORK_OVERLAY = overlay;
+    try {
+      const block = generate().split('name = "people-rpc1"')[1].split('[[')[0];
+      assert.match(block, /validator = false/);
+      assert.match(block, new RegExp(`rpc_port = ${PORTS.people + 1}`));
+      assert.match(block, new RegExp(`db_snapshot = ".*/snapshots/${paraIds().people}\\.tgz"`));
+      assert.match(block, /--relay-chain-rpc-urls=/);
+      assert.doesNotMatch(block, /--force-authoring/);
+    } finally {
+      delete process.env.PPN_NETWORK_OVERLAY;
+    }
+  });
+});

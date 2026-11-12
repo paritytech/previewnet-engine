@@ -26,8 +26,10 @@ export function nginxRoutes(model: DashboardModel): { upstreams: string; locatio
 
   const upstreams = entries
     .map(
-      (e) => `upstream ${sanitize(e.id)} {
-    server 127.0.0.1:${e.port};
+      // least_conn: a WebSocket stays open for the whole session, so round-robin by request
+      // would leave the nodes as unevenly loaded as the sessions happen to last.
+      (e) => `upstream ${sanitize(e.id)} {${e.upstreamPorts.length > 1 ? '\n    least_conn;' : ''}
+${e.upstreamPorts.map((port) => `    server 127.0.0.1:${port};`).join('\n')}
     keepalive 32;
 }`
     )

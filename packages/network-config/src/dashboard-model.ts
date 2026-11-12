@@ -9,7 +9,7 @@
 // which is the one thing that differs per environment (127.0.0.1 vs a domain).
 
 import type { NetworkDef, Parachain } from './networks.js';
-import { PORTS, RELAY_BASE_PORT, VALIDATORS, requiredPort } from './toml-generator.js';
+import { PORTS, RELAY_BASE_PORT, VALIDATORS, requiredPort, rpcNodePorts } from './toml-generator.js';
 import { iceServers, runsTurnRelay, type IceServer } from './turn.js';
 
 /** Bumped when the shape changes incompatibly. Renderers support N and N-1. */
@@ -50,6 +50,8 @@ export interface DashboardEndpoint {
 
 export interface DashboardChain extends DashboardEndpoint {
   paraId: number | null;
+  /** Every local port the path balances across: the chain's RPC nodes, else `port` alone. */
+  upstreamPorts: number[];
 }
 
 /** The TURN/STUN relay: what a WebRTC client puts in `iceServers`, and where to get credentials. */
@@ -115,6 +117,7 @@ export function dashboardModel(net: NetworkDef, baseUrl: string): DashboardModel
       paraId: null,
       path,
       port,
+      upstreamPorts: [port],
       protocol: 'ws',
       url,
       directUrl: `ws://127.0.0.1:${port}`,
@@ -126,7 +129,9 @@ export function dashboardModel(net: NetworkDef, baseUrl: string): DashboardModel
 
   for (const p of net.parachains) {
     const path = `/${p.key}`;
-    const port = PORTS[p.key as Parachain];
+    const rpcPorts = rpcNodePorts(p);
+    const upstreamPorts = rpcPorts.length ? rpcPorts : [PORTS[p.key as Parachain]];
+    const port = upstreamPorts[0];
     const url = wsUrl(base, path);
     chains.push({
       id: p.key,
@@ -134,6 +139,7 @@ export function dashboardModel(net: NetworkDef, baseUrl: string): DashboardModel
       paraId: p.paraId,
       path,
       port,
+      upstreamPorts,
       protocol: 'ws',
       url,
       directUrl: `ws://127.0.0.1:${port}`,

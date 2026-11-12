@@ -14,9 +14,10 @@ import path from 'node:path';
 import { repoRoot } from './repo-root.js';
 import { PARACHAIN_KEYS } from './types.js';
 import type { Parachain, ChainKey, ChainDef, LogLevel, GenerateTomlOptions } from './types.js';
-import { DEFAULT_NETWORK, type NetworkDef } from './networks.js';
+import { DEFAULT_NETWORK, type NetworkDef, type NetworkParachain } from './networks.js';
 import { loadNetwork } from './load.js';
 import { dubCustomProcesses } from './dub.js';
+import { flagOf, overrideArgs } from './args.js';
 
 const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'] as const;
 
@@ -127,6 +128,36 @@ const PORTS: Record<Parachain, number> = {
   bulletin: requiredPort('BULLETIN_PORT'),
   'web3-storage': requiredPort('WEB3_STORAGE_PORT'),
 };
+
+/** RPC ports of a parachain's RPC nodes: the chain's own port + 1..rpcNodes. */
+function rpcNodePorts(p: NetworkParachain): number[] {
+  return Array.from({ length: p.rpcNodes }, (_, i) => PORTS[p.key] + i + 1);
+}
+
+// Authoring flags a full node does not take, and the collator's fixed listen address.
+const COLLATOR_ONLY_FLAGS = new Set(['--collator', '--force-authoring', '--authoring', '--listen-addr']);
+
+/**
+ * The `[[parachains.collators]]` blocks of a chain's RPC nodes: non-validators running the
+ * collator's args without its authoring flags, with the chain's rpcNodeArgs over them. `launch`
+ * holds the lines each block shares with the collator (command, env, snapshot).
+ */
+function rpcNodeBlocks(p: NetworkParachain, collatorArgs: string[], launch: string): string {
+  const args = overrideArgs(collatorArgs.filter((a) => !COLLATOR_ONLY_FLAGS.has(flagOf(a))), p.rpcNodeArgs);
+  return rpcNodePorts(p)
+    .map(
+      (port, i) => `
+[[parachains.collators]]
+name = "${p.key}-rpc${i + 1}"
+validator = false
+rpc_port = ${port}
+${launch}
+args = ${tomlArgs(args)}
+`
+    )
+    .join('');
+}
+
 // Para ids belong to the network, not the machine, so they come from the descriptor —
 // ports.env keeps only what is local (which port each chain listens on).
 const paraIds = memo((): Record<Parachain, number> => {
@@ -255,12 +286,10 @@ function buildArgs(chainKey: ChainKey, logTargets?: Record<string, LogLevel>, en
   return args;
 }
 
-// Append only flags the base list has not already set, so the shared per-key table
-// wins over descriptor extras and fork defaults rather than being specified twice.
+/** `args` plus the flags of `extra` it does not set already, so defaults never override. */
 function addMissing(args: string[], extra: string[]): string[] {
-  const flag = (a: string) => a.split('=')[0];
-  const present = new Set(args.map(flag));
-  return [...args, ...extra.filter((a) => !present.has(flag(a)))];
+  const present = new Set(args.map(flagOf));
+  return [...args, ...extra.filter((a) => !present.has(flagOf(a)))];
 }
 
 // The genesis collator command is always the omni-node.sh wrapper (it carries the
@@ -278,11 +307,30 @@ function genesisChainArgs(key: ChainKey, logTargets?: Record<string, LogLevel>, 
     key === 'relay'
       ? genesisNet().relay.extraArgs
       : genesisNet().parachains.find((p) => p.key === key)?.extraArgs ?? [];
-  return addMissing(buildArgs(key, logTargets, enableHop), extras);
+  return overrideArgs(buildArgs(key, logTargets, enableHop), extras);
 }
 
 function tomlArgs(args: string[]): string {
   return '[' + args.map((a) => `"${a}"`).join(', ') + ']';
+}
+
+function genesisParachainSection(key: Parachain, title: string, args: string[]): string {
+  const launch = `command = "{{SCRIPTS}}/omni-node.sh"${genesisCollatorEnv(key)}`;
+  return `
+## ${title}
+[[parachains]]
+id = ${paraIds()[key]}
+cumulus_based = true
+chain = "${genesisSpecOf(key).chainId}"
+chain_spec_path = "{{BIN}}/${genesisSpecOf(key).file}"
+
+[[parachains.collators]]
+name = "${key}-collator1"
+rpc_port = ${PORTS[key]}
+p2p_port = ${P2P_PORTS[key]}
+${launch}
+args = ${tomlArgs(args)}
+${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
 }
 
 function validatorNodes(count: number): string {
@@ -433,72 +481,28 @@ default_args = ${relayArgs}
 ${validatorNodes(validatorCount)}
 ${section(
   has('asset-hub'),
-  `
-## Asset Hub Paseo Next (Parachain ${paraIds()['asset-hub']}) - Elastic Scaling with 2-second blocks
-[[parachains]]
-id = ${paraIds()['asset-hub']}
-cumulus_based = true
-chain = "${genesisSpecOf('asset-hub').chainId}"
-chain_spec_path = "{{BIN}}/${genesisSpecOf('asset-hub').file}"
-
-[[parachains.collators]]
-name = "asset-hub-collator1"
-rpc_port = ${PORTS['asset-hub']}
-p2p_port = ${P2P_PORTS['asset-hub']}${genesisCollatorEnv('asset-hub')}
-command = "{{SCRIPTS}}/omni-node.sh"
-args = ${tomlArgs(genesisChainArgs('asset-hub', lt['asset-hub']))}
-`
+  genesisParachainSection(
+    'asset-hub',
+    `Asset Hub Paseo Next (Parachain ${paraIds()['asset-hub']}) - Elastic Scaling with 2-second blocks`,
+    genesisChainArgs('asset-hub', lt['asset-hub'])
+  )
 )}${section(
   has('people'),
-  `
-## People Chain (Parachain ${paraIds().people})
-[[parachains]]
-id = ${paraIds().people}
-cumulus_based = true
-chain = "${genesisSpecOf('people').chainId}"
-chain_spec_path = "{{BIN}}/${genesisSpecOf('people').file}"
-
-[[parachains.collators]]
-name = "people-collator1"
-rpc_port = ${PORTS.people}
-p2p_port = ${P2P_PORTS.people}${genesisCollatorEnv('people')}
-command = "{{SCRIPTS}}/omni-node.sh"
-args = ${tomlArgs(genesisChainArgs('people', lt.people))}
-`
+  genesisParachainSection('people', `People Chain (Parachain ${paraIds().people})`, genesisChainArgs('people', lt.people))
 )}${section(
   has('bulletin'),
-  `
-## Bulletin Chain (Parachain ${paraIds().bulletin})
-[[parachains]]
-id = ${paraIds().bulletin}
-cumulus_based = true
-chain = "${genesisSpecOf('bulletin').chainId}"
-chain_spec_path = "{{BIN}}/${genesisSpecOf('bulletin').file}"
-
-[[parachains.collators]]
-name = "bulletin-collator1"
-rpc_port = ${PORTS.bulletin}
-p2p_port = ${P2P_PORTS.bulletin}${genesisCollatorEnv('bulletin')}
-command = "{{SCRIPTS}}/omni-node.sh"
-args = ${tomlArgs(genesisChainArgs('bulletin', lt.bulletin, options.enableHop))}
-`
+  genesisParachainSection(
+    'bulletin',
+    `Bulletin Chain (Parachain ${paraIds().bulletin})`,
+    genesisChainArgs('bulletin', lt.bulletin, options.enableHop)
+  )
 )}${section(
   has('web3-storage'),
-  `
-## Web3 Storage Chain (Parachain ${paraIds()['web3-storage']})
-[[parachains]]
-id = ${paraIds()['web3-storage']}
-cumulus_based = true
-chain = "${genesisSpecOf('web3-storage').chainId}"
-chain_spec_path = "{{BIN}}/${genesisSpecOf('web3-storage').file}"
-
-[[parachains.collators]]
-name = "web3-storage-collator1"
-rpc_port = ${PORTS['web3-storage']}
-p2p_port = ${P2P_PORTS['web3-storage']}${genesisCollatorEnv('web3-storage')}
-command = "{{SCRIPTS}}/omni-node.sh"
-args = ${tomlArgs(genesisChainArgs('web3-storage', lt['web3-storage']))}
-`
+  genesisParachainSection(
+    'web3-storage',
+    `Web3 Storage Chain (Parachain ${paraIds()['web3-storage']})`,
+    genesisChainArgs('web3-storage', lt['web3-storage'])
+  )
 )}${section(both('people', 'bulletin'), hrmpPair(paraIds().people, paraIds().bulletin))}
 ${section(both('people', 'asset-hub'), hrmpPair(paraIds().people, paraIds()['asset-hub']))}
 ${section(
@@ -620,4 +624,6 @@ export {
   addMissing,
   tomlArgs,
   requiredPort,
+  rpcNodePorts,
+  rpcNodeBlocks,
 };

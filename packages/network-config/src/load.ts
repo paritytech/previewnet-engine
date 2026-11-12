@@ -6,14 +6,18 @@
 
 import { loadDescriptor, currentNetworkName, type NetworkDef } from './networks.js';
 import { applyOverrides, effectiveOverrides, type OverrideSet } from './overrides.js';
+import { applyOverlay } from './overlay.js';
 
 /**
  * A network as it will actually run: the descriptor, with any --release/--binary overrides
- * applied. Every command goes through here, so none of them can disagree about which binary
- * comes from where. `extra` carries flag overrides; the environment is always consulted.
+ * and the PPN_NETWORK_OVERLAY file applied. Every command goes through here, so none of them
+ * can disagree about which binary comes from where or which nodes run. `extra` carries flag
+ * overrides; the environment is always consulted.
  */
 export function loadNetwork(name: string, extra?: OverrideSet): NetworkDef {
-  return applyOverrides(loadDescriptor(name), effectiveOverrides(extra));
+  const net = applyOverrides(loadDescriptor(name), effectiveOverrides(extra));
+  const overlay = process.env.PPN_NETWORK_OVERLAY;
+  return overlay ? applyOverlay(net, overlay) : net;
 }
 
 /** The descriptor exactly as checked in, overrides ignored. For drift checks and tests. */

@@ -1,0 +1,11 @@
+/** The flag an arg sets: `--rpc-port` for `--rpc-port=9944`, `-lsync` for `-lsync=debug`. */
+export function flagOf(arg: string): string {
+  return arg.split('=')[0];
+}
+
+/** `args` with each flag `extra` also sets taking extra's value, and extra's other flags appended. */
+export function overrideArgs(args: string[], extra: string[]): string[] {
+  const byFlag = new Map(extra.map((a) => [flagOf(a), a]));
+  const present = new Set(args.map(flagOf));
+  return [...args.map((a) => byFlag.get(flagOf(a)) ?? a), ...extra.filter((a) => !present.has(flagOf(a)))];
+}
