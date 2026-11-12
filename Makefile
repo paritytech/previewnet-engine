@@ -150,8 +150,7 @@ else
 start: build-spawner
 	@node $(CURDIR)/bin/ppn.mjs start $(NETWORK) \
 		--data-dir "$(DATA_DIR)" \
-		--toml "$(TOML_FILE)" \
-		$(if $(filter 1,$(FORK)),--fork,) \
+		$(if $(filter 1,$(FORK)),--fork --toml "$(TOML_FILE)",) \
 		$(if $(filter 1,$(CLEAN)),--clean,) \
 		$(if $(filter 1,$(EPHEMERAL)),--ephemeral,) \
 		$(if $(filter 1,$(REGENERATE)),--regenerate,) \
