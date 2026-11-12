@@ -156,18 +156,4 @@ export function spawnEnvKeys(): string[] {
 export const WAIVED: Record<string, string> = {
   // A server persists by definition; ephemeral is a laptop mode. Nothing reads it there.
   EPHEMERAL: 'ephemeral is a local-only mode; a deployment always persists',
-
-  // KNOWN GAP, deliberately recorded rather than silently waived.
-  //
-  // `ppn start` sets it so every service resolves the network the user asked for.
-  // On a server nothing sets it, and currentNetworkName() (network-config/src/networks.ts)
-  // falls back to previewnet. Staging and prod run previewnet, so this is *accidentally*
-  // correct today and breaks nothing — but the first non-previewnet deployment would have
-  // every service resolve previewnet's chains, ports and bin directory instead.
-  //
-  // Not fixed here because the fix belongs with `ppn start --server` (see docs/DASHBOARD.md,
-  // "Why a server does not run `ppn start`"), which makes one path the sole author of all of
-  // this. Until then it is written down, and the conformance test keeps it from being
-  // forgotten.
-  PPN_NETWORK: 'KNOWN GAP: falls back to previewnet, which is what servers run today',
 };
