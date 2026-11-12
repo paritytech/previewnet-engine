@@ -17,7 +17,7 @@ import type { Parachain, ChainKey, ChainDef, LogLevel, GenerateTomlOptions } fro
 import { DEFAULT_NETWORK, type NetworkDef, type NetworkParachain } from './networks.js';
 import { loadNetwork } from './load.js';
 import { dubCustomProcesses } from './dub.js';
-import { flagOf, overrideArgs } from './args.js';
+import { addMissing, flagOf, overrideArgs } from './args.js';
 
 const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'] as const;
 
@@ -297,12 +297,6 @@ function buildArgs(chainKey: ChainKey, logTargets?: Record<string, LogLevel>, en
       '--hop-check-interval=60'
     );
   return args;
-}
-
-/** `args` plus the flags of `extra` it does not set already, so defaults never override. */
-function addMissing(args: string[], extra: string[]): string[] {
-  const present = new Set(args.map(flagOf));
-  return [...args, ...extra.filter((a) => !present.has(flagOf(a)))];
 }
 
 // The genesis collator command is always the omni-node.sh wrapper (it carries the
