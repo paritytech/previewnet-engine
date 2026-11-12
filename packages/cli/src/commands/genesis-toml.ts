@@ -17,7 +17,12 @@ export async function run(_args?: string[]): Promise<void> {
     console.error(`ppn genesis-toml: ${net.name} is fork-only — it has no genesis config`);
     process.exit(1);
   }
+  process.stdout.write(genesisToml());
+}
 
+/** The genesis zombienet config, with PPN_PARACHAINS and ENABLE_HOP applied. */
+export function genesisToml(): string {
+  const net = loadCurrentNetwork();
   const parachains = (process.env.PPN_PARACHAINS || net.parachains.map((p) => p.key).join(','))
     .split(',')
     .map((s: string) => s.trim())
@@ -26,5 +31,5 @@ export async function run(_args?: string[]): Promise<void> {
 
   const header =
     '# DO NOT EDIT — regenerate with: make generate-toml\n# Source: packages/network-config/src/toml-generator.ts\n\n';
-  process.stdout.write(header + generateToml(parachains, { enableHop }));
+  return header + generateToml(parachains, { enableHop });
 }

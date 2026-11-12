@@ -326,9 +326,8 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
     if (!process.env.PPN_NETWORK_OVERLAY) return path.join(REPO, 'zombienet-configs', 'local-dev.toml');
     const overlaid = path.join(WS, 'zombienet-configs', 'local-dev.overlay.toml');
     fs.mkdirSync(path.dirname(overlaid), { recursive: true });
-    const generated = spawnSync(nodeBin, [ppn, 'genesis-toml'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'inherit'] });
-    if (generated.status !== 0) throw new Error('ppn genesis-toml failed');
-    fs.writeFileSync(overlaid, generated.stdout);
+    const { genesisToml } = await import('./genesis-toml.js');
+    fs.writeFileSync(overlaid, genesisToml());
     return overlaid;
   }
 
