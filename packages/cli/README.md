@@ -66,6 +66,10 @@ about what is running. An unknown binary or release name is refused rather than 
 `ppn show --json` marks every overridden slot, so a gate can report what actually executed instead
 of what it asked for.
 
+A local `polkadot` (`--binary polkadot=file:/path/to/target/release/polkadot`) is copied together with
+`polkadot-execute-worker` and `polkadot-prepare-worker` from the same directory, and the fetch fails if
+either is missing.
+
 ## Authentication
 
 `ppn fetch` reads GitHub releases. The packaged networks name only public ones, so a token is
