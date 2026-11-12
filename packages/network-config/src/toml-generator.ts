@@ -135,12 +135,14 @@ function prometheusPort(rpcPort: number): number {
 }
 
 /** RPC ports of a parachain's RPC nodes: the chain's own port + 1..rpcNodes. Throws on a port another chain uses. */
-function rpcNodePorts(p: NetworkParachain): number[] {
-  const ports = Array.from({ length: p.rpcNodes }, (_, i) => PORTS[p.key] + i + 1);
-  const used = [...Object.values(PORTS), ...VALIDATORS.map((_, i) => RELAY_BASE_PORT + i)];
+function rpcNodePorts(parachain: NetworkParachain): number[] {
+  const ports = Array.from({ length: parachain.rpcNodes }, (_, index) => PORTS[parachain.key] + index + 1);
+  const used = [...Object.values(PORTS), ...VALIDATORS.map((_, index) => RELAY_BASE_PORT + index)];
   const clash = ports.find((port) => used.includes(port));
   if (clash !== undefined) {
-    throw new Error(`${p.rpcNodes} RPC nodes for ${p.key} would take port ${clash}, which ports.env gives another node`);
+    throw new Error(
+      `${parachain.rpcNodes} RPC nodes for ${parachain.key} would take port ${clash}, which ports.env assigns to another node`
+    );
   }
   return ports;
 }
@@ -151,15 +153,16 @@ const COLLATOR_ONLY_FLAGS = new Set(['--collator', '--force-authoring', '--autho
 /**
  * The `[[parachains.collators]]` blocks of a chain's RPC nodes: non-validators running the
  * collator's args without its authoring flags, with the chain's rpcNodeArgs over them. `launch`
- * holds the lines each block shares with the collator (command, env, snapshot).
+ * is the lines each block shares with the collator (command, env, snapshot).
  */
-function rpcNodeBlocks(p: NetworkParachain, collatorArgs: string[], launch: string): string {
-  const args = overrideArgs(collatorArgs.filter((a) => !COLLATOR_ONLY_FLAGS.has(flagOf(a))), p.rpcNodeArgs);
-  return rpcNodePorts(p)
+function rpcNodeBlocks(parachain: NetworkParachain, collatorArgs: string[], launch: string): string {
+  const nodeArgs = collatorArgs.filter((arg) => !COLLATOR_ONLY_FLAGS.has(flagOf(arg)));
+  const args = overrideArgs(nodeArgs, parachain.rpcNodeArgs);
+  return rpcNodePorts(parachain)
     .map(
-      (port, i) => `
+      (port, index) => `
 [[parachains.collators]]
-name = "${p.key}-rpc${i + 1}"
+name = "${parachain.key}-rpc${index + 1}"
 validator = false
 invulnerable = false
 rpc_port = ${port}

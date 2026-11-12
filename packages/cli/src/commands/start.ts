@@ -324,11 +324,11 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
     if (opts.toml) return opts.toml;
     // The checked-in config has no overlay in it, so an overlay's nodes need one generated.
     if (!process.env.PPN_NETWORK_OVERLAY) return path.join(REPO, 'zombienet-configs', 'local-dev.toml');
-    const overlaid = path.join(WS, 'zombienet-configs', 'local-dev.overlay.toml');
-    fs.mkdirSync(path.dirname(overlaid), { recursive: true });
+    const overlayToml = path.join(WS, 'zombienet-configs', 'local-dev.overlay.toml');
+    fs.mkdirSync(path.dirname(overlayToml), { recursive: true });
     const { genesisToml } = await import('./genesis-toml.js');
-    fs.writeFileSync(overlaid, genesisToml());
-    return overlaid;
+    fs.writeFileSync(overlayToml, genesisToml());
+    return overlayToml;
   }
 
   const forkDir = forkDirFor(netDef.name);

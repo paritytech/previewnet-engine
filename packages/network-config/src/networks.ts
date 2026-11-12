@@ -484,7 +484,7 @@ export function loadDescriptor(name: string): NetworkDef {
 /** `args` as node flags, or `bad` when it is not a list of "--flag" strings. Absent is none. */
 export function parseArgs(at: string, args: unknown, bad: (why: string) => never): string[] {
   if (args === undefined) return [];
-  if (!Array.isArray(args) || args.some((x) => typeof x !== 'string' || !x.startsWith('-'))) {
+  if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string' || !arg.startsWith('-'))) {
     bad(`${at} must be an array of "--flag" strings`);
   }
   return args as string[];

@@ -31,7 +31,7 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
   }
   const object = (at: string, value: unknown, fields?: string[]): Record<string, any> => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) bad(`${at || 'the file'} must be a JSON object`);
-    const unknown = fields ? Object.keys(value as object).filter((k) => !fields.includes(k)) : [];
+    const unknown = fields ? Object.keys(value as object).filter((field) => !fields.includes(field)) : [];
     if (unknown.length) bad(`${at} has unknown fields ${unknown.join(', ')} (allowed: ${fields!.join(', ')})`);
     return value as Record<string, any>;
   };
@@ -45,10 +45,10 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
   const section = object(net.name, raw[net.name], ['relay', 'parachains']);
   const relay = object(`${net.name}.relay`, section.relay ?? {}, RELAY_FIELDS);
   const parachains = object(`${net.name}.parachains`, section.parachains ?? {});
-  const declared: string[] = net.parachains.map((p) => p.key);
-  const undeclared = Object.keys(parachains).filter((key) => !declared.includes(key));
-  if (undeclared.length) {
-    bad(`${net.name} has no parachains ${undeclared.join(', ')} (declared: ${declared.join(', ')})`);
+  const parachainKeys: string[] = net.parachains.map((parachain) => parachain.key);
+  const unknownKeys = Object.keys(parachains).filter((key) => !parachainKeys.includes(key));
+  if (unknownKeys.length) {
+    bad(`${net.name} has no parachains ${unknownKeys.join(', ')} (declared: ${parachainKeys.join(', ')})`);
   }
 
   return {
@@ -57,15 +57,15 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
       ...net.relay,
       extraArgs: overrideArgs(net.relay.extraArgs, parseArgs(`${net.name}.relay.extraArgs`, relay.extraArgs, bad)),
     },
-    parachains: net.parachains.map((p) => {
-      if (parachains[p.key] === undefined) return p;
-      const at = `${net.name}.parachains.${p.key}`;
-      const chain = object(at, parachains[p.key], PARACHAIN_FIELDS);
+    parachains: net.parachains.map((parachain) => {
+      if (parachains[parachain.key] === undefined) return parachain;
+      const at = `${net.name}.parachains.${parachain.key}`;
+      const chain = object(at, parachains[parachain.key], PARACHAIN_FIELDS);
       return {
-        ...p,
-        extraArgs: overrideArgs(p.extraArgs, parseArgs(`${at}.extraArgs`, chain.extraArgs, bad)),
-        rpcNodes: chain.rpcNodes === undefined ? p.rpcNodes : parseRpcNodes(`${at}.rpcNodes`, chain.rpcNodes, bad),
-        rpcNodeArgs: overrideArgs(p.rpcNodeArgs, parseArgs(`${at}.rpcNodeArgs`, chain.rpcNodeArgs, bad)),
+        ...parachain,
+        extraArgs: overrideArgs(parachain.extraArgs, parseArgs(`${at}.extraArgs`, chain.extraArgs, bad)),
+        rpcNodes: chain.rpcNodes === undefined ? parachain.rpcNodes : parseRpcNodes(`${at}.rpcNodes`, chain.rpcNodes, bad),
+        rpcNodeArgs: overrideArgs(parachain.rpcNodeArgs, parseArgs(`${at}.rpcNodeArgs`, chain.rpcNodeArgs, bad)),
       };
     }),
   };
