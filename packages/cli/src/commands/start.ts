@@ -605,6 +605,7 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
       dataDir,
       ephemeral: Boolean(opts.ephemeral),
       identityDataDir: identityData,
+      overlay: process.env.PPN_NETWORK_OVERLAY ? path.resolve(process.env.PPN_NETWORK_OVERLAY) : '',
     })
   );
 
