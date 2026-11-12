@@ -15,6 +15,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import {
   loadNetwork,
   currentNetworkName,
+  generateToml,
   readEnvFile,
   repoRoot,
   runsTurnRelay,
@@ -321,13 +322,12 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
   if (!opts.fork) {
     const { run: generate } = await import('./generate.js');
     await generate([binDir], { ifNeeded: true });
-    if (opts.toml) return opts.toml;
+    if (!process.env.PPN_NETWORK_OVERLAY) return opts.toml ?? path.join(REPO, 'zombienet-configs', 'local-dev.toml');
     // The checked-in config has no overlay in it, so an overlay's nodes need one generated.
-    if (!process.env.PPN_NETWORK_OVERLAY) return path.join(REPO, 'zombienet-configs', 'local-dev.toml');
+    if (opts.toml) throw new Error('--toml spawns that config as it is, without the PPN_NETWORK_OVERLAY nodes; drop one');
     const overlayToml = path.join(WS, 'zombienet-configs', 'local-dev.overlay.toml');
     fs.mkdirSync(path.dirname(overlayToml), { recursive: true });
-    const { genesisToml } = await import('./genesis-toml.js');
-    fs.writeFileSync(overlayToml, genesisToml());
+    fs.writeFileSync(overlayToml, generateToml(netDef.parachains.map((parachain) => parachain.key), { enableHop: true }));
     return overlayToml;
   }
 
