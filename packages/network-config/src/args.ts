@@ -1,6 +1,6 @@
-/** The flag an arg sets: `--rpc-port` for `--rpc-port=9944`, `-lsync` for `-lsync=debug`. */
+/** The flag an arg sets: `--rpc-port` for `--rpc-port=9944`, and `-l` for every `-l…`/`--log` arg. */
 export function flagOf(arg: string): string {
-  return arg.split('=')[0];
+  return /^(-l|--log(=|$))/.test(arg) ? '-l' : arg.split('=')[0];
 }
 
 /** `args` with each flag `extra` also sets taking extra's value, and extra's other flags appended. */

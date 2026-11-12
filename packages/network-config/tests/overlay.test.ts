@@ -23,7 +23,7 @@ process.env.PPN_NETWORK_OVERLAY = write('people.json', {
     parachains: {
       people: {
         rpcNodes: 2,
-        extraArgs: ['--rpc-max-connections=50'],
+        extraArgs: ['--rpc-max-connections=50', '-lsync=debug'],
         rpcNodeArgs: ['--rpc-max-connections=5000', '--rpc-message-buffer-capacity-per-connection=512'],
       },
     },
@@ -71,6 +71,7 @@ describe('network overlay: RPC nodes in front of People', () => {
   it('gives the deployment the last word on a flag the engine also sets', () => {
     assert.ok(argsOf(collator).includes('--rpc-max-connections=50'));
     assert.ok(!argsOf(collator).includes('--rpc-max-connections=500'));
+    assert.deepEqual(argsOf(collator).filter((a) => a.startsWith('-l')), ['-lsync=debug']);
     for (const block of rpc) {
       assert.ok(argsOf(block).includes('--rpc-max-connections=5000'));
       assert.ok(argsOf(block).includes('--rpc-message-buffer-capacity-per-connection=512'));
