@@ -161,6 +161,7 @@ function rpcNodeBlocks(p: NetworkParachain, collatorArgs: string[], launch: stri
 [[parachains.collators]]
 name = "${p.key}-rpc${i + 1}"
 validator = false
+invulnerable = false
 rpc_port = ${port}
 prometheus_port = ${prometheusPort(port)}
 ${launch}
