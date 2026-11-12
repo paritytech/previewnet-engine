@@ -90,6 +90,16 @@ describe('network overlay: RPC nodes in front of People', () => {
     assert.doesNotMatch(upstream, new RegExp(`:${PORTS.people};`));
   });
 
+  // A node listens on, and dials, every address it is given.
+  it('adds a repeatable flag to the node\'s own instead of replacing them', async () => {
+    const { overrideArgs } = await import('../src/args.js');
+    assert.deepEqual(overrideArgs(['--listen-addr=/a', '--rpc-port=1'], ['--listen-addr=/b', '--rpc-port=2']), [
+      '--listen-addr=/a',
+      '--rpc-port=2',
+      '--listen-addr=/b',
+    ]);
+  });
+
   it('applies each network its own section only', () => {
     const devnet = loadNetwork('devnet');
     assert.deepEqual(devnet.relay.extraArgs, ['--rpc-max-connections=7']);
