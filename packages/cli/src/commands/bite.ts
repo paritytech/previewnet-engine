@@ -642,9 +642,9 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
       ZOMBIE_CHAIN: net.relay.chain,
       ZOMBIE_RC_EPOCH_DURATION: String(manifest.epochDuration),
       RUST_LOG: 'doppelganger=info',
-      // Westend's GRANDPA history carries a forced authority change (#4356716), so no warp
-      // proof from genesis verifies up to the live head. doppelganger skips the justification
-      // checks under this variable, as zombie-bite does for Westend.
+      // Westend's GRANDPA history has a forced authority change at block 4356716, so a warp
+      // proof from genesis doesn't verify up to the live head. doppelganger skips the
+      // justification checks under this variable, as zombie-bite does for Westend.
       ...(net.relay.chain === 'westend' ? { ZOMBIE_IS_WESTEND: '1' } : {}),
     },
     relayLog,
