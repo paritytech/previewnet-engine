@@ -25,7 +25,9 @@ bundle, not the environment.
 
 Networks without sudo (Kusama, Polkadot) are not pre-bitten by CI — their bundles would be
 stale by the time anyone used one, and biting a public chain nightly is load nobody asked for.
-They are bitten on demand instead, and their system-chain specs come from the parachain binary
+Westend is not pre-bitten either: its bundle is 3.3 GB, and its People doesn't have a Sudo pallet, so a
+People runtime under test is authorized at bite like on Kusama and Polkadot. These are bitten on
+demand instead, and their system-chain specs come from the parachain binary
 (`builtin:asset-hub-kusama`, `builtin:people-polkadot`), so nothing has to publish one — except
 Polkadot's Bulletin, which is not built in and runs from the spec Parity's own RPC nodes use.
 Non-previewnet networks keep their own binaries (`bin/<network>/`, release pinned by the
