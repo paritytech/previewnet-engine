@@ -27,7 +27,7 @@ or `PPN_NETWORK=<name>` in the environment of the scripts.
 | --- | --- |
 | `name` | Network id; must match the filename. |
 | `genesis` | May be spawned from genesis. Previewnet only — the genesis machinery (runtimes, chain-spec presets, DotNS genesis) is previewnet's. |
-| `sudo` | The live network has sudo. Networks without it (Kusama, Polkadot) cannot be upgraded after the fork, so a runtime under test must be injected at bite time — which is why they cannot be pre-bitten by CI. |
+| `sudo` | The live relay has sudo. Networks without it (Kusama, Polkadot) cannot be upgraded after the fork, so a runtime under test must be injected at bite time — which is why they cannot be pre-bitten by CI. It also gates the processes that dispatch People's `Sudo.sudo` (the attestation allowances and invites), so a network whose People doesn't have a Sudo pallet (Westend) turns those off in `services`, and a People runtime under test there still needs `--upgrade` at bite. |
 | `bite.prebaked` | CI bites this network on release and publishes `fork-bundle-<name>.tar.gz` (`fork-bundle-previewnet.tar.gz` for previewnet). Only meaningful for sudo networks with a real `bite.source`. |
 | `bite.source` | Base URL of the live network to bite. Per-chain `rpc` values that are paths resolve against it. When every `rpc` is an absolute URL (public networks like devnet), it serves as provenance (`manifest.source`) and as the origin `pin-bulletin-products` fetches product bytes from (`<source>/ipfs/<cid>`), so point it at the network's IPFS gateway. |
 | `releases` | The version table: `{ "<your-name>": { "repo": "...", "tag": "..." } }`. Every binary and runtime reference names one of these, so a version is written once per network. Names are yours — there are no reserved or special-cased names, and nothing resolves against `config/versions.env`. An unused entry is an error. |
@@ -44,7 +44,7 @@ or `PPN_NETWORK=<name>` in the environment of the scripts.
 | `tools` | Local tools this network needs that are neither a chain nor a service — previewnet's `chain-spec-builder`, for instance, which only a genesis network uses. |
 | `bite.doppelganger` | `{repo, tag}` of the bite tool. Per network, because the build has to be able to execute the runtimes of the network being bitten. |
 | *(bin layout)* | Only node binaries are network-versioned: previewnet's live in `bin/`, every other network's in `bin/<name>/` (plus `dg/` for bites). Shared tooling with no per-network dimension — zombie-cli, ipfs, postgres, identity, design families — lives in plain `bin/` and is pinned in `config/versions.env`. Collators run through `scripts/omni-node.sh` regardless of binary; it carries the libp2p fix and picks binary/dir from `PPN_COLLATOR_BINARY`/`PPN_BIN_DIR`. |
-| `relay.chain` | Built-in chain name doppelganger runs with (`ZOMBIE_CHAIN`), e.g. `paseo`, `kusama`. |
+| `relay.chain` | Built-in chain name doppelganger runs with (`ZOMBIE_CHAIN`), e.g. `paseo`, `kusama`. `westend` also sets `ZOMBIE_IS_WESTEND=1`, which makes the relay bite skip GRANDPA justification checks: Westend's GRANDPA history has a forced authority change at block 4356716. |
 | `relay.spec` | Basename of the relay spec inside the bundle (`specs/<spec>.json`). |
 | `relay.rpc`, `parachains[].rpc` | RPC endpoint: an absolute `ws(s)://`/`http(s)://` URL, or a path resolved against `bite.source`. |
 | `rpcAlternates` | Informational: other public providers for the same chain, for when the primary is re-homed. Not consumed by tooling (yet). |
@@ -85,7 +85,7 @@ One thing to know:
 ## Forking a shared relay
 
 `bite.sharedRelay` marks a network whose live relay carries parachains we do not run — Paseo,
-Kusama, Polkadot. Previewnet's relay is ours end to end, so it inherits state that is already
+Kusama, Polkadot, Westend. Previewnet's relay is ours end to end, so it inherits state that is already
 correct and the bite leaves it alone. A shared relay inherits three things that are wrong for six
 dev validators, and all three are silent:
 
@@ -113,4 +113,4 @@ dial collators, a resolved address is the only way that substream ever opens.
 | devnet | no | yes | once its `_todo` clears | sources filled from docs.polkadotcommunity.foundation; one open question — whether doppelganger can warp-sync Asset Hub from the published smol (stateRootHash) spec. Verify with `make bite NETWORK=devnet`, then drop the `_todo`. It shares a relay with other parachains, so it needs `bite.sharedRelay` too — already set |
 | kusama | no | on-the-fly only | no (no sudo) | wired. Asset Hub's spec comes from the parachain binary (`builtin:asset-hub-kusama`). A runtime under test is authorized at bite time — `ppn bite --upgrade asset-hub=<wasm>` — since nothing can dispatch root after the fork; see docs/FORK.md. Upstream equivalent: [zombie-bite#127](https://github.com/paritytech/zombie-bite/issues/127) |
 | polkadot | no | on-the-fly only | no (no sudo) | relay + Asset Hub 1000 + People 1004 + Bulletin 1010, all live at runtimes 2.4; the fellowship's 2.5 (Individuality on People and Asset Hub) is what a fork of it is for — `make bite NETWORK=polkadot UPGRADES="asset-hub=<wasm> people=<wasm>"` authorizes the blobs at import. All six HRMP channels between the three exist live and survive the bite (reset, not cleared). ~50 registered parachains makes the core remapping above load-bearing rather than a nicety. Runbook: docs/POLKADOT-FORK.md |
-| westend | no | on-the-fly only | no | relay + Asset Hub 1000 + People 1004, the chains polkadot-sdk releases Westend runtimes for. The relay and Asset Hub have sudo and upgrade after the fork; People has none, so its runtime is authorized at bite time (`UPGRADES="people=<wasm>"`). The Individuality processes are off, since Westend runs none of those pallets |
+| westend | no | on-the-fly only | no | relay + Asset Hub 1000 + People 1004, the chains polkadot-sdk releases Westend runtimes for. The relay and Asset Hub have sudo and upgrade after the fork; People doesn't, so its runtime is authorized at bite time (`UPGRADES="people=<wasm>"`). The Individuality processes and the identity backend are off, since Westend doesn't run any of those pallets |
