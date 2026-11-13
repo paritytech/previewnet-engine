@@ -89,12 +89,6 @@ UPGRADE_FLAGS := $(foreach u,$(UPGRADES),--upgrade $(u))
 # bite time like UPGRADES, so a published bundle needs FRESH_BITE=1 to take them.
 TOPOLOGY_FLAGS := $(foreach c,$(CORES),--cores $(c)) $(foreach c,$(COLLATORS),--collators $(c))
 
-ifeq ($(FORK),1)
-TOML_FILE := $(FORK_TOML)
-else
-TOML_FILE := $(CONFIG_DIR)/local-dev.toml
-endif
-
 # Docker settings
 DOCKER_IMAGE ?= paritytech/previewnet-engine:latest
 DOCKER_NAME ?= ppn
@@ -150,7 +144,7 @@ else
 start: build-spawner
 	@node $(CURDIR)/bin/ppn.mjs start $(NETWORK) \
 		--data-dir "$(DATA_DIR)" \
-		$(if $(filter 1,$(FORK)),--fork --toml "$(TOML_FILE)",) \
+		$(if $(filter 1,$(FORK)),--fork,) \
 		$(if $(filter 1,$(CLEAN)),--clean,) \
 		$(if $(filter 1,$(EPHEMERAL)),--ephemeral,) \
 		$(if $(filter 1,$(REGENERATE)),--regenerate,) \
