@@ -68,7 +68,13 @@ function copyLocal(src: string, dest: string, what: string): void {
   fs.renameSync(partial, dest);
 }
 
-const PVF_WORKERS = ['polkadot-execute-worker', 'polkadot-prepare-worker'];
+/**
+ * The binaries that must come from the same build as `name`: polkadot validates PVFs only
+ * with its two workers, and rejects a worker from another build at spawn.
+ */
+function companionBinaries(name: string): string[] {
+  return name === 'polkadot' ? ['polkadot-execute-worker', 'polkadot-prepare-worker'] : [];
+}
 
 export interface LocalBinaryCopy {
   name: string;
@@ -77,20 +83,18 @@ export interface LocalBinaryCopy {
 }
 
 /**
- * Copy a `file:` pinned binary into `nodeDest`. A local polkadot also brings its PVF workers from
- * its own directory, and fails without copying anything when either is not there.
+ * Copy a `file:` pinned binary into `nodeDest`. For a local polkadot, also copies the PVF
+ * workers from the same directory, and fails without copying anything when either is not there.
  */
 export function copyLocalBinary(name: string, src: string, nodeDest: string): LocalBinaryCopy[] {
   const copies = [{ name, src, dest: path.join(nodeDest, name) }];
-  if (name === 'polkadot') {
-    for (const worker of PVF_WORKERS) {
-      const workerSrc = path.join(path.dirname(src), worker);
-      if (!fs.existsSync(workerSrc)) {
-        throw new Error(`--binary polkadot=file:${src}: no ${worker} next to it at ${workerSrc}; ` +
-          'a local polkadot needs both PVF workers from its own build');
-      }
-      copies.push({ name: worker, src: workerSrc, dest: path.join(nodeDest, worker) });
+  for (const companion of companionBinaries(name)) {
+    const companionSrc = path.join(path.dirname(src), companion);
+    if (!fs.existsSync(companionSrc)) {
+      throw new Error(`--binary ${name}=file:${src}: no ${companion} next to it at ${companionSrc}; ` +
+        `${name} runs only with ${companion} from its own build`);
     }
+    copies.push({ name: companion, src: companionSrc, dest: path.join(nodeDest, companion) });
   }
   for (const copy of copies) {
     copyLocal(copy.src, copy.dest, `--binary ${copy.name}`);
@@ -271,41 +275,17 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
     const rel = await release(repo, tag);
     console.log(`  from ${repo} @ ${rel.tag}:`);
     for (const b of bins) {
-      // Stamped first, which is also the skip decision — see `stamp` above. polkadot is the
-      // one entry that cannot simply `continue` on a hit: its two PVF workers are fetched
-      // inside this same iteration, and each is checked on its own below.
-      const haveBinary = stamp({ kind: 'binary', name: b.name, repo: repo, pinned: tag,
-        resolved: rel.tag, file: path.join(nodeDest, b.name) });
-      if (haveBinary) current(b.name);
-      if (haveBinary && b.name !== 'polkadot') continue;
-
-      if (!haveBinary) {
-        if (b.archive) {
-          await fetchArchivedBinary(b, rel, nodeDest, plat, token);
-          if (b.name !== 'polkadot') continue;
-        } else {
-          // The asset carries the platform suffix; locally the binary keeps its bare name.
-          const dest = path.join(nodeDest, b.name);
-          if (await downloadAsset(rel, `${b.name}${plat.suffix}`, dest, token)) {
-            makeExecutable(dest);
-            ok(b.name);
-          } else {
-            missing(`${b.name}${plat.suffix}`, 'not in release');
-          }
-        }
-      }
-      // polkadot cannot validate a PVF without its two workers, and they must come from
-      // the same build — a mismatched worker is rejected at spawn.
-      if (b.name === 'polkadot') {
-        for (const worker of PVF_WORKERS) {
-          if (stamp({ kind: 'binary', name: worker, repo, pinned: tag, resolved: rel.tag,
-            file: path.join(nodeDest, worker) })) { current(worker); continue; }
-          const wDest = path.join(nodeDest, worker);
-          if (await downloadAsset(rel, `${worker}${plat.suffix}`, wDest, token)) {
-            makeExecutable(wDest);
-            ok(worker);
-          } else missing(worker, 'not in release');
-        }
+      // Stamped first, which is also the skip decision — see `stamp` above. Each companion
+      // binary is stamped and fetched on its own.
+      for (const name of [b.name, ...companionBinaries(b.name)]) {
+        const dest = path.join(nodeDest, name);
+        if (stamp({ kind: 'binary', name, repo, pinned: tag, resolved: rel.tag, file: dest })) current(name);
+        else if (name === b.name && b.archive) await fetchArchivedBinary(b, rel, nodeDest, plat, token);
+        // The asset name has the platform suffix; the local file name doesn't.
+        else if (await downloadAsset(rel, `${name}${plat.suffix}`, dest, token)) {
+          makeExecutable(dest);
+          ok(name);
+        } else missing(`${name}${plat.suffix}`, 'not in release');
       }
     }
   }
@@ -624,12 +604,8 @@ function whatIsMissing(
     return !fs.existsSync(p) || fs.statSync(p).size === 0;
   };
   const out: string[] = [];
-  for (const b of networkBinaries(net)) if (gone(nodeDest, b.name)) out.push(b.name);
-  // polkadot is useless without the two workers it validates PVFs with.
-  if (networkBinaries(net).some((b) => b.name === 'polkadot')) {
-    for (const w of PVF_WORKERS) {
-      if (gone(nodeDest, w)) out.push(w);
-    }
+  for (const b of networkBinaries(net)) {
+    for (const file of [b.name, ...companionBinaries(b.name)]) if (gone(nodeDest, file)) out.push(file);
   }
   for (const r of networkRuntimes(net)) if (gone(nodeDest, r.file)) out.push(r.file);
   if (gone(sharedDest, 'zombie-cli')) out.push('zombie-cli');
