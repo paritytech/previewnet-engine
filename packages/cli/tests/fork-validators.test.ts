@@ -3,6 +3,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { u8aToHex } from '@polkadot/util';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -256,8 +257,11 @@ describe('verify', () => {
   const PLAIN = 1;
   const registry = {
     createLookupType: (id: number) => `Type${id}`,
-    createType: (_type: string, hex: string) => ({
-      toHex: () => (hex === '0xbad' ? '0xdifferent' : hex),
+    // The code compares SCALE bytes, so the stub takes a Uint8Array and returns `toU8a`.
+    // It returns the bytes it was given, except for the candidate 'bad', which comes back
+    // as something else so the round-trip check fails and the failure path can be tested.
+    createType: (_type: string, raw: Uint8Array) => ({
+      toU8a: () => (u8aToHex(raw).endsWith('bad') ? new Uint8Array([0xde, 0xad]) : raw),
     }),
   } as never;
 
@@ -300,8 +304,11 @@ describe('verifyInjects', () => {
   const MAPVAL = 7;
   const registry = {
     createLookupType: (id: number) => `Type${id}`,
-    createType: (_type: string, hex: string) => ({
-      toHex: () => (hex === '0xbad' ? '0xdifferent' : hex),
+    // The code compares SCALE bytes, so the stub takes a Uint8Array and returns `toU8a`.
+    // It returns the bytes it was given, except for the candidate 'bad', which comes back
+    // as something else so the round-trip check fails and the failure path can be tested.
+    createType: (_type: string, raw: Uint8Array) => ({
+      toU8a: () => (u8aToHex(raw).endsWith('bad') ? new Uint8Array([0xde, 0xad]) : raw),
     }),
   } as never;
 
