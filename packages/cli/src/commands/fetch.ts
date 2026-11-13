@@ -64,6 +64,37 @@ function copyLocal(src: string, dest: string, what: string): void {
   fs.copyFileSync(src, dest);
 }
 
+const PVF_WORKERS = ['polkadot-execute-worker', 'polkadot-prepare-worker'];
+
+export interface LocalBinaryCopy {
+  name: string;
+  src: string;
+  dest: string;
+}
+
+/**
+ * Copy a `file:` pinned binary into `nodeDest`. A local polkadot also brings its PVF workers from
+ * its own directory, and fails without copying anything when either is not there.
+ */
+export function copyLocalBinary(name: string, src: string, nodeDest: string): LocalBinaryCopy[] {
+  const copies = [{ name, src, dest: path.join(nodeDest, name) }];
+  if (name === 'polkadot') {
+    for (const worker of PVF_WORKERS) {
+      const workerSrc = path.join(path.dirname(src), worker);
+      if (!fs.existsSync(workerSrc)) {
+        throw new Error(`--binary polkadot=file:${src}: no ${worker} next to it at ${workerSrc}; ` +
+          'a local polkadot needs both PVF workers from its own build');
+      }
+      copies.push({ name: worker, src: workerSrc, dest: path.join(nodeDest, worker) });
+    }
+  }
+  for (const copy of copies) {
+    copyLocal(copy.src, copy.dest, `--binary ${copy.name}`);
+    makeExecutable(copy.dest);
+  }
+  return copies;
+}
+
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
 const WS = workspaceRoot();
@@ -219,11 +250,10 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
     const local = localPin(repo);
     if (local) {
       for (const b of bins) {
-        const dest = path.join(nodeDest, b.name);
-        copyLocal(local, dest, `--binary ${b.name}`);
-        makeExecutable(dest);
-        stamps.push({ kind: 'binary', name: b.name, repo, pinned: tag, resolved: 'local', file: dest });
-        ok(`${b.name} (from ${local})`);
+        for (const copy of copyLocalBinary(b.name, local, nodeDest)) {
+          stamps.push({ kind: 'binary', name: copy.name, repo, pinned: tag, resolved: 'local', file: copy.dest });
+          ok(`${copy.name} (from ${copy.src})`);
+        }
       }
       continue;
     }
@@ -256,7 +286,7 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
       // polkadot cannot validate a PVF without its two workers, and they must come from
       // the same build — a mismatched worker is rejected at spawn.
       if (b.name === 'polkadot') {
-        for (const worker of ['polkadot-execute-worker', 'polkadot-prepare-worker']) {
+        for (const worker of PVF_WORKERS) {
           if (stamp({ kind: 'binary', name: worker, repo, pinned: tag, resolved: rel.tag,
             file: path.join(nodeDest, worker) })) { current(worker); continue; }
           const wDest = path.join(nodeDest, worker);
@@ -586,7 +616,7 @@ function whatIsMissing(
   for (const b of networkBinaries(net)) if (gone(nodeDest, b.name)) out.push(b.name);
   // polkadot is useless without the two workers it validates PVFs with.
   if (networkBinaries(net).some((b) => b.name === 'polkadot')) {
-    for (const w of ['polkadot-execute-worker', 'polkadot-prepare-worker']) {
+    for (const w of PVF_WORKERS) {
       if (gone(nodeDest, w)) out.push(w);
     }
   }

@@ -16,7 +16,7 @@ on:
         required: true
         default: kusama
         type: choice
-        options: [kusama, polkadot, devnet, paseo-next-v2, previewnet]
+        options: [kusama, polkadot, westend, devnet, paseo-next-v2, previewnet]
       upgrade:
         description: 'Authorize a runtime at import: <chain>=<url to wasm>, comma-separated'
         required: false

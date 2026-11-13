@@ -212,36 +212,106 @@ export function authorizedUpgradeCandidate(codeHash: string, checkVersion: boole
   return { [keyOf('System', 'AuthorizedUpgrade')]: hash + (checkVersion ? '01' : '00') };
 }
 
+/** A SessionKeys field: the KeyTypeId its key is registered under, and the key's curve. */
+export interface SessionKeyField {
+  keyTypeId: string;
+  scheme: AuraScheme;
+}
+
+/** A parachain SessionKeys field as metadata describes it: its name and its type's path. */
+export interface SessionKeyFieldType {
+  name: string;
+  typePath: string[];
+}
+
+// Metadata carries the SessionKeys field names but not their KeyTypeIds.
+const PARA_KEY_TYPE_IDS: Record<string, string> = { aura: 'aura', authority_discovery: 'audi' };
+
+function keyScheme(typePath: string[]): AuraScheme | undefined {
+  if (typePath.some((segment) => segment.includes('sr25519'))) return 'sr25519';
+  if (typePath.some((segment) => segment.includes('ed25519'))) return 'ed25519';
+  // `sp_authority_discovery::app::Public` is sr25519 app crypto; its path does not say so.
+  if (typePath[0] === 'sp_authority_discovery') return 'sr25519';
+  return undefined;
+}
+
+/**
+ * The KeyTypeId and curve of each SessionKeys field, in field order. Fails on a field whose
+ * KeyTypeId or curve is unknown, and on an Aura curve other than the one the descriptor declares.
+ */
+export function sessionKeyFields(fields: SessionKeyFieldType[], auraScheme: AuraScheme): SessionKeyField[] {
+  return fields.map(({ name, typePath }) => {
+    const keyTypeId = PARA_KEY_TYPE_IDS[name];
+    const scheme = keyScheme(typePath);
+    if (!keyTypeId || !scheme) {
+      throw new Error(`SessionKeys field "${name}" (${typePath.join('::')}) has no known KeyTypeId and curve`);
+    }
+    if (name === 'aura' && scheme !== auraScheme) {
+      throw new Error(`the descriptor declares ${auraScheme} Aura keys, but the runtime's SessionKeys has ${scheme}`);
+    }
+    return { keyTypeId, scheme };
+  });
+}
+
+/** A collator's account and its session keys, in SessionKeys order. */
+export interface ParaCollator {
+  account: string;
+  sessionKeys: { keyTypeId: string; publicKey: string }[];
+}
+
+/** The collators collatorKeys() derives, each with a key for every field of the runtime's SessionKeys. */
+export async function paraCollators(
+  paraId: number,
+  count: number,
+  scheme: AuraScheme,
+  fields: SessionKeyField[]
+): Promise<ParaCollator[]> {
+  const keysByScheme = new Map<AuraScheme, string[]>([[scheme, await collatorKeys(paraId, count, scheme)]]);
+  for (const field of fields) {
+    if (!keysByScheme.has(field.scheme)) keysByScheme.set(field.scheme, await collatorKeys(paraId, count, field.scheme));
+  }
+  return keysByScheme.get(scheme)!.map((account, position) => ({
+    account,
+    sessionKeys: fields.map((field) => ({
+      keyTypeId: field.keyTypeId,
+      publicKey: keysByScheme.get(field.scheme)![position],
+    })),
+  }));
+}
+
 /**
  * Parachain storage values that install the collators as its authority set. One key serves as
  * both the account and the Aura key: the seed is the same and the account is the sr25519 public
  * key, which is what CollatorSelection and Session hold.
  */
-export function paraCandidates(collators: string[]): Record<string, string> {
+export function paraCandidates(collators: ParaCollator[]): Record<string, string> {
   const len = compactLen(collators.length);
-  const all = collators.join('');
+  const all = collators.map((collator) => collator.account).join('');
   return {
     [keyOf('CollatorSelection', 'DesiredCandidates')]: u32le(collators.length),
     [keyOf('CollatorSelection', 'Invulnerables')]: len + all,
     [keyOf('AuraExt', 'Authorities')]: len + all,
     [keyOf('Aura', 'Authorities')]: len + all,
     [keyOf('Session', 'Validators')]: len + all,
-    [keyOf('Session', 'QueuedKeys')]: len + collators.map((c) => c + c).join(''),
+    [keyOf('Session', 'QueuedKeys')]:
+      len +
+      collators.map((collator) => collator.account + collator.sessionKeys.map((key) => key.publicKey).join('')).join(''),
     [keyOf('Sudo', 'Key')]: ALICE_SR,
     // ParachainSystem::LastDmqMqcHead is left alone: zeroing it (as zombie-bite does)
     // desyncs the parachain from the relay's preserved Dmp state.
   };
 }
 
-export function paraInjects(collators: string[]): Record<string, string> {
+export function paraInjects(collators: ParaCollator[]): Record<string, string> {
   const injects: Record<string, string> = {};
   for (const collator of collators) {
-    injects[keyOf('Session', 'NextKeys') + twox64Concat(collator)] = collator;
-    // Session::KeyOwner(("aura", collatorKey))
-    injects[
-      'cec5070d609dd3497f72bde07fc96ba0726380404683fc89e8233450c8aa1950eab3d4a1675d3d746175726180' +
-        collator
-    ] = collator;
+    injects[keyOf('Session', 'NextKeys') + twox64Concat(collator.account)] =
+      collator.sessionKeys.map((key) => key.publicKey).join('');
+    for (const { keyTypeId, publicKey } of collator.sessionKeys) {
+      // Session::KeyOwner((KeyTypeId, Vec<u8>))
+      const owned = Buffer.from(keyTypeId).toString('hex') + compactLen(publicKey.length / 2) + publicKey;
+      injects[keyOf('Session', 'KeyOwner') + twox64Concat(owned)] = collator.account;
+    }
   }
   return injects;
 }

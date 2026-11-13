@@ -25,14 +25,16 @@ import {
   type PlannedPara,
 } from './shared-relay.js';
 import {
-  collatorKeys,
   devValidators,
   paraCandidates,
+  paraCollators,
   paraInjects,
   relayCandidates,
   relayInjects,
+  sessionKeyFields,
   sudoEndowInjects,
   authorizedUpgradeCandidate,
+  type SessionKeyFieldType,
 } from './validators.js';
 import type { AuraScheme } from '@parity/ppn-network-config';
 
@@ -431,6 +433,17 @@ function seededUpgradeInject(index: StorageIndex, upgrade?: SeededUpgrade): Reco
   return report('seeded upgrade authorization', verify(index, candidate), candidate);
 }
 
+/** The fields of the runtime's SessionKeys, from the value type of Session::NextKeys. */
+function sessionKeysType(index: StorageIndex): SessionKeyFieldType[] {
+  const nextKeys = index.byKey.get(keyOf('Session', 'NextKeys'));
+  if (nextKeys?.mapValue == null) throw new Error('Session::NextKeys is not a map in this runtime');
+  const { lookup } = index.reg;
+  return lookup.getSiType(nextKeys.mapValue).def.asComposite.fields.map((field) => ({
+    name: field.name.toString(),
+    typePath: lookup.getSiType(field.type).path.map(String),
+  }));
+}
+
 export async function paraOverrides(
   paraId: number,
   paraUrl: string,
@@ -441,7 +454,10 @@ export async function paraOverrides(
   collatorCount = 1
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
-  const collators = await collatorKeys(paraId, collatorCount, scheme);
+  // A parachain without a Session pallet manages authorities through Aura alone.
+  const hasSession = index.pallets.has('Session');
+  const fields = hasSession ? sessionKeyFields(sessionKeysType(index), scheme) : [];
+  const collators = await paraCollators(paraId, collatorCount, scheme, fields);
   // The inherited messaging state is reset on every bite, matching the relay half in
   // messagingResets() — see ./shared-relay.ts. The channels stay open, so XCM keeps working.
   // The transaction-storage wipe applies on EVERY bite of a chain with that pallet, not
@@ -457,13 +473,12 @@ export async function paraOverrides(
 
   console.log(
     `para ${paraId} (${collators.length} collator${collators.length === 1 ? '' : 's'} from //Collator-${paraId} ` +
-      `${scheme} = ${collators.map((c) => c.slice(0, 16) + '…').join(', ')}):`
+      `${scheme} = ${collators.map((collator) => collator.account.slice(0, 16) + '…').join(', ')}):`
   );
   const overrides = report(`para ${paraId} overrides`, verify(index, candidates), candidates);
 
-  // A parachain without a Session pallet manages authorities through Aura alone.
   const injects = {
-    ...(index.pallets.has('Session') ? paraInjects(collators) : {}),
+    ...(hasSession ? paraInjects(collators) : {}),
     // Parachains of a shared relay are live public chains: no dev account holds
     // funds there, so sudo is endowed at import (see sudoEndowInjects).
     ...(sharedRelay ? sudoEndowInjects() : {}),
