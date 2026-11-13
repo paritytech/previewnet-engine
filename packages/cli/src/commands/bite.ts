@@ -125,9 +125,9 @@ function biteLogDir(out: string): string {
  *
  * Resolves whatever the exit code is: doppelganger deliberately ends an essential task to stop
  * the node once it has captured the state, so a non-zero exit is the normal path. Success is
- * judged by readBiteBlock.
+ * judged by readBiteBlock, from this run's log alone: the file starts empty.
  */
-function runBiteNode(
+export function runBiteNode(
   cmd: string,
   args: string[],
   env: NodeJS.ProcessEnv,
@@ -135,7 +135,7 @@ function runBiteNode(
   label = path.basename(logFile, '.log')
 ): Promise<void> {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
-  const fd = fs.openSync(logFile, 'a');
+  const fd = fs.openSync(logFile, 'w');
   fs.writeSync(fd, `=== ${cmd} ${args.join(' ')}\n`);
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { env, stdio: ['ignore', fd, fd] });
@@ -204,14 +204,15 @@ function logTail(logFile: string, lines: number, filter?: RegExp): string[] {
 }
 
 /**
- * The block a bite node captured, or null when it captured none. doppelganger writes the info
- * file whether or not importing that block succeeded, so the import result in its log decides.
+ * The block a bite node captured. Fails with the end of its log when the import didn't
+ * succeed: doppelganger writes the info file either way.
  */
-function readBiteBlock(infoFile: string, logFile: string): number | null {
-  const log = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf-8') : '';
-  if (!log.includes('Block import done! : Ok(') || !fs.existsSync(infoFile)) return null;
-  const block = fs.readFileSync(infoFile, 'utf-8').trim();
-  return block ? Number(block) : null;
+export function readBiteBlock(label: string, infoFile: string, logFile: string): number {
+  const isImportOk = fs.existsSync(logFile) && fs.readFileSync(logFile, 'utf-8').includes('Block import done! : Ok(');
+  const block = isImportOk && fs.existsSync(infoFile) ? fs.readFileSync(infoFile, 'utf-8').trim() : '';
+  if (block) return Number(block);
+  const hint = logTail(logFile, 5, /Block import done|not present on the host|error|panic/i);
+  throw new Error(`${label}: bite FAILED (log: ${logFile})\n${hint.map((line) => '         ' + line).join('\n')}`);
 }
 
 export interface BiteOptions {
@@ -602,16 +603,12 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
   const biteBlocks: Record<string, number> = {};
   for (const para of parachains) {
     const id = String(para.paraId);
-    const log = path.join(biteLogDir(out), `${id}.log`);
-    const block = readBiteBlock(path.join(out, 'work', id, 'info.txt'), log);
-    if (block === null) {
-      const hint = logTail(log, 3, /Block import done|not present on the host|error|panic/i);
-      throw new Error(
-        `para ${id}: bite FAILED (log: ${log})\n${hint.map((l) => '         ' + l).join('\n')}`
-      );
-    }
-    biteBlocks[id] = block;
-    console.log(`  para ${id} bitten at block ${block}`);
+    biteBlocks[id] = readBiteBlock(
+      `para ${id}`,
+      path.join(out, 'work', id, 'info.txt'),
+      path.join(biteLogDir(out), `${id}.log`)
+    );
+    console.log(`  para ${id} bitten at block ${biteBlocks[id]}`);
   }
 
   console.log('=== 5/6 biting relay with parachain heads injected ===');
@@ -654,12 +651,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
     `relay (${net.relay.chain})`
   );
 
-  const relayBlock = readBiteBlock(path.join(relayWork, 'info.txt'), relayLog);
-  if (relayBlock === null) {
-    const tail = logTail(relayLog, 5, /Block import done|error|panic/i);
-    throw new Error(`relay bite FAILED (log: ${relayLog})\n${tail.map((l) => '         ' + l).join('\n')}`);
-  }
-  biteBlocks.relay = relayBlock;
+  biteBlocks.relay = readBiteBlock('relay', path.join(relayWork, 'info.txt'), relayLog);
 
   console.log('=== 6/6 packing snapshots ===');
   const snapshotBytes: Record<string, number> = {};
