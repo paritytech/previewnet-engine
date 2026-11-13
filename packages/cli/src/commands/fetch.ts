@@ -58,10 +58,14 @@ function localPin(repo: string): string | null {
   return repo.startsWith('file:') ? repo.slice('file:'.length) : null;
 }
 
+// Through a temporary file and a rename: a node still running the old copy continues on the
+// old inode, and the write doesn't fail with ETXTBSY.
 function copyLocal(src: string, dest: string, what: string): void {
   if (!fs.existsSync(src)) throw new Error(`${what}: no file at ${src}`);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.copyFileSync(src, dest);
+  const partial = `${dest}.partial`;
+  fs.copyFileSync(src, partial);
+  fs.renameSync(partial, dest);
 }
 
 const PVF_WORKERS = ['polkadot-execute-worker', 'polkadot-prepare-worker'];
@@ -183,6 +187,13 @@ export async function run(args: string[], opts: FetchOptions = {}): Promise<void
   if (opts.ifNeeded) {
     const absent = whatIsMissing(net, nodeDest, sharedDest);
     if (absent.length === 0) {
+      // A file: pin can point at a newer build than the copy present, so fetch copies it anyway.
+      // The next full fetch refreshes its provenance stamp.
+      for (const binary of networkBinaries(net)) {
+        const localPath = localPin(binary.repo);
+        if (!localPath) continue;
+        for (const copy of copyLocalBinary(binary.name, localPath, nodeDest)) ok(`${copy.name} (from ${copy.src})`);
+      }
       console.log(`✓ ${net.name} artifacts present in ${nodeDest}`);
       return;
     }
