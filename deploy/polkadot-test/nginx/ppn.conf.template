@@ -261,3 +261,13 @@ server {
         include /etc/nginx/snippets/websocket-proxy.conf;
     }
 }
+
+# ---- stream ----
+# Everything below goes to /etc/nginx/streams-enabled/ppn.conf (apply.sh): TURN over TLS.
+stream {
+    ssl_certificate ${PPN_TLS_DIR}/fullchain.pem;
+    ssl_certificate_key ${PPN_TLS_DIR}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # {{GENERATED_STREAMS}}
+}

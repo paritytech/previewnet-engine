@@ -30,7 +30,7 @@ changed() { ! cmp -s "$1" "$2"; }
 # What a fresh Ubuntu is missing for this to run at all. Node comes from NodeSource when it is
 # absent or too old; pnpm through corepack; everything else from apt.
 NODE_MAJOR_MIN=22
-APT_WANTED=(nginx certbot gettext-base jq lsof unzip curl tmux git build-essential)
+APT_WANTED=(nginx libnginx-mod-stream certbot gettext-base jq lsof unzip curl tmux git build-essential)
 APT_MISSING=()
 for pkg in "${APT_WANTED[@]}"; do dpkg -s "$pkg" >/dev/null 2>&1 || APT_MISSING+=("$pkg"); done
 NEED_NODE=0
@@ -113,13 +113,25 @@ else
     echo "apply: nginx config has unsubstituted variables: $LEFT" >&2; exit 1
   fi
   NGINX_CHANGED=0
-  if changed "$RENDERED" /etc/nginx/sites-available/ppn.conf; then
-    sudo install -m 0644 "$RENDERED" /etc/nginx/sites-available/ppn.conf; NGINX_CHANGED=1
-  fi
   if changed "$HERE/nginx/websocket-proxy.conf" /etc/nginx/snippets/websocket-proxy.conf; then
     sudo install -m 0644 "$HERE/nginx/websocket-proxy.conf" /etc/nginx/snippets/websocket-proxy.conf; NGINX_CHANGED=1
   fi
-  rm -f "$ROUTED" "$RENDERED"
+  # stream{} cannot live in sites-enabled (that is inside http{}), so the template's tail
+  # after the marker line goes to its own file, included from nginx.conf's top level.
+  STREAM="$(mktemp)"
+  sed -n '/^# ---- stream ----$/,$p' "$RENDERED" > "$STREAM"
+  sed -i '/^# ---- stream ----$/,$d' "$RENDERED"
+  if changed "$RENDERED" /etc/nginx/sites-available/ppn.conf; then
+    sudo install -m 0644 "$RENDERED" /etc/nginx/sites-available/ppn.conf; NGINX_CHANGED=1
+  fi
+  sudo install -d /etc/nginx/streams-enabled
+  if changed "$STREAM" /etc/nginx/streams-enabled/ppn.conf; then
+    sudo install -m 0644 "$STREAM" /etc/nginx/streams-enabled/ppn.conf; NGINX_CHANGED=1
+  fi
+  if ! grep -q '^include /etc/nginx/streams-enabled/' /etc/nginx/nginx.conf; then
+    echo 'include /etc/nginx/streams-enabled/*.conf;' | sudo tee -a /etc/nginx/nginx.conf >/dev/null; NGINX_CHANGED=1
+  fi
+  rm -f "$ROUTED" "$RENDERED" "$STREAM"
   sudo ln -sf /etc/nginx/sites-available/ppn.conf /etc/nginx/sites-enabled/ppn.conf
   sudo rm -f /etc/nginx/sites-enabled/default
   if [[ "$NGINX_CHANGED" == 1 ]]; then
