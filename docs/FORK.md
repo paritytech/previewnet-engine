@@ -63,11 +63,20 @@ The apply half is a transaction, not state, so it runs after the spawn: the `ena
 custom process submits `apply_authorized_upgrade` for every seeded chain, parachains first and
 the relay last, through the same path `ppn upgrade` uses. It waits for the chains to author,
 retries a chain that does not answer yet, and is a no-op on a chain already running the blob —
-so a resumed fork does nothing here. Enactment itself is slow on a parachain of a real network:
-the code goes live only on the relay's go-ahead, `validation_upgrade_delay` relay blocks after
-the PVF pre-check, which on Polkadot is 600 blocks, an hour. The service waits up to two hours
-per chain. `make runtime-upgrade NETWORK=polkadot CHAIN=people ENACT_TIMEOUT_MIN=70` with no
-`WASM=` does the same for one chain by hand.
+so a resumed fork does nothing here. All parachains are submitted at once and waited for
+together, then the relay.
+
+A parachain's code goes live on the relay's go-ahead, `validation_upgrade_delay` relay blocks
+after the PVF pre-check. Live Polkadot sets that to 600 blocks, an hour, and forbids a second
+upgrade of the same parachain for `validation_upgrade_cooldown` = 14400, a day — sensible for a
+production relay, useless for a fork whose purpose is enacting runtimes under test. A
+shared-relay bite therefore patches both into `Configuration::ActiveConfig`, to 30 and 60 relay
+blocks (`shared-relay.ts`), in the same rebuild that sets `num_cores`. The pre-check and
+go-ahead path is unchanged; only the timers are. So from a fresh bite, all four chains are on
+the new runtime within a few minutes of the spawn. A bundle bitten before this patch still
+carries the live values, which is why the service waits up to two hours per chain.
+`make runtime-upgrade NETWORK=polkadot CHAIN=people` with no `WASM=` does the same for one
+chain by hand.
 
 Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
 `upgrades/<chain>.wasm`, recording it in `manifest.json` as `seededUpgrades`. Add
