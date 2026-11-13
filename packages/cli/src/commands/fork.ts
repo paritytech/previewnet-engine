@@ -99,6 +99,7 @@ export async function run(args: string[]): Promise<void> {
           NETWORK.bite.sharedRelay,
           seeded[p.key],
           p.aura,
+          p.bulletinAuthorizer,
           topology?.collators[p.key] ?? 1
         );
       }

@@ -30,6 +30,7 @@ import {
   collatorKeys,
   devValidators,
   paraCandidates,
+  bulletinAuthorizerInjects,
   paraInjects,
   relayCandidates,
   relayInjects,
@@ -468,6 +469,7 @@ export async function paraOverrides(
   sharedRelay = false,
   upgrade?: SeededUpgrade,
   scheme: AuraScheme = 'sr25519',
+  bulletinAuthorizer?: string,
   collatorCount = 1
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
@@ -497,6 +499,10 @@ export async function paraOverrides(
     // Parachains of a shared relay are live public chains: no dev account holds
     // funds there, so sudo is endowed at import (see sudoEndowInjects).
     ...(sharedRelay ? sudoEndowInjects() : {}),
+    // A bitten Bulletin has no authorizer: the runtime seeds one at genesis and a fork has none.
+    ...(bulletinAuthorizer && index.pallets.has('TransactionStorage')
+      ? bulletinAuthorizerInjects(bulletinAuthorizer)
+      : {}),
     ...seededUpgradeInject(index, upgrade),
   };
   write(outFile, { overrides, injects }, index);

@@ -128,6 +128,13 @@ export interface NetworkParachain {
   rpcNodes: number;
   /** Extra args for the RPC nodes, applied over the chain's own args. */
   rpcNodeArgs: string[];
+  /**
+   * Account written into this chain's `TransactionStorage::AllowedAuthorizers` at bite time, so
+   * something can authorize Bulletin storage. Only a fork needs it: the bulletin runtime seeds an
+   * authorizer in its genesis preset, and a fork has no genesis, so a bitten Bulletin has none and
+   * every store fails. A 32-byte account id, hex, `0x`-prefixed.
+   */
+  bulletinAuthorizer?: string;
 }
 
 /** RPC node i of a parachain listens on the chain's port + i, below the next chain's port. */
@@ -382,6 +389,9 @@ export function loadDescriptor(name: string): NetworkDef {
     if (!p.spec || !p.rpc || !p.specSource) bad(`parachain ${p.key} needs spec, rpc and specSource`);
     if (p.aura !== undefined && p.aura !== 'sr25519' && p.aura !== 'ed25519') {
       bad(`parachain ${p.key}: aura must be "sr25519" or "ed25519"`);
+    }
+    if (p.bulletinAuthorizer !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(p.bulletinAuthorizer)) {
+      bad(`parachain ${p.key}: bulletinAuthorizer must be a 0x-prefixed 32-byte account id`);
     }
     checkBinary(`parachains.${p.key}`, p.binary);
     checkRuntime(`parachains.${p.key}`, p.runtime);
