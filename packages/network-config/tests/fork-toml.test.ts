@@ -496,6 +496,24 @@ describe('generateForkToml — non-previewnet bundles', () => {
     assert.ok(devnetToml().includes('name = "grant-invites"'));
   });
 
+  // Westend doesn't run any of the Individuality pallets, so the identity backend and the grants
+  // that feed it would only fail on a Westend fork. eth-rpc serves Asset Hub there as anywhere.
+  it("doesn't run the identity backend or the Individuality grants on a Westend fork", () => {
+    const toml = generateForkToml({
+      repoDir: REPO,
+      bundleDir: makeNetBundle('westend', {
+        relay: { paraId: null, spec: 'westend', specId: 'westend2' },
+        'asset-hub': { paraId: 1000, spec: 'asset-hub', specId: 'asset-hub-westend' },
+        people: { paraId: 1004, spec: 'people', specId: 'people-westend' },
+      }),
+    });
+    for (const name of ['dub-postgres', 'dub-api', 'registration-queue', 'invite-tickets-pool', 'turn',
+      'grant-invites', 'pin-design-families', 'increase-people-lite-attestation-allowance']) {
+      assert.ok(!toml.includes(`name = "${name}"`), `${name} runs on westend`);
+    }
+    assert.ok(toml.includes('name = "eth-rpc"'));
+  });
+
   // A bite that authorized runtimes leaves the apply half to the spawn: the fork should come
   // up running the release under test, not merely permitted to. A bundle that seeded nothing
   // gets no such process.
