@@ -226,6 +226,7 @@ function parachainSection(
   scriptsDir: string,
   enableHop: boolean,
   net: NetworkDef,
+  restoreSnapshots: boolean,
   binDirOverride?: string
 ): string {
   const chain = manifest.chains[key];
@@ -265,7 +266,7 @@ function parachainSection(
   // restoring the same snapshot. Only the first holds the documented ports; the rest take
   // whatever zombienet hands out, and drop a fixed listen address that would collide.
   const count = manifest.topology?.collators[key] ?? 1;
-  const launch = `command = "${scriptsDir}/omni-node.sh"\ndb_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"${envLine}`;
+  const launch = `command = "${scriptsDir}/omni-node.sh"\n${restoreSnapshots ? `db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"` : ''}${envLine}`;
   const collators = Array.from({ length: count }, (_, i) =>
     i === 0
       ? `
@@ -360,10 +361,16 @@ export interface GenerateForkTomlOptions {
   enableHop?: boolean;
   /** Overrides <repoDir>/bin — non-previewnet binaries live in bin/<network>. */
   binDir?: string;
+  /**
+   * Emit the bundle's snapshots as `db_snapshot`. Off when resuming a fork: zombienet unpacks a
+   * configured snapshot over the node's base path on every spawn, whether or not a database is
+   * already there, so a resumed fork that kept them would rewind to the bite block.
+   */
+  restoreSnapshots?: boolean;
 }
 
 export function generateForkToml(options: GenerateForkTomlOptions): string {
-  const { repoDir, bundleDir, enableHop = true } = options;
+  const { repoDir, bundleDir, enableHop = true, restoreSnapshots = true } = options;
   const binDir = options.binDir ?? `${repoDir}/bin`;
   const scriptsDir = options.scriptsDir ?? `${repoDir}/scripts`;
 
@@ -410,11 +417,12 @@ node_spawn_timeout = 400
 chain = "${chainIdOf(relaySpecPath)}"
 chain_spec_path = "${relaySpecPath}"
 default_command = "${binDir}/${net.relay.binary.name}"
-default_db_snapshot = "${bundleDir}/snapshots/relay.tgz"
-default_args = ${tomlArgs(relayArgs)}
+${restoreSnapshots ? `default_db_snapshot = "${bundleDir}/snapshots/relay.tgz"\n` : ''}default_args = ${tomlArgs(relayArgs)}
 ${relayNodes(manifest.topology?.validators ?? net.relay.validators)}
 ${parachains
-    .map((p) => parachainSection(p, manifest, bundleDir, scriptsDir, enableHop, net, options.binDir))
+    .map((p) =>
+      parachainSection(p, manifest, bundleDir, scriptsDir, enableHop, net, restoreSnapshots, options.binDir)
+    )
     .join('')}
 ${customProcesses(scriptsDir, net, present, manifest)}${identity}`;
 

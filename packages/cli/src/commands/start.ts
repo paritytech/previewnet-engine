@@ -452,6 +452,40 @@ export function forkDataVerdict(dataDir: string, network: string, manifestPath: 
 }
 
 /**
+ * Settle a fork's data directory, then write the config zombie-cli spawns from.
+ *
+ * zombienet unpacks a node's db_snapshot over its base path on every spawn, whether or not a
+ * database is already there. So a resume regenerates the bundle's config without snapshots
+ * before the spawn config is copied from it; otherwise the resumed fork rewinds to the bite
+ * block. Only the generated config is regenerated: a --toml the caller supplied is theirs.
+ * See docs/FORK.md.
+ */
+export function prepareSpawn(
+  sourceToml: string,
+  fork: { dataDir: string; network: string; forkDir: string } | null,
+  facts: { workspace: string; network: string; dataDir: string },
+  regenerate: (forkDir: string, outFile: string) => void = (forkDir, outFile) =>
+    run(process.execPath, [process.argv[1], 'fork', 'toml', forkDir, outFile, '--resume'])
+): string {
+  if (fork) {
+    const verdict = forkDataVerdict(fork.dataDir, fork.network, path.join(fork.forkDir, 'manifest.json'));
+    if (verdict.action === 'wipe') {
+      console.log(`fork mode: wiping ${fork.dataDir} — ${verdict.reason}`);
+      fs.rmSync(fork.dataDir, { recursive: true, force: true });
+    } else if (verdict.action === 'resume') {
+      console.log(`fork mode: resuming ${fork.dataDir} — ${verdict.reason} (--clean restarts from the bite block)`);
+      const generated = path.join(fork.forkDir, 'fork.toml');
+      if (path.resolve(sourceToml) === path.resolve(generated)) regenerate(fork.forkDir, generated);
+    }
+  }
+  // zombie-cli hands custom processes no environment but what their own blocks say, so this
+  // run's workspace, network and data directory go into each block (lib/spawn-env.ts).
+  const tomlFile = spawnTomlFor(sourceToml);
+  fs.writeFileSync(tomlFile, withCustomProcessEnv(fs.readFileSync(sourceToml, 'utf-8'), customProcessEnv(facts)));
+  return tomlFile;
+}
+
+/**
  * Is there a bundle here worth spawning from — and if not, clear what is.
  *
  * A manifest alone is not a bundle. An interrupted bite used to leave one beside an empty
@@ -555,27 +589,13 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
 
   const sourceToml = await ensureDeps(netDef, opts, binDir);
   if (!fs.existsSync(sourceToml)) throw new Error(`no zombienet config at ${sourceToml}`);
-  // zombie-cli hands custom processes no environment but what their own blocks say, so this
-  // run's workspace, network and data directory go into each block (lib/spawn-env.ts).
-  const tomlFile = spawnTomlFor(sourceToml);
-  fs.writeFileSync(
-    tomlFile,
-    withCustomProcessEnv(fs.readFileSync(sourceToml, 'utf-8'), customProcessEnv({ workspace: WS, network: name, dataDir }))
-  );
-
   // Decided after ensureDeps, which is where a --fresh-bite produces the bundle the data is
-  // compared against. zombienet restores a bundle's snapshot only into an empty base path;
-  // a database already there is run on as-is — which is right when it is this bundle's own
-  // fork continuing from where it stopped, and wrong for anything else. See docs/FORK.md.
-  if (opts.fork && !opts.ephemeral) {
-    const verdict = forkDataVerdict(dataDir, name, path.join(forkDirFor(name), 'manifest.json'));
-    if (verdict.action === 'wipe') {
-      console.log(`fork mode: wiping ${dataDir} — ${verdict.reason}`);
-      fs.rmSync(dataDir, { recursive: true, force: true });
-    } else if (verdict.action === 'resume') {
-      console.log(`fork mode: resuming ${dataDir} — ${verdict.reason} (--clean restarts from the bite block)`);
-    }
-  }
+  // compared against.
+  const tomlFile = prepareSpawn(
+    sourceToml,
+    opts.fork && !opts.ephemeral ? { dataDir, network: name, forkDir: forkDirFor(name) } : null,
+    { workspace: WS, network: name, dataDir }
+  );
   if (!opts.ephemeral) fs.mkdirSync(dataDir, { recursive: true });
 
   // When and from what this network was spawned — a fact of this run, recorded beside its
