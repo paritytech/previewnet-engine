@@ -215,23 +215,26 @@ export function authorizedUpgradeCandidate(codeHash: string, checkVersion: boole
 /** A SessionKeys field: the KeyTypeId its key is registered under, and the key's curve. */
 export interface SessionKeyField {
   keyTypeId: string;
-  scheme: AuraScheme;
+  curve: AuraScheme;
 }
 
 /** A parachain SessionKeys field as metadata describes it: its name and its type's path. */
-export interface SessionKeyFieldType {
+export interface SessionKeyMetadataField {
   name: string;
   typePath: string[];
 }
 
-// Metadata carries the SessionKeys field names but not their KeyTypeIds.
-const PARA_KEY_TYPE_IDS: Record<string, string> = { aura: 'aura', authority_discovery: 'audi' };
+// Metadata has the SessionKeys field names but not their KeyTypeIds. A field whose type path
+// doesn't contain its curve takes the one listed here.
+const SESSION_KEY_FIELDS_BY_NAME: Record<string, { keyTypeId: string; curve?: AuraScheme }> = {
+  aura: { keyTypeId: 'aura' },
+  // `sp_authority_discovery::app::Public` is sr25519 app crypto.
+  authority_discovery: { keyTypeId: 'audi', curve: 'sr25519' },
+};
 
-function keyScheme(typePath: string[]): AuraScheme | undefined {
+function detectKeyCurve(typePath: string[]): AuraScheme | undefined {
   if (typePath.some((segment) => segment.includes('sr25519'))) return 'sr25519';
   if (typePath.some((segment) => segment.includes('ed25519'))) return 'ed25519';
-  // `sp_authority_discovery::app::Public` is sr25519 app crypto; its path does not say so.
-  if (typePath[0] === 'sp_authority_discovery') return 'sr25519';
   return undefined;
 }
 
@@ -239,17 +242,17 @@ function keyScheme(typePath: string[]): AuraScheme | undefined {
  * The KeyTypeId and curve of each SessionKeys field, in field order. Fails on a field whose
  * KeyTypeId or curve is unknown, and on an Aura curve other than the one the descriptor declares.
  */
-export function sessionKeyFields(fields: SessionKeyFieldType[], auraScheme: AuraScheme): SessionKeyField[] {
+export function resolveSessionKeyFields(fields: SessionKeyMetadataField[], auraScheme: AuraScheme): SessionKeyField[] {
   return fields.map(({ name, typePath }) => {
-    const keyTypeId = PARA_KEY_TYPE_IDS[name];
-    const scheme = keyScheme(typePath);
-    if (!keyTypeId || !scheme) {
-      throw new Error(`SessionKeys field "${name}" (${typePath.join('::')}) has no known KeyTypeId and curve`);
+    const fieldEntry = SESSION_KEY_FIELDS_BY_NAME[name];
+    const curve = detectKeyCurve(typePath) ?? fieldEntry?.curve;
+    if (!fieldEntry || !curve) {
+      throw new Error(`SessionKeys field "${name}" (${typePath.join('::')}) doesn't have a known KeyTypeId and curve`);
     }
-    if (name === 'aura' && scheme !== auraScheme) {
-      throw new Error(`the descriptor declares ${auraScheme} Aura keys, but the runtime's SessionKeys has ${scheme}`);
+    if (name === 'aura' && curve !== auraScheme) {
+      throw new Error(`the descriptor declares ${auraScheme} Aura keys, but the runtime's SessionKeys has ${curve}`);
     }
-    return { keyTypeId, scheme };
+    return { keyTypeId: fieldEntry.keyTypeId, curve };
   });
 }
 
@@ -259,30 +262,33 @@ export interface ParaCollator {
   sessionKeys: { keyTypeId: string; publicKey: string }[];
 }
 
-/** The collators collatorKeys() derives, each with a key for every field of the runtime's SessionKeys. */
-export async function paraCollators(
+/**
+ * The collators collatorKeys() derives, each with a key for every field of the runtime's
+ * SessionKeys. A collator's account is its Aura public key, on the chain's Aura curve.
+ */
+export async function deriveParaCollators(
   paraId: number,
   count: number,
   scheme: AuraScheme,
   fields: SessionKeyField[]
 ): Promise<ParaCollator[]> {
-  const keysByScheme = new Map<AuraScheme, string[]>([[scheme, await collatorKeys(paraId, count, scheme)]]);
-  for (const field of fields) {
-    if (!keysByScheme.has(field.scheme)) keysByScheme.set(field.scheme, await collatorKeys(paraId, count, field.scheme));
-  }
-  return keysByScheme.get(scheme)!.map((account, position) => ({
+  const accounts = await collatorKeys(paraId, count, scheme);
+  const fieldKeys = await Promise.all(fields.map((field) => collatorKeys(paraId, count, field.curve)));
+  return accounts.map((account, position) => ({
     account,
-    sessionKeys: fields.map((field) => ({
+    sessionKeys: fields.map((field, fieldPosition) => ({
       keyTypeId: field.keyTypeId,
-      publicKey: keysByScheme.get(field.scheme)![position],
+      publicKey: fieldKeys[fieldPosition][position],
     })),
   }));
 }
 
+const encodeParaSessionKeys = (collator: ParaCollator): string =>
+  collator.sessionKeys.map((key) => key.publicKey).join('');
+
 /**
- * Parachain storage values that install the collators as its authority set. One key serves as
- * both the account and the Aura key: the seed is the same and the account is the sr25519 public
- * key, which is what CollatorSelection and Session hold.
+ * Parachain storage values that install the collators as its authority set: the account goes
+ * into CollatorSelection, Aura and Session.
  */
 export function paraCandidates(collators: ParaCollator[]): Record<string, string> {
   const len = compactLen(collators.length);
@@ -294,8 +300,7 @@ export function paraCandidates(collators: ParaCollator[]): Record<string, string
     [keyOf('Aura', 'Authorities')]: len + all,
     [keyOf('Session', 'Validators')]: len + all,
     [keyOf('Session', 'QueuedKeys')]:
-      len +
-      collators.map((collator) => collator.account + collator.sessionKeys.map((key) => key.publicKey).join('')).join(''),
+      len + collators.map((collator) => collator.account + encodeParaSessionKeys(collator)).join(''),
     [keyOf('Sudo', 'Key')]: ALICE_SR,
     // ParachainSystem::LastDmqMqcHead is left alone: zeroing it (as zombie-bite does)
     // desyncs the parachain from the relay's preserved Dmp state.
@@ -305,12 +310,11 @@ export function paraCandidates(collators: ParaCollator[]): Record<string, string
 export function paraInjects(collators: ParaCollator[]): Record<string, string> {
   const injects: Record<string, string> = {};
   for (const collator of collators) {
-    injects[keyOf('Session', 'NextKeys') + twox64Concat(collator.account)] =
-      collator.sessionKeys.map((key) => key.publicKey).join('');
+    injects[keyOf('Session', 'NextKeys') + twox64Concat(collator.account)] = encodeParaSessionKeys(collator);
     for (const { keyTypeId, publicKey } of collator.sessionKeys) {
       // Session::KeyOwner((KeyTypeId, Vec<u8>))
-      const owned = Buffer.from(keyTypeId).toString('hex') + compactLen(publicKey.length / 2) + publicKey;
-      injects[keyOf('Session', 'KeyOwner') + twox64Concat(owned)] = collator.account;
+      const keyOwnerTuple = Buffer.from(keyTypeId).toString('hex') + compactLen(publicKey.length / 2) + publicKey;
+      injects[keyOf('Session', 'KeyOwner') + twox64Concat(keyOwnerTuple)] = collator.account;
     }
   }
   return injects;

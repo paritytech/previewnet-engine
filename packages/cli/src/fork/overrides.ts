@@ -27,14 +27,14 @@ import {
 import {
   devValidators,
   paraCandidates,
-  paraCollators,
+  deriveParaCollators,
   paraInjects,
   relayCandidates,
   relayInjects,
-  sessionKeyFields,
+  resolveSessionKeyFields,
   sudoEndowInjects,
   authorizedUpgradeCandidate,
-  type SessionKeyFieldType,
+  type SessionKeyMetadataField,
 } from './validators.js';
 import type { AuraScheme } from '@parity/ppn-network-config';
 
@@ -434,7 +434,7 @@ function seededUpgradeInject(index: StorageIndex, upgrade?: SeededUpgrade): Reco
 }
 
 /** The fields of the runtime's SessionKeys, from the value type of Session::NextKeys. */
-function sessionKeysType(index: StorageIndex): SessionKeyFieldType[] {
+function readSessionKeyMetadataFields(index: StorageIndex): SessionKeyMetadataField[] {
   const nextKeys = index.byKey.get(keyOf('Session', 'NextKeys'));
   if (nextKeys?.mapValue == null) throw new Error('Session::NextKeys is not a map in this runtime');
   const { lookup } = index.reg;
@@ -456,8 +456,8 @@ export async function paraOverrides(
   const index = await storageIndex(paraUrl);
   // A parachain without a Session pallet manages authorities through Aura alone.
   const hasSession = index.pallets.has('Session');
-  const fields = hasSession ? sessionKeyFields(sessionKeysType(index), scheme) : [];
-  const collators = await paraCollators(paraId, collatorCount, scheme, fields);
+  const fields = hasSession ? resolveSessionKeyFields(readSessionKeyMetadataFields(index), scheme) : [];
+  const collators = await deriveParaCollators(paraId, collatorCount, scheme, fields);
   // The inherited messaging state is reset on every bite, matching the relay half in
   // messagingResets() — see ./shared-relay.ts. The channels stay open, so XCM keeps working.
   // The transaction-storage wipe applies on EVERY bite of a chain with that pallet, not
