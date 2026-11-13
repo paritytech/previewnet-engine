@@ -5,7 +5,7 @@
 #   deploy/polkadot-test/apply.sh --no-restart same, but leave the running network alone
 #   deploy/polkadot-test/apply.sh --no-pull    work from the checkout as it is
 #
-# A bite is never done here: `make bite NETWORK=polkadot UPGRADES=...` is a deliberate act.
+# A bite is never done here: `make bite NETWORK=polkadot` is a deliberate act.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -173,7 +173,7 @@ sudo systemctl enable ppn-polkadot.service >/dev/null 2>&1 || true
 
 # ---- 7. the network ---------------------------------------------------------------------
 if [[ ! -f "fork-bundle-$NETWORK/manifest.json" ]]; then
-  say "no bundle at fork-bundle-$NETWORK — bite first: make bite NETWORK=$NETWORK UPGRADES=\"...\""
+  say "no bundle at fork-bundle-$NETWORK — bite first: make bite NETWORK=$NETWORK"
 elif [[ "$RESTART" == 1 ]]; then
   # Anything running outside systemd (a `make start` in tmux) goes too: two networks on one
   # port set is worse than a restart.

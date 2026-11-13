@@ -1,24 +1,26 @@
 # Forking Polkadot with the fellowship runtimes
 
-A runbook for one dedicated machine that keeps a fork of Polkadot running with a fellowship
-runtime release enacted on it — currently 2.5, the release that lands Individuality on People
-Polkadot and Asset Hub Polkadot. Everything here is `make` on top of what `docs/FORK.md`
-explains; read that for the why.
+A runbook for one dedicated machine that keeps a fork of Polkadot running, optionally with a
+fellowship runtime release newer than mainnet's enacted on it. Mainnet runs v2.5.3, with the
+Individuality pallets on People and Asset Hub. Everything here is `make` on top of what
+`docs/FORK.md` explains; read that for the why.
 
 ## What the fork is
 
-| Chain | Live para id | Runtime live (2026-09) | Runtime under test |
-| --- | --- | --- | --- |
-| Relay | | polkadot 2004000 | polkadot 2005000 (version bump only) |
-| Asset Hub | 1000 | statemint 2004000 | pallet-revive 0.19.1, Individuality pallets |
-| People | 1004 | people-polkadot 2004000 | Individuality pallets |
-| Bulletin | 1010 | bulletin-polkadot 2004000 | version bump only |
+| Chain | Live para id | Runtime live (2026-11) |
+| --- | --- | --- |
+| Relay | | polkadot 2005003 |
+| Asset Hub | 1000 | statemint 2005003 |
+| People | 1004 | people-polkadot 2005003 |
+| Bulletin | 1010 | bulletin-polkadot 2005003 |
 
-Six dev validators, one collator per parachain, PPN's normal ports. All six HRMP channels
-between the three parachains exist on live Polkadot and survive the bite. Polkadot has no sudo,
-so the runtimes are authorized at bite time and enacted after the spawn; nothing else on the
-fork can dispatch root, which is why the People-side grants (attestation allowance, invites)
-do not run here and Web3 Storage is not part of it.
+A bite takes these runtimes as they are; `UPGRADES=` adds a runtime under test (see "Bite and
+start"). Six dev validators, one collator per parachain, PPN's normal ports. All six HRMP
+channels between the three parachains exist on live Polkadot and survive the bite. Polkadot has
+no sudo, so a runtime under test is authorized at bite time and enacted after the spawn. Nothing
+else on the fork can dispatch root, so the grant processes do not run: the bite seeds both
+attestation allowances instead (`docs/FORK.md`, "What the bite seeds"), dub's `polkadot` build
+has no invite roles, and Web3 Storage is not part of the fork.
 
 ## One-time setup
 
@@ -32,51 +34,48 @@ make fetch NETWORK=polkadot              # polkadot, polkadot-parachain, eth-rpc
 make fetch-doppelganger NETWORK=polkadot # the bite tool, into bin/polkadot/dg/
 ```
 
+Then replace `bin/polkadot/polkadot-parachain` with a build that has the fork-id fix (see
+`docs/FORK.md`). Any later `make fetch`, including the one `apply.sh` runs, restores the stock one.
+
 ## Get the runtimes
 
-PPN takes runtime blobs as files; fetching them is `gh`'s job. 2.5 is not a release yet, it is
-the open release PR ([polkadot-fellows/runtimes#1265](https://github.com/polkadot-fellows/runtimes/pull/1265)),
-whose build workflow uploads one artifact per runtime, named after it, on every push:
+Only for a runtime newer than mainnet's. PPN takes runtime blobs as files; fetching them is `gh`'s
+job: a release's assets, or an unreleased build from its PR's build workflow, which uploads one
+artifact per runtime, named after it:
 
 ```bash
-# newest "Tests" run on the release branch that actually uploaded the runtimes (not every run does)
-RUN=$(for id in $(gh api "repos/polkadot-fellows/runtimes/actions/runs?branch=kiz-release-2.5&per_page=30" -q '.workflow_runs[] | select(.name=="Tests") | .id'); do
-  gh api repos/polkadot-fellows/runtimes/actions/runs/$id/artifacts -q '.artifacts[] | select(.name=="people-polkadot") | .id' | grep -q . && echo $id && break; done)
-gh run download $RUN -R polkadot-fellows/runtimes -D runtimes/ -n asset-hub-polkadot -n people-polkadot
-ls runtimes/*/   # runtimes/asset-hub-polkadot/asset_hub_polkadot_runtime.compact.compressed.wasm, …
+gh release download <tag> -R polkadot-fellows/runtimes -D runtimes/ -p 'asset-hub-polkadot_*' -p 'people-polkadot_*'
+gh run download <run-id> -R polkadot-fellows/runtimes -D runtimes/ -n asset-hub-polkadot -n people-polkadot
 ```
 
-Re-run after the PR is pushed to and the blobs follow. Artifacts expire after 90 days; the
-directory is what you keep. Once 2.5 is cut, the release assets replace the artifacts:
-
-```bash
-gh release download v2.5.0 -R polkadot-fellows/runtimes -D runtimes/ -p 'asset-hub-polkadot_*' -p 'people-polkadot_*'
-```
-
-The relay and bulletin runtimes are in the same places (`polkadot`, `bulletin-polkadot`) if you
-want the whole release on the fork; 2.5 changes nothing in them beyond the version.
+Artifacts expire after 90 days; the directory is what you keep. The relay and Bulletin runtimes
+are in the same places (`polkadot`, `bulletin-polkadot`).
 
 ## Bite and start
 
 ```bash
-make bite NETWORK=polkadot UPGRADES="asset-hub=runtimes/asset-hub-polkadot/asset_hub_polkadot_runtime.compact.compressed.wasm people=runtimes/people-polkadot/people_polkadot_runtime.compact.compressed.wasm"
+make bite NETWORK=polkadot
 make start FORK=1 NETWORK=polkadot            # spawns from fork-bundle-polkadot/
 ```
 
-The bite is ~20 minutes: it warp-syncs all four chains and authorizes the blobs, printing per
-chain what it authorized. The start then does the rest on its own: once the chains author, the
-`enact-upgrades` process submits `apply_authorized_upgrade` for every seeded parachain at once,
-waits for the relay's PVF pre-check and go-ahead, then does the relay, and the dashboard flips
-each to `2005000`. Its log is under the dashboard's logs tab. On a bundle bitten with the
-current code that is a few minutes: the bite sets the relay's `validation_upgrade_delay` to 30
-blocks and the cooldown to 60 (live Polkadot: 600 and 14400, an hour and a day). dub restarts
-itself until People carries the Individuality pallets, so it comes up a few seconds after the
-People upgrade lands.
+To rehearse a runtime under test, name its blobs in the bite:
+
+```bash
+make bite NETWORK=polkadot UPGRADES="asset-hub=runtimes/<asset-hub-wasm> people=runtimes/<people-wasm>"
+```
+
+The bite is ~20 minutes: it warp-syncs all four chains and authorizes any blobs, printing per chain
+what it authorized. With `UPGRADES=`, the start then does the rest on its own: once the chains
+author, the `enact-upgrades` process submits `apply_authorized_upgrade` for every seeded parachain
+at once, waits for the relay's PVF pre-check and go-ahead, then does the relay, and the dashboard
+flips each to its new spec version. Its log is under the dashboard's logs tab. On a bundle bitten
+with the current code that is a few minutes: the bite sets the relay's `validation_upgrade_delay`
+to 30 blocks and the cooldown to 60 (live Polkadot: 600 and 14400, an hour and a day).
 
 To redo one chain by hand, `make runtime-upgrade NETWORK=polkadot CHAIN=people` with no `WASM=`
 applies the blob the bite authorized; on a chain already running it, it is a no-op. A second
-upgrade of the same chain (a newer build of the PR) is a new bite with the new blob, and the
-60-block cooldown means it can follow the first within minutes.
+upgrade of the same chain (a newer build) is a new bite with the new blob, and the 60-block
+cooldown means it can follow the first within minutes.
 
 ## Day to day
 
@@ -85,22 +84,28 @@ upgrade of the same chain (a newer build of the PR) is a new bite with the new b
 | Stop | `make kill` |
 | Start again where it stopped, upgrades still enacted | `make start FORK=1 NETWORK=polkadot` |
 | Back to the bite block (the upgrades are re-enacted on the way up) | `make start FORK=1 NETWORK=polkadot CLEAN=1` |
-| Fresh state from live Polkadot, same runtimes | the same `make bite ... UPGRADES=...` then start |
-| Different runtimes (the PR was pushed to) | download again, then a new bite with the new files — the authorization is state inside the bundle |
+| Fresh state from live Polkadot, same runtimes | the same `make bite` (with the same `UPGRADES=`, if any) then start |
+| Different runtimes under test | download again, then a new bite with the new files — the authorization is state inside the bundle |
 | Throw the bundle away | `make clean-fork NETWORK=polkadot` |
 
 A start decides between resuming and wiping from the spawn stamp in `data-fork-polkadot/`: if
 it names the bite the bundle carries, the fork continues; if the bundle was re-bitten since,
 the old data goes. A start that reuses a bundle prints what that bundle has authorized.
 
-Node logs are under `/tmp/zombie-*/`; the bite's own logs under `fork-bundle-polkadot-logs/`.
+Node logs are under `data-fork-polkadot/`, one `<node>/<node>.log` per node; the bite's own logs
+under `fork-bundle-polkadot-logs/`.
 
 ## Exposing it: nginx, TLS, systemd
 
 The engine ships no server tooling; Parity's previewnet boxes get theirs from preview-net-v1's
 `server/` directory and its deploy workflow, which today only know how to spawn previewnet from
-genesis. Until that grows a fork target, this is the same setup done by hand, once. Ubuntu
-assumed; `DOMAIN` is the name the box answers on.
+genesis. Until that grows a fork target, this is the same setup done by hand, once. The fork
+machine's own branch adds `deploy/polkadot-test/apply.sh`, which does all of it (see its README);
+the steps below are what it automates. They predate two things it adds: the nginx `stream {}`
+block for TURN over TLS, without whose `{{GENERATED_STREAMS}}` marker `ppn nginx-conf` refuses
+the template, and the secrets file `/etc/ppn/secrets.env` (named by `PPN_SECRETS_FILE` in
+`ports.env`), without which the box runs the public dev secrets. Ubuntu assumed; `DOMAIN` is
+the name the box answers on.
 
 **DNS and packages.** Add an A record for `DOMAIN` pointing at the box (Parity's zones live in
 the `dns` repo). Then:
@@ -199,22 +204,22 @@ sudo systemctl daemon-reload && sudo systemctl enable --now ppn-polkadot.service
 journalctl -u ppn-polkadot -f
 ```
 
-Run the bite (`make bite ... UPGRADES=...` above) before the first `systemctl start`; the unit
+Run the bite (`make bite NETWORK=polkadot` above) before the first `systemctl start`; the unit
 only spawns what is already bitten, and a restart resumes it. `make kill` and `systemctl stop`
 are the same thing; use the latter so systemd does not restart what you stopped.
 
-One limit of the hand-rolled version: nothing collects node logs out of `/tmp/zombie-*/` the
-way v1's log collector does, and `ppn kill` removes them. Copy what you need before stopping.
+One limit of the hand-rolled version: nothing collects node logs out of `data-fork-polkadot/` the
+way v1's log collector does, and a wipe (`CLEAN=1`, or a start after a re-bite) removes them with
+the data. Copy what you need first.
 
 ## Services on this fork
 
-Asset Hub's eth-rpc, Bulletin's IPFS daemon, the dashboard and the identity backend (dub)
-start with the chains. dub talks to the Individuality pallets, so it only does anything once
-People runs 2.5; before that its chain writer errors and can be ignored. What does not run,
-because each needs root on a chain that has none: the attestation allowance and invite grants
-on People, HRMP opening and core assignment (both already in state), and the DotNS genesis
-steps on Asset Hub. Polkadot's Asset Hub carries no DotNS deployment, so there are no products
-to import into Bulletin either.
+Asset Hub's eth-rpc, Bulletin's IPFS daemon, the dashboard and the identity backend (dub, its
+`polkadot` build) start with the chains. What does not run, because each needs root on a chain
+that has none: the attestation allowance and invite grants (the bite seeds both allowances, and
+the `polkadot` build has no invite roles), HRMP opening and core assignment (both already in
+state), and the DotNS genesis steps on Asset Hub (the fork inherits mainnet's dotNS). Polkadot
+Bulletin stores nothing, so there are no products to import.
 
 ## What is not verified yet
 
@@ -229,15 +234,12 @@ the upgrade command read `Sudo.Key` before checking whether the chain has a Sudo
   PVF pre-check, go-ahead 600 relay blocks later, all four chains on `2005000`, dub up. Not yet
   verified: a bite made after the delay/cooldown patch enacting within minutes, and a second
   upgrade of the same parachain after the shortened cooldown.
-- Stop and resume of a running fork. Mechanically it is only skipping the wipe, and each node
-  restarts on its own database, but nobody has watched six validators come back after an hour.
-- Whether dub works against the fellowship's People runtime rather than previewnet's build.
-  dub signs with vendored metadata generated from next-people-paseo, previewnet's People; the
-  fellowship's people-polkadot 2005000 is built from the same pallets but is a different
-  runtime, and no dub release names it yet. Expect it to connect once People runs 2.5, then
-  either sign fine or log a metadata-drift `WARN` at boot (dub v0.5.0 does that) and fail to
-  encode submissions. The second outcome is a dub change, a people-polkadot entry in its known
-  runtimes, not an engine one. After that comes the attestation allowance and the invites,
-  which previewnet grants by sudo and Polkadot cannot.
+- Stop and resume of a running fork on this branch's code. A resume leaves the snapshots out of
+  the spawn config (`start-network.test.ts` checks it), and each node restarts on its own
+  database, but nobody has watched it on the box yet.
+- A registration through dub on the fork. dub v0.8.0's `polkadot` build vendors people-polkadot
+  2005000's metadata, which matches mainnet's 2005003 in everything dub reads, decodes and signs
+  with (compared with `subxt diff`, 2026-11-13). The bite seeds both attestation allowances, and
+  the build has no invite roles.
 
 Tell the runbook what you find.

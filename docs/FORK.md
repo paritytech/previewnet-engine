@@ -183,14 +183,18 @@ hold. Parachains are bitten first; the relay is then bitten with their heads inj
 `Paras::Heads`, so the relay is made to agree with wherever the parachains actually landed.
 
 **Spawn** uses the **regular** `polkadot` and `polkadot-omni-node`. Nothing about restoring a bundle
-needs doppelganger, which is why `FORK=1` works with no extra binaries.
+needs doppelganger, which is why `FORK=1` works with no extra binaries. The collators are the
+exception: they run cumulus's minimal relay node (`--relay-chain-rpc-urls`), which upstream builds
+with `fork_id: None` (`relay-chain-minimal-node/src/network.rs`). A stock collator therefore finds
+no validator, and the parachains stop while the relay keeps authoring. Until upstream ships the
+fix, collators need a build that has it.
 
 A bundle is:
 
 ```
 fork-bundle/
   manifest.json          what was bitten, when, from which production version
-  specs/<chain>.json     production's specs with bootNodes stripped
+  specs/<chain>.json     production's specs, with a fork id and the fork's own relay bootnode
   overrides/*.json       the storage overrides doppelganger applies
   snapshots/*.tgz        the bitten databases (~70 MB; ~107 MB for the bundle)
   fork.toml              generated zombienet config
@@ -233,11 +237,13 @@ make start FORK=1 NETWORK=polkadot FRESH_BITE=1   # new bite; the old data is wi
 parachain, last one wins, and all collators silently run the same chain. The symptom is parachains
 converging on identical block numbers — not an error.
 
-**Spawn specs must have `bootNodes` cleared.** Otherwise the forked nodes rejoin previewnet and
-follow its longer chain. This looks like success on every metric — the chain is at a plausible
-height and finalizing — while not being a fork at all. The bite genuinely needs the bootnodes, so
-`ppn bite` keeps the as-published specs in its work directory and puts only the
-stripped copies in the bundle.
+**Spawn specs carry a fork id and none of the source's bootnodes.** Otherwise the forked nodes
+rejoin the source network and follow its longer chain. This looks like success on every metric (the
+chain is at a plausible height and finalizing) while not being a fork at all. A fork keeps the
+source's genesis hash, so without a fork id its protocol names equal the source's and it still
+reaches the source's DHT. The bite genuinely needs the bootnodes, so `ppn bite` keeps the
+as-published specs in its work directory and ships copies with `forkId` `ppn-fork-<network>`, the
+fork's first relay node as the relay spec's only bootnode, and no bootnodes on the parachain specs.
 
 **Collators must run via `scripts/omni-node.sh`, not the binary directly.** A collator runs a
 relay-chain node in the same process, configured by the args after `--`, which zombienet owns and

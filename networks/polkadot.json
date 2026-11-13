@@ -91,6 +91,7 @@
     "tld": "dot",
     "pointer": {
       "url": "https://stack.api.pcf.network/.well-known/trinity-stack.json"
-    }
+    },
+    "_pointer": "No key. PCF signs its descriptor, but the descriptor does not carry the public key, and the engine has none from PCF to pin. Without a key the signature is not checked; a wrong key would fail every read with bad-signature and leave the fork with no dotns."
   }
 }
