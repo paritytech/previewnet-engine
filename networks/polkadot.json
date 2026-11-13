@@ -79,6 +79,12 @@
       }
     }
   },
+  "attestation": {
+    "attester": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    "count": 1000000,
+    "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" },
+    "_note": "//Alice, matching what the bite already endows, and 1000000 to match PEOPLELITE_ATTESTATION_ALLOWANCE and DOTNSGATEWAY_ATTESTATION_ALLOWANCE in individuality-community's initial-setup, which grants both by sudo. Two quotas share the AttestationAllowance name: PeopleLite's counts how many people a verifier may attest, DotnsGateway's how many names an attester may reserve, and the backend needs both. Managers are EnsureRoot and RootOrWhitelist; neither is reachable on a fork after the spawn. attestation.on pairs each chain with the pallet to seed there."
+  },
   "stack": {
     "tld": "dot"
   }

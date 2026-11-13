@@ -94,6 +94,47 @@ This mirrors zombie-bite's `--rc-upgrade`/`--para-upgrade`
 meant to be deleted along with the rest of `packages/cli/src/fork/` once PPN calls zombie-bite
 instead of driving doppelganger itself ([#120](https://github.com/paritytech/zombie-bite/issues/120)).
 
+## What the bite seeds
+
+A fork inherits live state and no governance, so anything a running network sets by Root, by
+sudo or by a transaction from an account we hold has to be written into state at import instead.
+Three things are. Two are named by a descriptor field; the first is not, and everything else
+here depends on it:
+
+- `//Alice` is endowed on the relay and on every parachain, by writing her `System::Account`
+  directly. Nothing below can pay a fee without it: a fork of a public network has no dev
+  account holding funds and no way to fund one. This is the seed with no descriptor field,
+  because there is nothing to decide. It happens whenever `bite.sharedRelay` is true, and that
+  flag says the relay is somebody else's, which is exactly the case where the funds are missing.
+- `bulletinAuthorizer`, an entry in Bulletin's `AllowedAuthorizers`. Under "Bulletin content",
+  because a fork's relation to Bulletin's stored bytes is the same discussion.
+- `attestation`, the two `AttestationAllowance` quotas the identity backend spends. Below,
+  "Seeding the attestation allowances".
+
+Add a seed and add a line here, or the next reader asking what a bite writes has to find it by
+reading `paraOverrides`.
+
+## Seeding the attestation allowances
+
+Two of them, one per pallet, sharing a storage name and metering different things.
+`PeopleLite::AttestationAllowance` is how many people a verifier may attest, spent by `attest`.
+`DotnsGateway::AttestationAllowance` is how many names an attester may reserve, spent by
+`reserve_name`. The identity backend needs both: without the first nobody becomes a lite
+person, and without the second nobody gets a username.
+
+Both pallets that gate attestation take an origin a fork cannot raise: `PeopleLite`'s
+`AttestationAllowanceManager` is `EnsureRoot`, and `DotnsGateway`'s is `RootOrWhitelist`, whose
+second arm is an OpenGov track.
+
+The count and the pair both come from individuality-community's initial-setup, which grants
+`PeopleLite` on People and `DotnsGateway` on Asset Hub by sudo, at
+`PEOPLELITE_ATTESTATION_ALLOWANCE` and `DOTNSGATEWAY_ATTESTATION_ALLOWANCE`, both a million.
+
+```json
+{ "attestation": { "attester": "5Grwva…", "count": 1000000,
+                   "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" } } }
+```
+
 ## What you get, and what you don't
 
 The fork resumes at the bite block and diverges from there — it is a real fork, not a mirror. It

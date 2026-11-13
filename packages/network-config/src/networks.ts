@@ -234,6 +234,25 @@ export interface NetworkDef {
      */
     pinProducts?: boolean;
   };
+  /**
+   * Attester granted an `AttestationAllowance` on each pallet named in `on`, at bite time.
+   *
+   * The two quotas meter different things: `PeopleLite`'s how many people a verifier may attest,
+   * `DotnsGateway`'s how many names an attester may reserve. Without the first nobody becomes a
+   * lite person, without the second nobody who did can take a username, and the identity backend
+   * needs both.
+   *
+   * `PeopleLite`'s manager is `EnsureRoot` and `DotnsGateway`'s is `RootOrWhitelist`, so a fork
+   * without governance cannot grant either afterwards.
+   *
+   * `on` names the pallet to seed on each chain.
+   */
+  attestation?: {
+    attester: string;
+    count: number;
+    /** Chain key -> the pallet that gates attestation there. */
+    on: Record<string, 'PeopleLite' | 'DotnsGateway'>;
+  };
   /** What the network's Trinity stack descriptor says that no other field does. */
   stack?: NetworkStack;
   /** Every `_todo` note found in the file — non-empty means the descriptor is a stub. */
@@ -401,6 +420,30 @@ export function loadDescriptor(name: string): NetworkDef {
   const ids = raw.parachains.map((p: NetworkParachain) => p.paraId);
   if (new Set(ids).size !== ids.length) bad('duplicate para ids');
 
+  // Every seed names the chains it writes to, and a chain this network does not have is seeded
+  // nowhere and reported nowhere. `what` is the field, so each caller's error names itself.
+  const namesOurChains = (what: string, keys: string[]): void => {
+    for (const k of keys) {
+      if (!seen.has(k)) bad(`${what} names "${k}", which this network does not have`);
+    }
+  };
+
+  if (raw.attestation) {
+    const at = raw.attestation;
+    if (!at.attester) bad('attestation needs an attester account');
+    if (!Number.isInteger(at.count) || at.count <= 0) {
+      bad('attestation.count must be a positive integer');
+    }
+    const on = Object.entries(at.on ?? {});
+    if (on.length === 0) bad('attestation.on must name at least one chain');
+    namesOurChains('attestation.on', on.map(([k]) => k));
+    for (const [k, pallet] of on) {
+      if (pallet !== 'PeopleLite' && pallet !== 'DotnsGateway') {
+        bad(`attestation.on.${k} must be PeopleLite or DotnsGateway, got "${pallet}"`);
+      }
+    }
+  }
+
   // A genesis network builds its chain specs locally, so every chain needs a runtime to
   // build from and a spec to build into, and the network needs the settings they share.
   if (raw.genesis === true) {
@@ -486,6 +529,7 @@ export function loadDescriptor(name: string): NetworkDef {
     services,
     tools,
     dotns: raw.dotns,
+    attestation: raw.attestation,
     stack,
     todos,
   };

@@ -27,6 +27,7 @@ import {
   type PlannedPara,
 } from './shared-relay.js';
 import {
+  attestationAllowanceInjects,
   collatorKeys,
   devValidators,
   paraCandidates,
@@ -470,6 +471,7 @@ export async function paraOverrides(
   upgrade?: SeededUpgrade,
   scheme: AuraScheme = 'sr25519',
   bulletinAuthorizer?: string,
+  attestation?: { attester: string; count: number; pallet: 'PeopleLite' | 'DotnsGateway' },
   collatorCount = 1
 ): Promise<void> {
   const index = await storageIndex(paraUrl);
@@ -502,6 +504,9 @@ export async function paraOverrides(
     // A bitten Bulletin has no authorizer: the runtime seeds one at genesis and a fork has none.
     ...(bulletinAuthorizer && index.pallets.has('TransactionStorage')
       ? bulletinAuthorizerInjects(bulletinAuthorizer)
+      : {}),
+    ...(attestation
+      ? attestationAllowanceInjects(attestation.pallet, attestation.attester, attestation.count)
       : {}),
     ...seededUpgradeInject(index, upgrade),
   };

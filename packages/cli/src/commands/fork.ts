@@ -91,6 +91,11 @@ export async function run(args: string[]): Promise<void> {
         },
         seeded.relay
       );
+      const attestationFor = (key: string) => {
+        const at = NETWORK.attestation;
+        const pallet = at?.on?.[key];
+        return at && pallet ? { attester: at.attester, count: at.count, pallet } : undefined;
+      };
       for (const p of PARACHAINS) {
         await paraOverrides(
           p.paraId,
@@ -100,6 +105,7 @@ export async function run(args: string[]): Promise<void> {
           seeded[p.key],
           p.aura,
           p.bulletinAuthorizer,
+          attestationFor(p.key),
           topology?.collators[p.key] ?? 1
         );
       }
