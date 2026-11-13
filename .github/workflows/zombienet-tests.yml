@@ -341,11 +341,16 @@ jobs:
           # environment into custom_processes; that file exists for exactly this.
           rm -rf ${{ env.ZOMBIE_DIR }} data/identity-pgdata
           mkdir -p ${{ env.ZOMBIE_DIR }}
-          echo "DUB_POSTGRES_DATA_DIR=${{ env.ZOMBIE_DIR }}/identity-pgdata" > config/ports.local.env
+          # One People RPC node through the network overlay, so the spawn covers what a
+          # deployment's overlay generates. A separate file keeps local-dev.toml as checked in.
+          OVERLAY="$RUNNER_TEMP/network-overlay.json"
+          echo '{"previewnet":{"parachains":{"people":{"rpcNodes":1}}}}' > "$OVERLAY"
+          PPN_NETWORK_OVERLAY="$OVERLAY" node bin/ppn.mjs genesis-toml > zombienet-configs/ci.toml
+          printf 'DUB_POSTGRES_DATA_DIR=%s\nPPN_NETWORK_OVERLAY=%s\n' "${{ env.ZOMBIE_DIR }}/identity-pgdata" "$OVERLAY" > config/ports.local.env
           # Spawn network in background, store state in ZOMBIE_DIR
           BIN="${{ env.BIN }}" SCRIPTS="${{ env.SCRIPTS }}" \
             ${{ env.BIN }}/zombie-cli spawn -p native -d ${{ env.ZOMBIE_DIR }} \
-            zombienet-configs/local-dev.toml &
+            zombienet-configs/ci.toml &
 
           # Wait for network to be ready (check for zombie.json)
           echo "Waiting for network to start..."
@@ -359,6 +364,28 @@ jobs:
 
           # Additional wait for nodes to be ready
           sleep 30
+
+      - name: Verify the People RPC node serves the chain and its metrics
+        run: |
+          source ./config/ports.env
+          RPC_PORT=$((PEOPLE_PORT + 1))
+          rpc() {
+            curl -sf -m 5 -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":[]}" \
+              "http://127.0.0.1:$RPC_PORT" | jq -c .result
+          }
+          for _ in $(seq 1 60); do
+            height=$(rpc chain_getHeader | jq -r '.number // empty' 2>/dev/null || true)
+            if [ -n "$height" ] && [ $((height)) -gt 0 ]; then break; fi
+            sleep 10
+          done
+          echo "people-rpc1 at block $((height))"
+          [ $((height)) -gt 0 ] || { echo "ERROR: people-rpc1 on $RPC_PORT has no blocks"; exit 1; }
+          roles=$(rpc system_nodeRoles)
+          echo "people-rpc1 roles: $roles"
+          [ "$roles" = '["Full"]' ] || { echo "ERROR: people-rpc1 should be a full node, is $roles"; exit 1; }
+          curl -sf -m 5 "http://127.0.0.1:$((RPC_PORT + PROMETHEUS_PORT_OFFSET))/metrics" | grep -q '^substrate_block_height' \
+            || { echo "ERROR: no metrics on $((RPC_PORT + PROMETHEUS_PORT_OFFSET))"; exit 1; }
 
       - name: Verify raw chainspecs have bootNodes
         run: |

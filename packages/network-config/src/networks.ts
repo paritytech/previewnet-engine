@@ -117,16 +117,25 @@ export interface NetworkParachain {
   runtime?: RuntimeRef;
   /** The chain spec built for this chain at genesis. Genesis networks only. */
   genesisSpec?: GenesisSpec;
-  /** Extra node args for this chain, appended to the shared per-key flag table. */
+  /** Extra node args for this chain; a flag the shared per-key table also sets takes this value. */
   extraArgs: string[];
   /**
    * Curve this chain's Aura keys are on. Nearly every chain is sr25519; Polkadot's Asset Hub
    * is ed25519, and the collator authors nothing at all if the fork guesses wrong.
    */
   aura?: AuraScheme;
+  /** Non-authoring full nodes that serve the chain's public RPC path instead of the collator. */
+  rpcNodes: number;
+  /** Extra args for the RPC nodes, applied over the chain's own args. */
+  rpcNodeArgs: string[];
 }
 
-export interface NetworkRelay extends Omit<NetworkParachain, 'key' | 'paraId'> {
+/** RPC node i of a parachain listens on the chain's port + i, below the next chain's port. */
+export const MAX_RPC_NODES = 9;
+
+type ChainFields = Omit<NetworkParachain, 'key' | 'paraId' | 'rpcNodes' | 'rpcNodeArgs'>;
+
+export interface NetworkRelay extends ChainFields {
   /** Built-in chain name doppelganger runs with (ZOMBIE_CHAIN), e.g. 'paseo'. */
   chain: string;
   /** Dev-key validators the fork runs with, max 6 (alice…ferdie). */
@@ -136,7 +145,7 @@ export interface NetworkRelay extends Omit<NetworkParachain, 'key' | 'paraId'> {
 }
 
 /** A chain of either kind, as networkChains() yields them. */
-export type NetworkChain = Omit<NetworkParachain, 'key' | 'paraId'> & {
+export type NetworkChain = ChainFields & {
   key: ChainKey;
   paraId: number | null;
 };
@@ -357,13 +366,7 @@ export function loadDescriptor(name: string): NetworkDef {
     runtimeFile.set(ref.file, at);
     return ref;
   };
-  const checkArgs = (at: string, args: unknown): string[] => {
-    if (args === undefined) return [];
-    if (!Array.isArray(args) || args.some((x) => typeof x !== 'string' || !x.startsWith('-'))) {
-      bad(`${at}.extraArgs must be an array of "--flag" strings`);
-    }
-    return args as string[];
-  };
+  const checkArgs = (at: string, args: unknown): string[] => parseArgs(`${at}.extraArgs`, args, bad);
 
   checkBinary('relay', raw.relay.binary);
   checkRuntime('relay', raw.relay.runtime);
@@ -467,6 +470,8 @@ export function loadDescriptor(name: string): NetworkDef {
     parachains: raw.parachains.map((p: NetworkParachain) => ({
       ...p,
       extraArgs: checkArgs(`parachains.${p.key}`, p.extraArgs),
+      rpcNodes: parseRpcNodes(`parachains.${p.key}.rpcNodes`, p.rpcNodes, bad),
+      rpcNodeArgs: parseArgs(`parachains.${p.key}.rpcNodeArgs`, p.rpcNodeArgs, bad),
     })),
     services,
     tools,
@@ -474,6 +479,24 @@ export function loadDescriptor(name: string): NetworkDef {
     stack,
     todos,
   };
+}
+
+/** `args` as node flags, or `bad` when it is not a list of "--flag" strings. Absent is none. */
+export function parseArgs(at: string, args: unknown, bad: (why: string) => never): string[] {
+  if (args === undefined) return [];
+  if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string' || !arg.startsWith('-'))) {
+    bad(`${at} must be an array of "--flag" strings`);
+  }
+  return args as string[];
+}
+
+/** `count` as an RPC node count, or `bad` when it is not 0..MAX_RPC_NODES. Absent is 0. */
+export function parseRpcNodes(at: string, count: unknown, bad: (why: string) => never): number {
+  if (count === undefined) return 0;
+  if (!Number.isInteger(count) || (count as number) < 0 || (count as number) > MAX_RPC_NODES) {
+    bad(`${at} must be an integer 0..${MAX_RPC_NODES}`);
+  }
+  return count as number;
 }
 
 /** PPN_NETWORK, or previewnet. */

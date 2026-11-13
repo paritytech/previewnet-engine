@@ -21,36 +21,42 @@ name = "alice-paseo-validator"
 validator = true
 rpc_port = 10000
 p2p_port = 30334
+prometheus_port = 20000
 balance = 1000000000000000
 
 [[relaychain.nodes]]
 name = "bob-paseo-validator"
 validator = true
 rpc_port = 10001
+prometheus_port = 20001
 balance = 1000000000000000
 
 [[relaychain.nodes]]
 name = "charlie-paseo-validator"
 validator = true
 rpc_port = 10002
+prometheus_port = 20002
 balance = 1000000000000000
 
 [[relaychain.nodes]]
 name = "dave-paseo-validator"
 validator = true
 rpc_port = 10003
+prometheus_port = 20003
 balance = 1000000000000000
 
 [[relaychain.nodes]]
 name = "eve-paseo-validator"
 validator = true
 rpc_port = 10004
+prometheus_port = 20004
 balance = 1000000000000000
 
 [[relaychain.nodes]]
 name = "ferdie-paseo-validator"
 validator = true
 rpc_port = 10005
+prometheus_port = 20005
 balance = 1000000000000000
 
 ## Asset Hub Paseo Next (Parachain 1500) - Elastic Scaling with 2-second blocks
@@ -64,6 +70,7 @@ chain_spec_path = "{{BIN}}/asset_hub.json"
 name = "asset-hub-collator1"
 rpc_port = 10020
 p2p_port = 30335
+prometheus_port = 20020
 command = "{{SCRIPTS}}/omni-node.sh"
 args = ["-lxcm=trace", "--rpc-max-connections=500", "--force-authoring", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--listen-addr=/ip4/127.0.0.1/udp/30335/webrtc-direct"]
 
@@ -78,6 +85,7 @@ chain_spec_path = "{{BIN}}/individuality.json"
 name = "people-collator1"
 rpc_port = 10010
 p2p_port = 30336
+prometheus_port = 20010
 command = "{{SCRIPTS}}/omni-node.sh"
 args = ["-lparachain=debug,xcm=trace", "--rpc-max-connections=500", "--force-authoring", "--enable-statement-store", "--network-backend=libp2p", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50"]
 
@@ -92,6 +100,7 @@ chain_spec_path = "{{BIN}}/bulletin.json"
 name = "bulletin-collator1"
 rpc_port = 10030
 p2p_port = 30333
+prometheus_port = 20030
 command = "{{SCRIPTS}}/omni-node.sh"
 args = ["-lparachain=debug,xcm=trace,sub-libp2p::bitswap=trace,runtime::transaction-storage=trace", "--rpc-max-connections=500", "--force-authoring", "--ipfs-server", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--listen-addr=/ip4/127.0.0.1/udp/30333/webrtc-direct", "--enable-hop", "--hop-retention-secs=3600", "--hop-promotion-buffer-secs=1800", "--hop-check-interval=60"]
 
@@ -106,6 +115,7 @@ chain_spec_path = "{{BIN}}/web3-storage.json"
 name = "web3-storage-collator1"
 rpc_port = 10040
 p2p_port = 30337
+prometheus_port = 20040
 command = "{{SCRIPTS}}/omni-node.sh"
 args = ["-lruntime=info", "--collator", "--rpc-max-connections=500", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--listen-addr=/ip4/127.0.0.1/udp/30337/webrtc-direct"]
 

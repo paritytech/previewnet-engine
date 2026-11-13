@@ -48,12 +48,15 @@ import {
   addMissing,
   tomlArgs,
   requiredPort,
+  prometheusPort,
+  rpcNodeBlocks,
 } from './toml-generator.js';
 import type { Parachain } from './types.js';
 import type { ForkManifest } from './bundle.js';
 import { DEFAULT_NETWORK, type NetworkDef } from './networks.js';
 import { loadNetwork } from './load.js';
 import { dubCustomProcesses } from './dub.js';
+import { overrideArgs } from './args.js';
 
 // ---------------------------------------------------------------------------
 // Bundle manifest — built by ./fork/manifest.ts, extended with biteBlocks by bite.sh
@@ -211,6 +214,7 @@ function relayNodes(count: number): string {
 name = "${relayNodeName(i)}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
+prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}
 env = [{ name = "ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION", value = "1" }]`
   ).join('\n');
 }
@@ -229,7 +233,7 @@ function parachainSection(
   const paraId = chain.paraId as number;
   const specPath = `${bundleDir}/specs/${chain.spec}.json`;
   const args = addMissing(
-    addMissing(
+    overrideArgs(
       [
         `--relay-chain-rpc-urls=ws://127.0.0.1:${RELAY_BASE_PORT}`,
         ...buildArgs(key, undefined, key === 'bulletin' && enableHop),
@@ -261,6 +265,7 @@ function parachainSection(
   // restoring the same snapshot. Only the first holds the documented ports; the rest take
   // whatever zombienet hands out, and drop a fixed listen address that would collide.
   const count = manifest.topology?.collators[key] ?? 1;
+  const launch = `command = "${scriptsDir}/omni-node.sh"\ndb_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"${envLine}`;
   const collators = Array.from({ length: count }, (_, i) =>
     i === 0
       ? `
@@ -268,15 +273,14 @@ function parachainSection(
 name = "${collatorNodeName(paraId, i)}"
 rpc_port = ${PORTS[key]}
 p2p_port = ${P2P_PORTS[key]}
-command = "${scriptsDir}/omni-node.sh"
-db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"${envLine}
+prometheus_port = ${prometheusPort(PORTS[key])}
+${launch}
 args = ${tomlArgs(args)}
 `
       : `
 [[parachains.collators]]
 name = "${collatorNodeName(paraId, i)}"
-command = "${scriptsDir}/omni-node.sh"
-db_snapshot = "${bundleDir}/snapshots/${paraId}.tgz"${envLine}
+${launch}
 args = ${tomlArgs(args.filter((a) => !a.startsWith('--listen-addr=')))}
 `
   );
@@ -288,7 +292,7 @@ id = ${paraId}
 cumulus_based = true
 chain = "${chainIdOf(specPath)}"
 chain_spec_path = "${specPath}"
-${collators.join('')}`;
+${collators.join('')}${rpcNodeBlocks(desc, args, launch)}`;
 }
 
 /**
@@ -369,7 +373,7 @@ export function generateForkToml(options: GenerateForkTomlOptions): string {
   const present = new Set(parachains);
   const relaySpecPath = `${bundleDir}/specs/${manifest.chains.relay.spec}.json`;
   const relayArgs = addMissing(
-    addMissing(buildArgs('relay', FORK_RELAY_LOGS), net.relay.extraArgs),
+    overrideArgs(buildArgs('relay', FORK_RELAY_LOGS), net.relay.extraArgs),
     FORK_RELAY_ARGS
   );
 

@@ -300,7 +300,7 @@ export async function dashboard(ctx: ServiceContext): Promise<void> {
       // well-known validators (alice…ferdie) and Collator-<paraId> (see docs/FORK.md).
       const WELL_KNOWN = new Set(['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie']);
       const chainish = (n: string) =>
-        /-validator\d*$|-collator\d*$|^Collator-/.test(n) || WELL_KNOWN.has(n) || n === 'doppelganger';
+        /-validator\d*$|-collator\d*$|-rpc\d+$|^Collator-/.test(n) || WELL_KNOWN.has(n) || n === 'doppelganger';
       const serviceIds = new Set([
         ...model.services.map((s) => s.id),
         ...(model.ice ? [model.ice.id] : []),

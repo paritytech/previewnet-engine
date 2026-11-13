@@ -15,6 +15,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import {
   loadNetwork,
   currentNetworkName,
+  generateToml,
   readEnvFile,
   repoRoot,
   runsTurnRelay,
@@ -318,10 +319,19 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
   const dotCli = path.join(REPO, 'scripts', 'ensure-dot-cli.sh');
   if (fs.existsSync(dotCli)) run('bash', [dotCli]);
 
+  if (opts.toml && process.env.PPN_NETWORK_OVERLAY) {
+    throw new Error('--toml spawns that config as it is, without the PPN_NETWORK_OVERLAY nodes; drop one');
+  }
+
   if (!opts.fork) {
     const { run: generate } = await import('./generate.js');
     await generate([binDir], { ifNeeded: true });
-    return opts.toml ?? path.join(REPO, 'zombienet-configs', 'local-dev.toml');
+    if (!process.env.PPN_NETWORK_OVERLAY) return opts.toml ?? path.join(REPO, 'zombienet-configs', 'local-dev.toml');
+    // The checked-in config has no overlay in it, so an overlay's nodes need one generated.
+    const overlayToml = path.join(WS, 'zombienet-configs', 'local-dev.overlay.toml');
+    fs.mkdirSync(path.dirname(overlayToml), { recursive: true });
+    fs.writeFileSync(overlayToml, generateToml(netDef.parachains.map((parachain) => parachain.key), { enableHop: true }));
+    return overlayToml;
   }
 
   const forkDir = forkDirFor(netDef.name);
@@ -605,6 +615,7 @@ export async function start(args: string[], opts: StartOptions = {}): Promise<vo
       dataDir,
       ephemeral: Boolean(opts.ephemeral),
       identityDataDir: identityData,
+      overlay: process.env.PPN_NETWORK_OVERLAY ? path.resolve(process.env.PPN_NETWORK_OVERLAY) : '',
     })
   );
 
