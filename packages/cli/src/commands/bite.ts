@@ -125,7 +125,7 @@ function biteLogDir(out: string): string {
  *
  * Resolves whatever the exit code is: doppelganger deliberately ends an essential task to stop
  * the node once it has captured the state, so a non-zero exit is the normal path. Success is
- * judged by the info file the node writes, as before.
+ * judged by readBiteBlock.
  */
 function runBiteNode(
   cmd: string,
@@ -201,6 +201,17 @@ function logTail(logFile: string, lines: number, filter?: RegExp): string[] {
   const all = fs.readFileSync(logFile, 'utf-8').split('\n').filter(Boolean);
   const picked = filter ? all.filter((l) => filter.test(l)) : all;
   return (picked.length ? picked : all).slice(-lines);
+}
+
+/**
+ * The block a bite node captured, or null when it captured none. doppelganger writes the info
+ * file whether or not importing that block succeeded, so the import result in its log decides.
+ */
+function readBiteBlock(infoFile: string, logFile: string): number | null {
+  const log = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf-8') : '';
+  if (!log.includes('Block import done! : Ok(') || !fs.existsSync(infoFile)) return null;
+  const block = fs.readFileSync(infoFile, 'utf-8').trim();
+  return block ? Number(block) : null;
 }
 
 export interface BiteOptions {
@@ -554,7 +565,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
         console.log(`  ${para.key}: syncing state from ${SYNC_SOURCE_PREFIX}${id}, no other peer`);
       }
       // The bite node always exits non-zero: doppelganger ends an essential task to stop
-      // the node once the state import is captured. Success is judged by the info file.
+      // the node once the state import is captured. Success is judged by readBiteBlock.
       await runBiteNode(
         'doppelganger-parachain',
         [
@@ -591,16 +602,15 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
   const biteBlocks: Record<string, number> = {};
   for (const para of parachains) {
     const id = String(para.paraId);
-    const info = path.join(out, 'work', id, 'info.txt');
-    const block = fs.existsSync(info) ? fs.readFileSync(info, 'utf-8').trim() : '';
-    if (!block) {
-      const log = path.join(biteLogDir(out), `${id}.log`);
-      const hint = logTail(log, 3, /not present on the host|error|panic/i);
+    const log = path.join(biteLogDir(out), `${id}.log`);
+    const block = readBiteBlock(path.join(out, 'work', id, 'info.txt'), log);
+    if (block === null) {
+      const hint = logTail(log, 3, /Block import done|not present on the host|error|panic/i);
       throw new Error(
         `para ${id}: bite FAILED (log: ${log})\n${hint.map((l) => '         ' + l).join('\n')}`
       );
     }
-    biteBlocks[id] = Number(block);
+    biteBlocks[id] = block;
     console.log(`  para ${id} bitten at block ${block}`);
   }
 
@@ -621,6 +631,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
   console.log(`  injecting ${Object.keys(headEnv).length} parachain heads over Paras::Heads`);
 
   const relayWork = path.join(out, 'work', 'relay');
+  const relayLog = path.join(biteLogDir(out), 'relay.log');
   fs.mkdirSync(relayWork, { recursive: true });
   await runBiteNode(
     'doppelganger',
@@ -634,19 +645,21 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
       ZOMBIE_CHAIN: net.relay.chain,
       ZOMBIE_RC_EPOCH_DURATION: String(manifest.epochDuration),
       RUST_LOG: 'doppelganger=info',
+      // Westend's GRANDPA history carries a forced authority change (#4356716), so no warp
+      // proof from genesis verifies up to the live head. doppelganger skips the justification
+      // checks under this variable, as zombie-bite does for Westend.
+      ...(net.relay.chain === 'westend' ? { ZOMBIE_IS_WESTEND: '1' } : {}),
     },
-    path.join(biteLogDir(out), 'relay.log'),
+    relayLog,
     `relay (${net.relay.chain})`
   );
 
-  const relayInfo = path.join(relayWork, 'info.txt');
-  const relayBlock = fs.existsSync(relayInfo) ? fs.readFileSync(relayInfo, 'utf-8').trim() : '';
-  if (!relayBlock) {
-    const log = path.join(biteLogDir(out), 'relay.log');
-    const tail = logTail(log, 5);
-    throw new Error(`relay bite FAILED (log: ${log})\n${tail.map((l) => '         ' + l).join('\n')}`);
+  const relayBlock = readBiteBlock(path.join(relayWork, 'info.txt'), relayLog);
+  if (relayBlock === null) {
+    const tail = logTail(relayLog, 5, /Block import done|error|panic/i);
+    throw new Error(`relay bite FAILED (log: ${relayLog})\n${tail.map((l) => '         ' + l).join('\n')}`);
   }
-  biteBlocks.relay = Number(relayBlock);
+  biteBlocks.relay = relayBlock;
 
   console.log('=== 6/6 packing snapshots ===');
   const snapshotBytes: Record<string, number> = {};
