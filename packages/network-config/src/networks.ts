@@ -26,6 +26,13 @@ import path from 'node:path';
 import type { Asset, Coinage, Pointer } from '@parity/trinity-stack';
 import { defaultHome, packageRoot, networksDirs } from './repo-root.js';
 
+/**
+ * Which People runtime a dub binary was built against. Since v0.6.0 every asset ships twice
+ * and the runtime is fixed at build time: it selects the vendored metadata and whether the
+ * invite-tickets roles exist. `dub --help` prints the build a binary carries.
+ */
+export type DubBuild = 'testnet' | 'polkadot';
+
 /** The parachain keys PPN knows: what its port and per-chain flag tables are keyed by. */
 export type Parachain = 'asset-hub' | 'people' | 'bulletin' | 'web3-storage';
 export type ChainKey = 'relay' | Parachain;
@@ -128,6 +135,13 @@ export interface NetworkParachain {
   rpcNodes: number;
   /** Extra args for the RPC nodes, applied over the chain's own args. */
   rpcNodeArgs: string[];
+  /**
+   * Account written into this chain's `TransactionStorage::AllowedAuthorizers` at bite time, so
+   * something can authorize Bulletin storage. Only a fork needs it: the bulletin runtime seeds an
+   * authorizer in its genesis preset, and a fork has no genesis, so a bitten Bulletin has none and
+   * every store fails. A 32-byte account id, hex, `0x`-prefixed.
+   */
+  bulletinAuthorizer?: string;
 }
 
 /** RPC node i of a parachain listens on the chain's port + i, below the next chain's port. */
@@ -199,6 +213,16 @@ export interface NetworkDef {
      */
     sharedRelay?: boolean;
   };
+  /**
+   * Which dub build this network needs, `testnet` (the default) or `polkadot`.
+   *
+   * Since dub v0.6.0 every asset ships twice, one per People runtime, and the runtime is
+   * fixed at build time: it selects the vendored metadata and whether the invite-tickets
+   * roles exist. A fork of Polkadot needs `polkadot`, whose People runtime carries neither
+   * Game nor ProofOfInk; everything else needs `testnet`. Naming a role the binary does not
+   * have is a boot failure, so this decides the services as well as the download.
+   */
+  dubBuild?: DubBuild;
   /** Named releases every binary/runtime reference points into. */
   releases: Record<string, ReleasePin>;
   /** Genesis-wide chain-spec settings. Present on a genesis network. */
@@ -226,6 +250,25 @@ export interface NetworkDef {
      * are not what you are running it for. Override per spawn with PPN_PIN_PRODUCTS.
      */
     pinProducts?: boolean;
+  };
+  /**
+   * Attester granted an `AttestationAllowance` on each pallet named in `on`, at bite time.
+   *
+   * The two quotas meter different things: `PeopleLite`'s how many people a verifier may attest,
+   * `DotnsGateway`'s how many names an attester may reserve. Without the first nobody becomes a
+   * lite person, without the second nobody who did can take a username, and the identity backend
+   * needs both.
+   *
+   * `PeopleLite`'s manager is `EnsureRoot` and `DotnsGateway`'s is `RootOrWhitelist`, so a fork
+   * without governance cannot grant either afterwards.
+   *
+   * `on` names the pallet to seed on each chain.
+   */
+  attestation?: {
+    attester: string;
+    count: number;
+    /** Chain key -> the pallet that gates attestation there. */
+    on: Record<string, 'PeopleLite' | 'DotnsGateway'>;
   };
   /** What the network's Trinity stack descriptor says that no other field does. */
   stack?: NetworkStack;
@@ -304,6 +347,10 @@ export function loadDescriptor(name: string): NetworkDef {
     bad('relay needs chain, spec, rpc and specSource');
   }
   if (!raw.bite?.source) bad('bite.source is required');
+  // A typo here would otherwise surface as a 404 on an asset name, long after generate.
+  if (raw.dubBuild !== undefined && raw.dubBuild !== 'testnet' && raw.dubBuild !== 'polkadot') {
+    bad(`dubBuild is "${String(raw.dubBuild)}", expected "testnet" or "polkadot"`);
+  }
   if (!Array.isArray(raw.parachains) || raw.parachains.length === 0) {
     bad('at least one parachain is required');
   }
@@ -383,6 +430,9 @@ export function loadDescriptor(name: string): NetworkDef {
     if (p.aura !== undefined && p.aura !== 'sr25519' && p.aura !== 'ed25519') {
       bad(`parachain ${p.key}: aura must be "sr25519" or "ed25519"`);
     }
+    if (p.bulletinAuthorizer !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(p.bulletinAuthorizer)) {
+      bad(`parachain ${p.key}: bulletinAuthorizer must be a 0x-prefixed 32-byte account id`);
+    }
     checkBinary(`parachains.${p.key}`, p.binary);
     checkRuntime(`parachains.${p.key}`, p.runtime);
     if (seen.has(p.key)) bad(`parachain ${p.key} listed twice`);
@@ -390,6 +440,30 @@ export function loadDescriptor(name: string): NetworkDef {
   }
   const ids = raw.parachains.map((p: NetworkParachain) => p.paraId);
   if (new Set(ids).size !== ids.length) bad('duplicate para ids');
+
+  // Every seed names the chains it writes to, and a chain this network does not have is seeded
+  // nowhere and reported nowhere. `what` is the field, so each caller's error names itself.
+  const namesOurChains = (what: string, keys: string[]): void => {
+    for (const k of keys) {
+      if (!seen.has(k)) bad(`${what} names "${k}", which this network does not have`);
+    }
+  };
+
+  if (raw.attestation) {
+    const at = raw.attestation;
+    if (!at.attester) bad('attestation needs an attester account');
+    if (!Number.isInteger(at.count) || at.count <= 0) {
+      bad('attestation.count must be a positive integer');
+    }
+    const on = Object.entries(at.on ?? {});
+    if (on.length === 0) bad('attestation.on must name at least one chain');
+    namesOurChains('attestation.on', on.map(([k]) => k));
+    for (const [k, pallet] of on) {
+      if (pallet !== 'PeopleLite' && pallet !== 'DotnsGateway') {
+        bad(`attestation.on.${k} must be PeopleLite or DotnsGateway, got "${pallet}"`);
+      }
+    }
+  }
 
   // A genesis network builds its chain specs locally, so every chain needs a runtime to
   // build from and a spec to build into, and the network needs the settings they share.
@@ -475,7 +549,9 @@ export function loadDescriptor(name: string): NetworkDef {
     })),
     services,
     tools,
+    dubBuild: raw.dubBuild,
     dotns: raw.dotns,
+    attestation: raw.attestation,
     stack,
     todos,
   };

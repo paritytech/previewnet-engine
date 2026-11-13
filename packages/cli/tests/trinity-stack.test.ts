@@ -160,42 +160,83 @@ describe('writeStack — what it writes', () => {
 
   // The bite copies the source's registry, so the fork has the source's keys; a key rewired on
   // either side since then is what the fork's own registry now returns.
-  it("publishes its source's dotNS keys with the addresses the fork's registry returns", async () => {
-    const registry = '0xd19e3d0c97cf501125a04a97405e3e6592fa846e';
-    const sourceDir = dataDir;
+  const sourceRegistry = '0xd19e3d0c97cf501125a04a97405e3e6592fa846e';
+  const multicall3 = '0xb4468000abd87d3c56cbfbd153161223d7b109e5';
+  /** A source descriptor listing three dotNS keys, and a fresh fork data directory to write into. */
+  const forkOfSource = async (): Promise<Settings['fetch']> => {
     await writeStack(
       { net },
       settings({
         dotnsContracts: {
-          DotnsProtocolRegistry: registry,
+          DotnsProtocolRegistry: sourceRegistry,
           DotnsRegistrar: '0x4f06e818ba3d987704fd91cf3d868e4b019106ab',
-          Multicall3: '0xb4468000abd87d3c56cbfbd153161223d7b109e5',
+          Multicall3: multicall3,
         },
       })
     );
-    const sourceDocument = fs.readFileSync(path.join(sourceDir, 'trinity-stack.json'));
-
+    const sourceDocument = fs.readFileSync(path.join(dataDir, 'trinity-stack.json'));
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-stack-'));
     writeSpecs('127.0.0.1');
     stamp({ mode: 'fork', bite: bite({ hashes }) });
-    const rewiredRegistrar = '0x' + '12'.repeat(20);
-    const forkRegistry: Record<string, string> = { protocolRegistry: registry, registrar: rewiredRegistrar };
-    const call: Settings['call'] = async (url, method, params = []) => {
-      if (method !== 'eth_call') return fakeNodes(url, method, params);
-      const { data } = params[0] as { data: string };
-      const key = Buffer.from(data.slice(10), 'hex').toString().replace(/\0+$/, '');
-      return ('0x' + (forkRegistry[key] ?? '0x' + '00'.repeat(20)).slice(2).padStart(64, '0')) as never;
-    };
-    const fetch: Settings['fetch'] = async (url) =>
+    return async (url) =>
       url === net.stack!.pointer!.url ? new Response(sourceDocument) : new Response(null, { status: 404 });
+  };
+  const word = (address: string) => '0x' + address.slice(2).padStart(64, '0');
+  /** The fork's nodes: contracts with code, each registry's entries, and the dispatcher Asset Hub stores. */
+  const forkChain = (contracts: string[], registries: Record<string, Record<string, string>>, dispatcher?: { address: string; registry: string }): Settings['call'] =>
+    async (url, method, params = []) => {
+      if (method === 'eth_getCode') return (contracts.includes(params[0] as string) ? '0x6080' : '0x') as never;
+      if (method === 'state_getStorage') return (dispatcher?.address ?? null) as never;
+      if (method !== 'eth_call') return fakeNodes(url, method, params);
+      const { to, data } = params[0] as { to: string; data: string };
+      if (to === dispatcher?.address) return word(dispatcher.registry) as never;
+      if (!registries[to]) return '0x' as never;
+      const key = Buffer.from(data.slice(10), 'hex').toString().replace(/\0+$/, '');
+      return word(registries[to][key] ?? '0x' + '00'.repeat(20)) as never;
+    };
+
+  it("publishes its source's dotNS keys with the addresses the fork's registry returns", async () => {
+    const fetch = await forkOfSource();
+    const rewiredRegistrar = '0x' + '12'.repeat(20);
+    const call = forkChain([sourceRegistry, multicall3], {
+      [sourceRegistry]: { protocolRegistry: sourceRegistry, registrar: rewiredRegistrar },
+    });
 
     const { written, complete } = await writeStack({ net }, settings({ call, fetch }));
     assert.equal(complete, true);
     assert.deepEqual(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, {
-      multicall3: '0xb4468000abd87d3c56cbfbd153161223d7b109e5',
-      protocolRegistry: registry,
+      multicall3,
+      protocolRegistry: sourceRegistry,
       registrar: rewiredRegistrar,
     });
+  });
+
+  // dotNS deployed on the fork after the bite: the source's contracts do not exist here, and
+  // the registry is found through the dispatcher the chain's DotnsGateway calls into.
+  it("takes the registry from Asset Hub's dotNS dispatcher when the source's is not on the fork", async () => {
+    const fetch = await forkOfSource();
+    const ownRegistry = '0x' + '34'.repeat(20);
+    const ownRegistrar = '0x' + '56'.repeat(20);
+    const call = forkChain(
+      [ownRegistry],
+      { [ownRegistry]: { protocolRegistry: ownRegistry, registrar: ownRegistrar } },
+      { address: '0x' + '78'.repeat(20), registry: ownRegistry }
+    );
+
+    const { written, complete } = await writeStack({ net }, settings({ call, fetch }));
+    assert.equal(complete, true);
+    // Multicall3 is neither registered nor deployed at the source's address, so it is left out.
+    assert.deepEqual(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, {
+      protocolRegistry: ownRegistry,
+      registrar: ownRegistrar,
+    });
+  });
+
+  it("publishes no dotNS when neither the source's registry nor a dispatcher is on the fork", async () => {
+    const fetch = await forkOfSource();
+    const { written, complete } = await writeStack({ net }, settings({ call: forkChain([], {}), fetch }));
+    assert.equal(complete, true);
+    assert.equal(open(read('trinity-stack.json'), written.pointer).descriptor.dotns, undefined);
   });
 
   it('publishes a fork without dotNS while its source descriptor does not answer, and tries again', async () => {

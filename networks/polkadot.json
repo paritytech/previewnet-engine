@@ -14,6 +14,8 @@
     "sharedRelay": true,
     "_note": "No sudo: a runtime upgrade is authorized at import instead of dispatched. `ppn bite --upgrade asset-hub=<wasm>` seeds System::AuthorizedUpgrade, and `ppn runtime-upgrade` submits the apply half unsigned. Belongs in zombie-bite (paritytech/zombie-bite#127) once PPN calls it instead of driving doppelganger. v0.2.3 is the first doppelganger honouring ZOMBIE_WARP_SKIP_PROOF, without which the state sync stalls partway through and never recovers."
   },
+  "dubBuild": "polkadot",
+  "_dubBuild": "The Polkadot People runtime has neither Game nor ProofOfInk, so dub's polkadot build drops the invite-tickets roles. Naming a role the binary lacks is a boot failure.",
   "releases": {
     "polkadot-sdk": {
       "repo": "paritytech/release-automation",
@@ -59,6 +61,8 @@
     {
       "key": "bulletin",
       "paraId": 1010,
+      "bulletinAuthorizer": "0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+      "_bulletinNote": "//Alice, the account the bite already endows on every chain. A fork has no genesis, and live Polkadot Bulletin has an empty AllowedAuthorizers because authorizers arrive by governance there, so nothing can store anything without this. paseo-next-v2 carries //Alice, //Eve and an ops key; previewnet carries only //Eve, seeded by the bulletin runtime's genesis preset (Sr25519Keyring::Eve, 100_000 transactions, 100 GiB) which is where the budget below comes from. Alice over Eve because she is funded here and Eve is not, and the authorizer and the account it authorizes may be the same.",
       "spec": "bulletin",
       "rpc": "wss://bulletin-rpc.polkadot.io",
       "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/polkadot/parachain/bulletin/chainspec.json",
@@ -77,7 +81,17 @@
       }
     }
   },
+  "attestation": {
+    "attester": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    "count": 1000000,
+    "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" },
+    "_note": "//Alice, matching what the bite already endows, and 1000000 to match PEOPLELITE_ATTESTATION_ALLOWANCE and DOTNSGATEWAY_ATTESTATION_ALLOWANCE in individuality-community's initial-setup, which grants both by sudo. Two quotas share the AttestationAllowance name: PeopleLite's counts how many people a verifier may attest, DotnsGateway's how many names an attester may reserve, and the backend needs both. Managers are EnsureRoot and RootOrWhitelist; neither is reachable on a fork after the spawn. attestation.on pairs each chain with the pallet to seed there."
+  },
   "stack": {
-    "tld": "dot"
+    "tld": "dot",
+    "pointer": {
+      "url": "https://stack.api.pcf.network/.well-known/trinity-stack.json"
+    },
+    "_pointer": "No key. PCF signs its descriptor, but the descriptor does not carry the public key, and the engine has none from PCF to pin. Without a key the signature is not checked; a wrong key would fail every read with bad-signature and leave the fork with no dotns."
   }
 }

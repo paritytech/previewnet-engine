@@ -24,6 +24,8 @@ export interface ForkParachain extends ForkChain {
   paraId: number;
   /** Curve this chain's Aura keys are on, as the descriptor declares it. */
   aura?: AuraScheme;
+  /** Account seeded into Bulletin's AllowedAuthorizers, which a fork has no genesis to provide. */
+  bulletinAuthorizer?: string;
 }
 
 export function parachainsOf(net: NetworkDef): ForkParachain[] {
@@ -33,6 +35,7 @@ export function parachainsOf(net: NetworkDef): ForkParachain[] {
     endpoint: p.rpc,
     paraId: p.paraId,
     aura: p.aura,
+    bulletinAuthorizer: p.bulletinAuthorizer,
   }));
 }
 

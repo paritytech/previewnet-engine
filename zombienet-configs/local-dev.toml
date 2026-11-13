@@ -182,6 +182,9 @@ command = "{{SCRIPTS}}/grant-invites.sh"
 [[custom_processes]]
 name = "dub-postgres"
 command = "{{SCRIPTS}}/dub/postgres.sh"
+env = [
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
+]
 
 [[custom_processes]]
 name = "dub-api"
@@ -191,6 +194,7 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
@@ -211,6 +215,7 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
@@ -228,6 +233,7 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },
@@ -245,6 +251,7 @@ env = [
   { name = "DEVICE_ATTESTATION_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/identity" },
   { name = "INDEXER_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/username_indexer" },
   { name = "INVITE_TICKETS_DATABASE_URL", value = "postgres://identity@127.0.0.1:5433/invite_tickets" },
+  { name = "DUB_DATABASES", value = "identity username_indexer invite_tickets" },
   { name = "METRICS_ENABLED", value = "false" },
   { name = "RUST_LOG", value = "info" },
   { name = "PEOPLE_RPC_URL", value = "ws://127.0.0.1:10010" },

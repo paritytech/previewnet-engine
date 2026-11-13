@@ -91,6 +91,11 @@ export async function run(args: string[]): Promise<void> {
         },
         seeded.relay
       );
+      const attestationFor = (key: string) => {
+        const at = NETWORK.attestation;
+        const pallet = at?.on?.[key];
+        return at && pallet ? { attester: at.attester, count: at.count, pallet } : undefined;
+      };
       for (const p of PARACHAINS) {
         await paraOverrides(
           p.paraId,
@@ -99,6 +104,8 @@ export async function run(args: string[]): Promise<void> {
           NETWORK.bite.sharedRelay,
           seeded[p.key],
           p.aura,
+          p.bulletinAuthorizer,
+          attestationFor(p.key),
           topology?.collators[p.key] ?? 1
         );
       }
@@ -124,6 +131,8 @@ export async function run(args: string[]): Promise<void> {
         bundleDir: path.resolve(bundleDir),
         enableHop: (process.env.ENABLE_HOP || 'true').toLowerCase() !== 'false',
         binDir: bundleNet === 'previewnet' ? path.join(WS, 'bin') : path.join(WS, 'bin', bundleNet),
+        // Resuming runs on the database already in the data dir, so there is nothing to restore.
+        restoreSnapshots: !rest.includes('--resume'),
       });
       fs.writeFileSync(outFile, toml);
       const rpcPorts = [...toml.matchAll(/^rpc_port = (\d+)$/gm)].map((m) => m[1]);

@@ -89,10 +89,11 @@ ppn start polkadot --fork --fresh-bite \
 
 A `--upgrade` accepts any blob: a release asset, a PR's build artifact, a local build, and
 `relay=` for the relay itself. The bite warp-syncs four chains, around 20 minutes, and a
-parachain's upgrade goes live an hour after the spawn, because Polkadot's upgrade delay is 600
-relay blocks. The dashboard shows the spec version flip; the log of the process applying the
-upgrades is under its logs tab. If that process gave up, or you want to redo one chain, submit
-the apply step yourself with no blob, and the one the bite authorized is used:
+parachain's upgrade goes live a few minutes after the spawn: the bite cuts the relay's upgrade
+delay to 30 blocks (live Polkadot: 600, an hour). The dashboard shows the spec version flip;
+the log of the process applying the upgrades is under its logs tab. If that process gave up,
+or you want to redo one chain, submit the apply step yourself with no blob, and the one the
+bite authorized is used:
 
 ```bash
 ppn upgrade people --enact-timeout 70    # apply what the bite authorized for People

@@ -14,7 +14,12 @@ import {
   asHttp,
   asWs,
   DEFAULT_NETWORK,
+  loadDescriptor,
 } from '../src/networks.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { repoRoot } from '../src/repo-root.js';
 import { loadNetwork } from '../src/load.js';
 import { pinsProducts } from '../src/fork-toml.js';
 import { paraIds, VALID_PARACHAINS } from '../src/toml-generator.js';
@@ -194,6 +199,15 @@ describe('network descriptors', () => {
     assert.ok(net.parachains.every((p) => p.binary.name === 'polkadot-parachain'));
   });
 
+  // Every consumer of the field reads it off the loaded descriptor: the fetcher picks the
+  // asset by it and dubCustomProcesses picks the roles by it, and both fall back to `testnet`.
+  // A descriptor that parses the field and then drops it is a fork running the wrong binary
+  // with the wrong roles, reported nowhere.
+  it('carries dubBuild through from the descriptor', () => {
+    assert.equal(loadNetwork('polkadot').dubBuild, 'polkadot');
+    assert.equal(loadNetwork('previewnet').dubBuild, undefined);
+  });
+
   it('pins the bite tool per network, since it must run that network\'s runtimes', () => {
     for (const name of listNetworks()) {
       const dg = loadNetwork(name).bite.doppelganger;
@@ -201,9 +215,85 @@ describe('network descriptors', () => {
     }
   });
 
+  // A copy of a real descriptor in a scratch PPN_HOME, so a check runs against a file that is
+  // otherwise valid. `where` is a parachain key, or "root" to patch the network itself.
+  const make = (patch: Record<string, unknown>, where: string): (() => void) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-desc-'));
+    fs.mkdirSync(path.join(dir, 'networks'));
+    const d = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks', 'polkadot.json'), 'utf-8'));
+    d.name = 'scratchnet';
+    if (where === 'root') Object.assign(d, patch);
+    else Object.assign(d.parachains.find((p: { key: string }) => p.key === where), patch);
+    fs.writeFileSync(path.join(dir, 'networks', 'scratchnet.json'), JSON.stringify(d));
+    return () => {
+      const prev = process.env.PPN_HOME;
+      process.env.PPN_HOME = dir;
+      try {
+        loadDescriptor('scratchnet');
+      } finally {
+        if (prev === undefined) delete process.env.PPN_HOME;
+        else process.env.PPN_HOME = prev;
+      }
+    };
+  };
+  const withNetwork = (patch: Record<string, unknown>): (() => void) => make(patch, 'root');
+
   it('rejects unknown networks with the known list', () => {
     assert.throws(() => loadNetwork('mainnet'), /unknown network "mainnet" — known: .*previewnet/);
     assert.throws(() => loadNetwork('../etc/passwd'), /invalid network name/);
+  });
+
+  describe('the attestation descriptor', () => {
+    const AT = {
+      attester: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      count: 1000000,
+      on: { people: 'PeopleLite' },
+    };
+
+    it('scopes each attestation pallet to a chain the network has', () => {
+      const net = loadNetwork('polkadot');
+      assert.deepEqual(net.attestation?.on, { people: 'PeopleLite', 'asset-hub': 'DotnsGateway' });
+      const keys = net.parachains.map((p) => p.key);
+      for (const k of Object.keys(net.attestation?.on ?? {})) {
+        assert.ok(keys.includes(k), `attestation.on names "${k}", not a chain of this network`);
+      }
+    });
+
+    it('refuses a chain this network does not have', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, on: { 'web3-storage': 'PeopleLite' } } }),
+        /attestation.on names "web3-storage", which this network does not have/
+      );
+    });
+
+    it('refuses a pallet that gates no attestation', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, on: { people: 'Nfts' } } }),
+        /attestation.on.people must be PeopleLite or DotnsGateway, got "Nfts"/
+      );
+    });
+
+    it('refuses a count that would grant nothing', () => {
+      for (const count of [0, -1, 1.5]) {
+        assert.throws(withNetwork({ attestation: { ...AT, count } }), /must be a positive integer/);
+      }
+    });
+
+    // Without this the descriptor passes and the failure surfaces at bite time instead, as a
+    // decodeAddress throw from attestationAllowanceInjects.
+    it('refuses an attester that is not there', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, attester: '' } }),
+        /attestation needs an attester account/
+      );
+    });
+
+    it('refuses naming no chain at all', () => {
+      assert.throws(
+        withNetwork({ attestation: { ...AT, on: {} } }),
+        /attestation.on must name at least one chain/
+      );
+    });
   });
 });
 

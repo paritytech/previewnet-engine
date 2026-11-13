@@ -13,6 +13,7 @@ import {
   forkDirFor,
   checkPorts,
   forkDataVerdict,
+  prepareSpawn,
   assertBundleTopology,
 } from '../src/commands/start.js';
 import { forkBundleName, forkBundleAsset } from '../src/lib/fork-bundle-name.js';
@@ -213,5 +214,72 @@ describe('forkDataVerdict', () => {
     const unstamped = setup();
     fs.mkdirSync(path.join(unstamped.dataDir, 'alice', 'db'), { recursive: true });
     assert.equal(forkDataVerdict(unstamped.dataDir, 'polkadot', unstamped.manifest).action, 'wipe');
+  });
+});
+
+// zombie-cli spawns from a copy of the bundle's config, and zombienet unpacks every db_snapshot
+// it is given over the database already there. So a resume regenerates the bundle's config
+// without snapshots before the copy is made.
+describe('prepareSpawn', () => {
+  const BITTEN = '2026-09-01T18:30:00.000Z';
+  const WITH = 'default_db_snapshot = "/b/snapshots/relay.tgz"\n\n[[parachains.collators]]\ndb_snapshot = "/b/snapshots/1000.tgz"\n';
+  const WITHOUT = '\n[[parachains.collators]]\n';
+  const setup = () => {
+    const forkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-spawn-'));
+    const dataDir = path.join(forkDir, 'data-fork-polkadot');
+    const manifest = path.join(forkDir, 'manifest.json');
+    fs.writeFileSync(manifest, JSON.stringify({ bittenAt: BITTEN }));
+    const generated = path.join(forkDir, 'fork.toml');
+    fs.writeFileSync(generated, WITH);
+    return { forkDir, dataDir, manifest, generated };
+  };
+  const spawned = (dataDir: string, manifest: string, network = 'polkadot') => {
+    writeSpawnStamp(dataDir, { network, mode: 'fork', forkManifest: manifest, repoRoot: '/nowhere' });
+    fs.mkdirSync(path.join(dataDir, 'alice', 'db'), { recursive: true });
+  };
+  // Stands in for `ppn fork toml <dir> <out> --resume`, whose output fork-toml.test.ts covers.
+  const regenerated: string[] = [];
+  const regenerate = (_forkDir: string, outFile: string) => {
+    regenerated.push(outFile);
+    fs.writeFileSync(outFile, WITHOUT);
+  };
+  const facts = (dataDir: string) => ({ workspace: '/ws', network: 'polkadot', dataDir });
+
+  it('spawns a resumed fork with no db_snapshot', () => {
+    const { forkDir, dataDir, manifest, generated } = setup();
+    spawned(dataDir, manifest);
+    regenerated.length = 0;
+    const spawn = prepareSpawn(generated, { dataDir, network: 'polkadot', forkDir }, facts(dataDir), regenerate);
+    assert.deepEqual(regenerated, [generated]);
+    assert.doesNotMatch(fs.readFileSync(spawn, 'utf-8'), /db_snapshot/);
+  });
+
+  it('keeps the snapshots on a fresh start', () => {
+    const { forkDir, dataDir, generated } = setup();
+    regenerated.length = 0;
+    const spawn = prepareSpawn(generated, { dataDir, network: 'polkadot', forkDir }, facts(dataDir), regenerate);
+    assert.deepEqual(regenerated, []);
+    assert.match(fs.readFileSync(spawn, 'utf-8'), /default_db_snapshot[\s\S]*\ndb_snapshot/);
+  });
+
+  it('keeps the snapshots when it wipes the data', () => {
+    const { forkDir, dataDir, manifest, generated } = setup();
+    spawned(dataDir, manifest, 'kusama');
+    regenerated.length = 0;
+    const spawn = prepareSpawn(generated, { dataDir, network: 'polkadot', forkDir }, facts(dataDir), regenerate);
+    assert.deepEqual(regenerated, []);
+    assert.equal(fs.existsSync(dataDir), false);
+    assert.match(fs.readFileSync(spawn, 'utf-8'), /default_db_snapshot[\s\S]*\ndb_snapshot/);
+  });
+
+  it('leaves a config the caller supplied as it is', () => {
+    const { forkDir, dataDir, manifest } = setup();
+    spawned(dataDir, manifest);
+    const supplied = path.join(forkDir, 'mine.toml');
+    fs.writeFileSync(supplied, WITH);
+    regenerated.length = 0;
+    const spawn = prepareSpawn(supplied, { dataDir, network: 'polkadot', forkDir }, facts(dataDir), regenerate);
+    assert.deepEqual(regenerated, []);
+    assert.match(fs.readFileSync(spawn, 'utf-8'), /db_snapshot/);
   });
 });

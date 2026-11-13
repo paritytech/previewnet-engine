@@ -63,11 +63,20 @@ The apply half is a transaction, not state, so it runs after the spawn: the `ena
 custom process submits `apply_authorized_upgrade` for every seeded chain, parachains first and
 the relay last, through the same path `ppn upgrade` uses. It waits for the chains to author,
 retries a chain that does not answer yet, and is a no-op on a chain already running the blob —
-so a resumed fork does nothing here. Enactment itself is slow on a parachain of a real network:
-the code goes live only on the relay's go-ahead, `validation_upgrade_delay` relay blocks after
-the PVF pre-check, which on Polkadot is 600 blocks, an hour. The service waits up to two hours
-per chain. `make runtime-upgrade NETWORK=polkadot CHAIN=people ENACT_TIMEOUT_MIN=70` with no
-`WASM=` does the same for one chain by hand.
+so a resumed fork does nothing here. All parachains are submitted at once and waited for
+together, then the relay.
+
+A parachain's code goes live on the relay's go-ahead, `validation_upgrade_delay` relay blocks
+after the PVF pre-check. Live Polkadot sets that to 600 blocks, an hour, and forbids a second
+upgrade of the same parachain for `validation_upgrade_cooldown` = 14400, a day — sensible for a
+production relay, useless for a fork whose purpose is enacting runtimes under test. A
+shared-relay bite therefore patches both into `Configuration::ActiveConfig`, to 30 and 60 relay
+blocks (`shared-relay.ts`), in the same rebuild that sets `num_cores`. The pre-check and
+go-ahead path is unchanged; only the timers are. So from a fresh bite, all four chains are on
+the new runtime within a few minutes of the spawn. A bundle bitten before this patch still
+carries the live values, which is why the service waits up to two hours per chain.
+`make runtime-upgrade NETWORK=polkadot CHAIN=people` with no `WASM=` does the same for one
+chain by hand.
 
 Under the hood `ppn bite --upgrade <chain>=<wasm>` stages the blob into the bundle under
 `upgrades/<chain>.wasm`, recording it in `manifest.json` as `seededUpgrades`. Add
@@ -84,6 +93,47 @@ This mirrors zombie-bite's `--rc-upgrade`/`--para-upgrade`
 ([paritytech/zombie-bite#127](https://github.com/paritytech/zombie-bite/issues/127)) and is
 meant to be deleted along with the rest of `packages/cli/src/fork/` once PPN calls zombie-bite
 instead of driving doppelganger itself ([#120](https://github.com/paritytech/zombie-bite/issues/120)).
+
+## What the bite seeds
+
+A fork inherits live state and no governance, so anything a running network sets by Root, by
+sudo or by a transaction from an account we hold has to be written into state at import instead.
+Three things are. Two are named by a descriptor field; the first is not, and everything else
+here depends on it:
+
+- `//Alice` is endowed on the relay and on every parachain, by writing her `System::Account`
+  directly. Nothing below can pay a fee without it: a fork of a public network has no dev
+  account holding funds and no way to fund one. This is the seed with no descriptor field,
+  because there is nothing to decide. It happens whenever `bite.sharedRelay` is true, and that
+  flag says the relay is somebody else's, which is exactly the case where the funds are missing.
+- `bulletinAuthorizer`, an entry in Bulletin's `AllowedAuthorizers`. Under "Bulletin content",
+  because a fork's relation to Bulletin's stored bytes is the same discussion.
+- `attestation`, the two `AttestationAllowance` quotas the identity backend spends. Below,
+  "Seeding the attestation allowances".
+
+Add a seed and add a line here, or the next reader asking what a bite writes has to find it by
+reading `paraOverrides`.
+
+## Seeding the attestation allowances
+
+Two of them, one per pallet, sharing a storage name and metering different things.
+`PeopleLite::AttestationAllowance` is how many people a verifier may attest, spent by `attest`.
+`DotnsGateway::AttestationAllowance` is how many names an attester may reserve, spent by
+`reserve_name`. The identity backend needs both: without the first nobody becomes a lite
+person, and without the second nobody gets a username.
+
+Both pallets that gate attestation take an origin a fork cannot raise: `PeopleLite`'s
+`AttestationAllowanceManager` is `EnsureRoot`, and `DotnsGateway`'s is `RootOrWhitelist`, whose
+second arm is an OpenGov track.
+
+The count and the pair both come from individuality-community's initial-setup, which grants
+`PeopleLite` on People and `DotnsGateway` on Asset Hub by sudo, at
+`PEOPLELITE_ATTESTATION_ALLOWANCE` and `DOTNSGATEWAY_ATTESTATION_ALLOWANCE`, both a million.
+
+```json
+{ "attestation": { "attester": "5Grwva…", "count": 1000000,
+                   "on": { "people": "PeopleLite", "asset-hub": "DotnsGateway" } } }
+```
 
 ## What you get, and what you don't
 
@@ -133,14 +183,18 @@ hold. Parachains are bitten first; the relay is then bitten with their heads inj
 `Paras::Heads`, so the relay is made to agree with wherever the parachains actually landed.
 
 **Spawn** uses the **regular** `polkadot` and `polkadot-omni-node`. Nothing about restoring a bundle
-needs doppelganger, which is why `FORK=1` works with no extra binaries.
+needs doppelganger, which is why `FORK=1` works with no extra binaries. The collators are the
+exception: they run cumulus's minimal relay node (`--relay-chain-rpc-urls`), which upstream builds
+with `fork_id: None` (`relay-chain-minimal-node/src/network.rs`). A stock collator therefore finds
+no validator, and the parachains stop while the relay keeps authoring. Until upstream ships the
+fix, collators need a build that has it.
 
 A bundle is:
 
 ```
 fork-bundle/
   manifest.json          what was bitten, when, from which production version
-  specs/<chain>.json     production's specs with bootNodes stripped
+  specs/<chain>.json     production's specs, with a fork id and the fork's own relay bootnode
   overrides/*.json       the storage overrides doppelganger applies
   snapshots/*.tgz        the bitten databases (~70 MB; ~107 MB for the bundle)
   fork.toml              generated zombienet config
@@ -154,8 +208,10 @@ and per-chain flags with the genesis generator — see below.
 
 Each of these was a real failure during development; none of them announces itself clearly.
 
-**A fork resumes only on its own database.** zombienet restores the bundle's snapshot only into
-an empty base path, so a start that finds a database already there silently runs on it instead.
+**A fork resumes only on its own database.** zombienet unpacks a node's `db_snapshot` over its
+base path on every spawn, whether or not a database is already there, and the extraction
+overwrites the files it carries while leaving the rest in place. A start that hands it the
+snapshots over foreign data therefore gets a mix of the two.
 What that cost us once: a genesis run and a fork sharing `./data`, so the fork came up on a
 database belonging to a different chain. It looked healthy for a hundred blocks, then three of six
 validators panicked with `Trie lookup error: Database missing expected key` ~110 blocks past the
@@ -165,8 +221,9 @@ Three things are in place for that. Fork mode has its own `data-fork-<network>` 
 never meets genesis data. The spawn stamp (`spawn.json`, written beside the chain state) records
 which bite the databases came from, and `ppn start --fork` compares it with the bundle's
 `bittenAt` before deciding: a match resumes where the fork stopped, with any runtime upgrade it
-enacted still in force; anything else — a re-bitten bundle, another network's data, no stamp —
-is wiped and the snapshot restored. `CLEAN=1` wipes regardless, which is how a fork is put back
+enacted still in force, and regenerates the config without `db_snapshot` so there is nothing to
+unpack over it; anything else — a re-bitten bundle, another network's data, no stamp — is wiped
+and the snapshot restored. `CLEAN=1` wipes regardless, which is how a fork is put back
 at its bite block.
 
 ```bash
@@ -180,11 +237,13 @@ make start FORK=1 NETWORK=polkadot FRESH_BITE=1   # new bite; the old data is wi
 parachain, last one wins, and all collators silently run the same chain. The symptom is parachains
 converging on identical block numbers — not an error.
 
-**Spawn specs must have `bootNodes` cleared.** Otherwise the forked nodes rejoin previewnet and
-follow its longer chain. This looks like success on every metric — the chain is at a plausible
-height and finalizing — while not being a fork at all. The bite genuinely needs the bootnodes, so
-`ppn bite` keeps the as-published specs in its work directory and puts only the
-stripped copies in the bundle.
+**Spawn specs carry a fork id and none of the source's bootnodes.** Otherwise the forked nodes
+rejoin the source network and follow its longer chain. This looks like success on every metric (the
+chain is at a plausible height and finalizing) while not being a fork at all. A fork keeps the
+source's genesis hash, so without a fork id its protocol names equal the source's and it still
+reaches the source's DHT. The bite genuinely needs the bootnodes, so `ppn bite` keeps the
+as-published specs in its work directory and ships copies with `forkId` `ppn-fork-<network>`, the
+fork's first relay node as the relay spec's only bootnode, and no bootnodes on the parachain specs.
 
 **Collators must run via `scripts/omni-node.sh`, not the binary directly.** A collator runs a
 relay-chain node in the same process, configured by the args after `--`, which zombienet owns and
@@ -233,6 +292,12 @@ too few, `Failed to submit collation err=Erasure(NotEnoughValidators)`, and the 
 its unincluded segment fills — exactly three blocks in.
 
 ## Bulletin content
+
+Nothing can be stored at all until an authorizer exists. Live Polkadot Bulletin's
+`AllowedAuthorizers` is empty, because authorizers arrive by governance there, and a fork has no
+genesis to seed one, so `bulletinAutoAuthorize` fails `BadSigner`. The `bulletinAuthorizer`
+descriptor field names the account the bite writes in; `bulletinAuthorizerInjects` in
+`validators.ts` says what the entry holds and which reference it deliberately leaves out.
 
 A fork carries chain state but not bulletin's stored bytes: those live in block bodies, and the
 bite is a warp sync. So a forked bulletin *lists* content it does not hold, and anything published

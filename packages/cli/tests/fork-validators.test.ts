@@ -3,6 +3,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { u8aToHex } from '@polkadot/util';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -16,11 +17,13 @@ import {
   relayCandidates,
   relayInjects,
   sessionKeys,
+  attestationAllowanceInjects,
   authorizedUpgradeCandidate,
+  bulletinAuthorizerInjects,
   type DevValidator,
 } from '../src/fork/validators.js';
 import { verify, verifyInjects } from '../src/fork/overrides.js';
-import { compactLen, keyOf, u32le } from '../src/fork/codec.js';
+import { blake2128Concat, compactLen, keyOf, u32le } from '../src/fork/codec.js';
 import { PARACHAINS } from '../src/fork/chains.js';
 
 // Captured from the override files of a bite that produced a verified working fork, before
@@ -254,8 +257,11 @@ describe('verify', () => {
   const PLAIN = 1;
   const registry = {
     createLookupType: (id: number) => `Type${id}`,
-    createType: (_type: string, hex: string) => ({
-      toHex: () => (hex === '0xbad' ? '0xdifferent' : hex),
+    // The code compares SCALE bytes, so the stub takes a Uint8Array and returns `toU8a`.
+    // It returns the bytes it was given, except for the candidate 'bad', which comes back
+    // as something else so the round-trip check fails and the failure path can be tested.
+    createType: (_type: string, raw: Uint8Array) => ({
+      toU8a: () => (u8aToHex(raw).endsWith('bad') ? new Uint8Array([0xde, 0xad]) : raw),
     }),
   } as never;
 
@@ -298,8 +304,11 @@ describe('verifyInjects', () => {
   const MAPVAL = 7;
   const registry = {
     createLookupType: (id: number) => `Type${id}`,
-    createType: (_type: string, hex: string) => ({
-      toHex: () => (hex === '0xbad' ? '0xdifferent' : hex),
+    // The code compares SCALE bytes, so the stub takes a Uint8Array and returns `toU8a`.
+    // It returns the bytes it was given, except for the candidate 'bad', which comes back
+    // as something else so the round-trip check fails and the failure path can be tested.
+    createType: (_type: string, raw: Uint8Array) => ({
+      toU8a: () => (u8aToHex(raw).endsWith('bad') ? new Uint8Array([0xde, 0xad]) : raw),
     }),
   } as never;
 
@@ -420,5 +429,87 @@ describe('collator key curve', () => {
 
   it('is a different key on each curve, from the one seed', async () => {
     assert.notEqual(await collatorKey(1000), await collatorKey(1000, 'ed25519'));
+  });
+});
+
+// A bitten Bulletin has no authorizer at all: the runtime seeds one in its genesis preset and a
+// fork has no genesis, while live Polkadot Bulletin's AllowedAuthorizers is empty because there
+// authorizers arrive by governance. Without this every store fails BadSigner.
+describe('the bulletin authorizer seed', () => {
+  const ALICE = '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+
+  it('writes into TransactionStorage::AllowedAuthorizers, blake2-128-concat keyed', () => {
+    const entry = Object.keys(bulletinAuthorizerInjects(ALICE))[0];
+    assert.equal(entry.slice(0, 64), keyOf('TransactionStorage', 'AllowedAuthorizers'));
+    assert.ok(entry.endsWith(ALICE.slice(2)));
+  });
+
+  // AuthorizerBudget { quota: Some(Quota { transactions: u32, bytes: u64 }), valid_until: None,
+  // feeless: bool } — the budget the bulletin runtime's own genesis preset writes.
+  it('encodes the genesis presets budget: 100k transactions, 100 GiB, feeless, no expiry', () => {
+    const v = Object.values(bulletinAuthorizerInjects(ALICE))[0];
+    assert.equal(v, '01' + 'a0860100' + '0000000019000000' + '00' + '01');
+    assert.equal(v.length / 2, 15);
+  });
+
+  it('refuses anything that is not a 32-byte account id', () => {
+    for (const bad of ['0x1234', '', '0xd43593c7', 'nope']) {
+      assert.throws(() => bulletinAuthorizerInjects(bad), /32-byte account id/);
+    }
+  });
+});
+
+// Two quotas share the `AttestationAllowance` name. `PeopleLite`'s counts how many people a
+// verifier may attest, spent by `attest`; `DotnsGateway`'s how many names an attester may
+// reserve, spent by `reserve_name`. The identity backend needs both, and on a fork neither can be
+// granted after the spawn: `PeopleLite`'s manager is `EnsureRoot` and `DotnsGateway`'s is
+// `RootOrWhitelist`.
+describe('the attestation allowance seeds', () => {
+  const ALICE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  // What polkadot.json grants. Multi-byte, so the literal below catches a byte-order slip.
+  const COUNT = 1000000;
+
+  for (const pallet of ['PeopleLite', 'DotnsGateway'] as const) {
+    it(`writes one ${pallet} entry keyed by the attester`, () => {
+      const out = attestationAllowanceInjects(pallet, ALICE, COUNT);
+      assert.deepEqual(out, {
+        [keyOf(pallet, 'AttestationAllowance') + blake2128Concat(ALICE_SR)]: u32le(COUNT),
+      });
+    });
+  }
+
+  // Both pallets hold it as a bare `u32` with `ValueQuery`, and both setters only
+  // saturating-add, so the count is the whole state the call produces.
+  it('encodes the count as a bare little-endian u32', () => {
+    const [value] = Object.values(attestationAllowanceInjects('PeopleLite', ALICE, COUNT));
+    assert.equal(value, u32le(COUNT));
+    assert.equal(value, '40420f00');
+  });
+
+  it('accepts the raw account id as well as SS58', () => {
+    assert.deepEqual(
+      attestationAllowanceInjects('PeopleLite', '0x' + ALICE_SR, COUNT),
+      attestationAllowanceInjects('PeopleLite', ALICE, COUNT)
+    );
+  });
+
+  it('refuses a count that would grant nothing', () => {
+    for (const bad of [0, -1, 1.5]) {
+      assert.throws(() => attestationAllowanceInjects('PeopleLite', ALICE, bad), /positive integer/);
+    }
+  });
+
+  it('refuses an attester that is not a 32-byte account', () => {
+    // A 20-byte address decodes, so it reaches the length check. Garbage does not: decodeAddress
+    // throws first, which is why that case cannot stand in for this one, and why the throw is
+    // wrapped in a message that names the field.
+    assert.throws(
+      () => attestationAllowanceInjects('PeopleLite', '0x' + 'ab'.repeat(20), COUNT),
+      /32-byte account, got 20 bytes/
+    );
+    assert.throws(
+      () => attestationAllowanceInjects('PeopleLite', 'not-an-account', COUNT),
+      /attester "not-an-account" is not an account: Decoding/
+    );
   });
 });

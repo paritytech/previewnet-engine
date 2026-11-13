@@ -247,6 +247,20 @@ describe('generateForkToml — collators', () => {
     assert.match(toml, /chain_spec_path = ".*\/specs\/individuality\.json"/);
   });
 
+  // zombienet unpacks a db_snapshot over the node's base path on every spawn, whether or not a
+  // database is already there, so a resumed fork given one rewinds to the bite block. The resume
+  // config is therefore the normal one minus those lines, and only those lines.
+  it('omits every snapshot when resuming, and changes nothing else', () => {
+    const dir = makeBundle();
+    const restored = generateForkToml({ repoDir: REPO, bundleDir: dir });
+    const resumed = generateForkToml({ repoDir: REPO, bundleDir: dir, restoreSnapshots: false });
+    assert.ok(!resumed.includes('db_snapshot'), 'a resumed fork must not be handed a snapshot');
+    assert.equal(
+      resumed,
+      restored.replace(/^default_db_snapshot = .*\n/m, '').replace(/^db_snapshot = .*$/gm, '')
+    );
+  });
+
   // A warp-synced relay cannot serve history to an embedded relay node, which then sits at #0.
   it('points every collator at the relay over RPC', () => {
     for (const id of Object.values(paraIds())) {
@@ -444,6 +458,28 @@ describe('generateForkToml — non-previewnet bundles', () => {
       3,
       'every collator must be pointed at the network bin dir'
     );
+  });
+
+  // dub ships one build per People runtime, and the polkadot one has no invite-tickets roles:
+  // naming a role the binary lacks is a boot failure. Which build a network wants is a
+  // descriptor field, so this asserts on the generated toml. Calling dubCustomProcesses with
+  // the build passed in would test the function and miss what reaches it, which is where the
+  // field went missing once already.
+  it('leaves the invite-tickets service out of a polkadot fork', () => {
+    const toml = generateForkToml({
+      repoDir: REPO,
+      bundleDir: makeNetBundle('polkadot', {
+        relay: { paraId: null, spec: 'polkadot', specId: 'polkadot' },
+        'asset-hub': { paraId: 1000, spec: 'asset-hub', specId: 'asset-hub' },
+        people: { paraId: 1004, spec: 'people', specId: 'people' },
+        bulletin: { paraId: 1010, spec: 'bulletin', specId: 'bulletin' },
+      }),
+    });
+    for (const absent of ['invite-tickets', 'INVITE_TICKETS_DATABASE_URL', 'INVITER_ADDRESS']) {
+      assert.ok(!toml.includes(absent), `${absent} must not reach a polkadot fork`);
+    }
+    assert.ok(toml.includes('name = "dub-api"'), 'the rest of the backend still runs');
+    assert.ok(devnetToml().includes('invite-tickets'), 'every other network keeps the role');
   });
 
   it('picks the descriptor collator binary via the wrapper env', () => {

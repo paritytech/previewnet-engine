@@ -15,7 +15,8 @@ import { dubToken } from "./dub-auth";
 const SUCCESS = 1 as const;
 const FAILURE = 0 as const;
 
-const HOST = "127.0.0.1";
+// TURN_HOST and DUB_BASE point the test at a deployed relay instead of the local one.
+const HOST = process.env.TURN_HOST || "127.0.0.1";
 const PORT = 3478;
 const EXPECTED_SERVERS = [
   `stun:${HOST}:${PORT}`,
@@ -170,7 +171,8 @@ export async function run(nodeName: string, _networkInfo: NetworkInfo, _args: st
       return FAILURE;
     }
     const creds = (await res.json()) as { servers: string[]; username: string; password: string; ttl: number };
-    if (JSON.stringify(creds.servers) !== JSON.stringify(EXPECTED_SERVERS)) {
+    // Behind https a fourth, turns:, follows the three plain servers.
+    if (JSON.stringify(creds.servers.slice(0, 3)) !== JSON.stringify(EXPECTED_SERVERS)) {
       console.error(`[TEST] FAIL ICE servers ${JSON.stringify(creds.servers)}, expected ${JSON.stringify(EXPECTED_SERVERS)}`);
       return FAILURE;
     }

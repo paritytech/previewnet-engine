@@ -11,7 +11,7 @@
 // tests can use it without the chain tooling being set up.
 
 /** Every HTTP surface of the backend, on one origin (`dub --role all-in-one`). */
-export const DUB_BASE = "http://127.0.0.1:8092";
+export const DUB_BASE = process.env.DUB_BASE || "http://127.0.0.1:8092";
 
 /**
  * Why a response is not ready yet, or null when it is.
