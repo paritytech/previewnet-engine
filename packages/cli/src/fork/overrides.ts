@@ -15,6 +15,8 @@ import {
   coreDescriptorsValue,
   coresFor,
   dmpWipes,
+  FORK_VALIDATION_UPGRADE_COOLDOWN,
+  FORK_VALIDATION_UPGRADE_DELAY,
   hrmpChannelKey,
   hrmpContentsWipes,
   hrmpParaKey,
@@ -175,25 +177,32 @@ function encode(index: StorageIndex, pallet: string, item: string, value: unknow
   return index.reg.createType(type, value).toHex().slice(2);
 }
 
+/** The HostConfiguration fields a shared-relay bite changes, and what they were. */
+interface HostConfigPatch {
+  value: string;
+  before: { numCores: number; validationUpgradeDelay: number; validationUpgradeCooldown: number };
+}
+
 /**
- * Set `scheduler_params.num_cores` in production's own HostConfiguration.
+ * Change three numbers in production's own HostConfiguration: `scheduler_params.num_cores`,
+ * `validation_upgrade_delay` and `validation_upgrade_cooldown`.
  *
  * Rebuilt from the decoded value's own fields — Codec instances, not JSON. Going through
  * `toJSON()` and back produces bytes that mean the same thing but are not the ones the chain
  * wrote, and `verify()` rightly refuses them: it requires a value to survive decode → encode
  * unchanged. Passing the untouched fields through as codecs keeps them byte-for-byte, so the
- * only bytes that move are the ones for the number being changed.
+ * only bytes that move are the ones for the numbers being changed.
  *
  * That matters beyond tidiness. This struct also carries `executor_params`, whose
  * `EnabledHostFunction(EccRfc163)` the relay's validators need to accept People's PVFs, plus
  * the async-backing values production tuned. Replacing the whole value would cost all of it to
- * fix one number, which is why the bite leaves this key alone on previewnet entirely.
+ * fix three numbers, which is why the bite leaves this key alone on previewnet entirely.
  */
-function patchNumCores(
+function patchHostConfig(
   index: StorageIndex,
   liveHex: string,
-  numCores: number
-): { value: string; before: number } {
+  want: { numCores: number; validationUpgradeDelay: number; validationUpgradeCooldown: number }
+): HostConfigPatch {
   const entry = index.byKey.get(keyOf('Configuration', 'ActiveConfig'));
   if (!entry?.plain) throw new Error('Configuration::ActiveConfig is not a plain value here');
   const type = index.reg.createLookupType(entry.plain);
@@ -205,30 +214,44 @@ function patchNumCores(
     throw new Error('HostConfiguration has no schedulerParams — this relay runtime is not what the bite expects');
   }
   const paramFields = Object.fromEntries([...params.entries()]);
-  const before = Number(paramFields.numCores?.toString());
-  if (!Number.isFinite(before)) {
-    throw new Error('schedulerParams has no numCores — this relay runtime is not what the bite expects');
-  }
+  const num = (v: unknown, name: string): number => {
+    const n = Number(v?.toString());
+    if (!Number.isFinite(n)) throw new Error(`HostConfiguration has no ${name} — this relay runtime is not what the bite expects`);
+    return n;
+  };
+  const before = {
+    numCores: num(paramFields.numCores, 'schedulerParams.numCores'),
+    validationUpgradeDelay: num(fields.validationUpgradeDelay, 'validationUpgradeDelay'),
+    validationUpgradeCooldown: num(fields.validationUpgradeCooldown, 'validationUpgradeCooldown'),
+  };
 
-  const patchedParams = new (params.constructor as any)(index.reg, {
-    ...paramFields,
-    numCores: index.reg.createType('u32', numCores),
-  });
+  const u32 = (n: number) => index.reg.createType('u32', n);
+  const patchedParams = new (params.constructor as any)(index.reg, { ...paramFields, numCores: u32(want.numCores) });
   const value = index.reg
-    .createType(type, { ...fields, schedulerParams: patchedParams })
+    .createType(type, {
+      ...fields,
+      schedulerParams: patchedParams,
+      validationUpgradeDelay: u32(want.validationUpgradeDelay),
+      validationUpgradeCooldown: u32(want.validationUpgradeCooldown),
+    })
     .toHex()
     .slice(2);
 
   // Guards, because this rebuilds a struct whose layout is the runtime's, not ours: the result
-  // must differ from production only inside that one u32, and must read back as asked.
+  // must differ from production only inside those three u32s, and must read back as asked.
   const bytes = (hex: string) => hex.match(/../g) ?? [];
   const changed = bytes(value).filter((b, i) => b !== bytes(liveHex.slice(2))[i]).length;
-  if (changed === 0 || changed > 4) {
-    throw new Error(`patching num_cores changed ${changed} bytes of HostConfiguration; expected 1-4`);
+  if (changed === 0 || changed > 12) {
+    throw new Error(`patching HostConfiguration changed ${changed} bytes; expected 1-12`);
   }
-  const readBack = (index.reg.createType(type, '0x' + value).toJSON() as any).schedulerParams?.numCores;
-  if (readBack !== numCores) {
-    throw new Error(`num_cores read back as ${readBack}, not ${numCores}`);
+  const back = index.reg.createType(type, '0x' + value).toJSON() as any;
+  const got = {
+    numCores: back.schedulerParams?.numCores,
+    validationUpgradeDelay: back.validationUpgradeDelay,
+    validationUpgradeCooldown: back.validationUpgradeCooldown,
+  };
+  for (const k of Object.keys(want) as (keyof typeof want)[]) {
+    if (got[k] !== want[k]) throw new Error(`${k} read back as ${got[k]}, not ${want[k]}`);
   }
   return { value, before };
 }
@@ -263,11 +286,18 @@ async function coreLayoutCandidates(
     '0x' + keyOf('Configuration', 'ActiveConfig'),
   ]);
   if (!liveConfig) throw new Error('the relay has no Configuration::ActiveConfig to patch');
-  const config = patchNumCores(index, liveConfig, plan.length);
+  const want = {
+    numCores: plan.length,
+    validationUpgradeDelay: FORK_VALIDATION_UPGRADE_DELAY,
+    validationUpgradeCooldown: FORK_VALIDATION_UPGRADE_COOLDOWN,
+  };
+  const config = patchHostConfig(index, liveConfig, want);
 
   console.log(
     `  cores: ${paras.map((p) => `${p.key}=${coresFor(p.key, cores)}`).join(', ')} on cores 0-${plan.length - 1}, ` +
-      `num_cores ${config.before} -> ${plan.length}, ${validators} validators`
+      `num_cores ${config.before.numCores} -> ${want.numCores}, ${validators} validators, ` +
+      `validation_upgrade_delay ${config.before.validationUpgradeDelay} -> ${want.validationUpgradeDelay}, ` +
+      `cooldown ${config.before.validationUpgradeCooldown} -> ${want.validationUpgradeCooldown}`
   );
 
   return {
@@ -350,7 +380,7 @@ async function hrmpResets(index: StorageIndex, relayUrl: string, paraIds: number
 
 /**
  * A live `HrmpChannel` with `mqc_head` cleared and `msg_count`/`total_size` zeroed. Rebuilt
- * from the decoded value's own codec fields for the same reason patchNumCores() is: the
+ * from the decoded value's own codec fields for the same reason patchHostConfig() is: the
  * untouched fields — capacities, deposits — must come out byte-for-byte as they went in.
  */
 function resetHrmpChannel(index: StorageIndex, liveHex: string): string {
