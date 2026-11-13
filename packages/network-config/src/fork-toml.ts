@@ -389,6 +389,7 @@ export function generateForkToml(options: GenerateForkTomlOptions): string {
           },
           undefined,
           scriptsDir,
+          net.dubBuild,
           net.services['turn'] !== false
         )
       : '';

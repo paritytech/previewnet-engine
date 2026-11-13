@@ -47,7 +47,7 @@ describe('custom process environment', () => {
 
   it('reaches the identity backend\'s blocks and the TURN relay\'s, the last block in a fork config', () => {
     const fork = '[settings]\ntimeout = 1\n\n[relaychain]\nchain = "x"\n' +
-      dubCustomProcesses({ postgres: 5433, people: 10010, assetHub: 10020, gateway: 8092 }, undefined, '/opt/ppn/scripts', true);
+      dubCustomProcesses({ postgres: 5433, people: 10010, assetHub: 10020, gateway: 8092 }, undefined, '/opt/ppn/scripts', 'testnet', true);
     const parsed = toml.parse(withCustomProcessEnv(fork, facts)) as Config;
     assert.deepEqual(parsed.custom_processes.map((p) => p.name), [
       'dub-postgres', 'dub-api', 'device-attestation-chain-writer', 'registration-queue', 'invite-tickets-pool', 'turn',
