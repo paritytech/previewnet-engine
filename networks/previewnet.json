@@ -163,6 +163,10 @@
     }
   ],
   "services": {
+    "dub": {
+      "turnProofProducts": ["dim2.testnet"],
+      "_turnProofProducts": "Jollity's product account, which proves as dim2.<tld> for TURN credentials (paritytech/individuality-apps packages/jollity-protocol/src/config.ts)."
+    },
     "eth-rpc": {
       "binary": {
         "name": "eth-rpc",

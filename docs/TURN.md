@@ -11,6 +11,19 @@ whose `turn-api` mints the short-lived credentials the relay accepts.
    `{ servers, username, password, ttl }`.
 3. Pass `servers` as the ICE server URLs, with `username` and `password` as the credential.
 
+A product without a DUB sign-in, such as Jollity, sends a personhood proof instead:
+`POST /dub/api/v1/turn/issue-with-proof` with a ring-VRF proof made under its own product id.
+turn-api serves this route only for the products it is told to accept:
+
+- `services.dub.turnProofProducts` in the network file, such as `["dim2.testnet"]` on
+  previewnet.
+- `PPN_TURN_PROOF_PRODUCTS` in `config/ports.env`, comma-separated, which replaces that list for
+  one deployment.
+
+With neither, the route answers 404. The proofs are verified against the network's own People
+chain: `ppn service dub-turn-env` reads its genesis hash when `dub-api` starts, and waits up to
+10 minutes for People to answer.
+
 Clients never configure a password themselves. The dashboard lists the same servers under
 **TURN / STUN**, and so does `/api/network` under `ice`.
 

@@ -151,7 +151,16 @@ export type NetworkChain = ChainFields & {
 };
 
 /** false disables a service; an object configures it (its binary, when it has one). */
-export type ServiceConfig = boolean | { binary?: BinaryRef };
+export type ServiceConfig =
+  | boolean
+  | {
+      binary?: BinaryRef;
+      /**
+       * `dub` only: the dotNS products whose personhood proofs buy TURN credentials at
+       * `/api/v1/turn/issue-with-proof`, such as `dim2.testnet`. Without it the route is absent.
+       */
+      turnProofProducts?: string[];
+    };
 
 /**
  * A Trinity stack descriptor's facts about the live network that the rest of the file does
@@ -428,6 +437,13 @@ export function loadDescriptor(name: string): NetworkDef {
   const services: Record<string, ServiceConfig> = raw.services ?? {};
   for (const [svc, cfg] of Object.entries(services)) {
     if (cfg && typeof cfg === 'object' && cfg.binary) checkBinary(`services."${svc}"`, cfg.binary);
+    const products = cfg && typeof cfg === 'object' ? cfg.turnProofProducts : undefined;
+    if (products !== undefined) {
+      if (svc !== 'dub') bad(`services."${svc}".turnProofProducts: only dub issues TURN credentials`);
+      if (!Array.isArray(products) || !products.length || !products.every((p) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(p))) {
+        bad('services."dub".turnProofProducts must be a non-empty list of dotNS names, such as "dim2.testnet"');
+      }
+    }
   }
   const tools: Record<string, BinaryRef> = Object.fromEntries(
     Object.entries(raw.tools ?? {}).filter(([k]) => !k.startsWith('_'))

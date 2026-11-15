@@ -1,15 +1,25 @@
 // `ppn service turn`: the TURN/STUN relay (eturnal) whose credentials DUB's turn-api mints.
-// `ppn service dub-turn-env`: the matching secret and ICE servers, as shell exports for
-// scripts/dub/service.sh. Both resolve from the same inputs, so they cannot disagree.
+// `ppn service dub-turn-env`: the matching secret and ICE servers, plus the proof route's
+// settings, as shell exports for scripts/dub/service.sh. Both resolve from the same inputs, so
+// they cannot disagree.
 // See docs/TURN.md.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { LOCAL_TURN_SECRET, eturnalConfig, iceServers, runsTurnRelay, turnSecret } from '@parity/ppn-network-config';
+import {
+  LOCAL_TURN_SECRET,
+  asHttp,
+  eturnalConfig,
+  iceServers,
+  runsTurnRelay,
+  turnProofProducts,
+  turnSecret,
+} from '@parity/ppn-network-config';
 import type { ServiceContext } from './service-context.js';
 import { secretsFile } from '../lib/secrets.js';
+import { rpc } from '../fork/rpc.js';
 import { ETURNAL_BREW_INSTALL, eturnalCtl, eturnalDist } from '../lib/eturnal.js';
 
 /** The host clients reach the network under; only its hostname and scheme matter here. */
@@ -35,8 +45,41 @@ export function dubTurnEnv(ctx: ServiceContext): Record<string, string> {
   };
 }
 
+/**
+ * The People chain's genesis hash, which turn-api's proof route requires as
+ * TURN_PROOF_GENESIS. Waits up to 10 minutes for the chain's RPC, then fails.
+ */
+export async function peopleGenesis(rpcUrl: string, attempts = 300, delayMs = 2000): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await rpc<string>(asHttp(rpcUrl), 'chain_getBlockHash', [0]);
+    } catch (error) {
+      if (attempt >= attempts) throw new Error(`no genesis hash from ${rpcUrl}: ${(error as Error).message}`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+/**
+ * turn-api's settings for `/api/v1/turn/issue-with-proof`, verified against the local People
+ * chain: the products from PPN_TURN_PROOF_PRODUCTS, else the network's
+ * `services.dub.turnProofProducts`. Empty when there are none, which leaves the route off.
+ */
+export async function turnProofEnv(ctx: ServiceContext): Promise<Record<string, string>> {
+  const setting = process.env.PPN_TURN_PROOF_PRODUCTS || ctx.ports.PPN_TURN_PROOF_PRODUCTS;
+  const products = setting ? setting.split(',').map((p) => p.trim()).filter(Boolean) : turnProofProducts(ctx.net);
+  if (!products.length) return {};
+  const rpcUrl = `ws://127.0.0.1:${ctx.ports.PEOPLE_PORT}`;
+  return {
+    TURN_PROOF_ENABLED: 'true',
+    TURN_PROOF_RPC_URL: rpcUrl,
+    TURN_PROOF_PRODUCTS: products.join(','),
+    TURN_PROOF_GENESIS: await peopleGenesis(rpcUrl),
+  };
+}
+
 export async function printDubTurnEnv(ctx: ServiceContext): Promise<void> {
-  for (const [k, v] of Object.entries(dubTurnEnv(ctx))) {
+  for (const [k, v] of Object.entries({ ...dubTurnEnv(ctx), ...(await turnProofEnv(ctx)) })) {
     console.log(`export ${k}='${v.replace(/'/g, `'\\''`)}'`);
   }
 }

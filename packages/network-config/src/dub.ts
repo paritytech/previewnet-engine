@@ -26,6 +26,8 @@
 // deployable profile already draws: public identifiers at generate time,
 // private keys at runtime only.
 
+import type { NetworkDef } from './networks.js';
+
 /** Well-known dev account. Also what PPN grants attestation allowance to. */
 export const ALICE_SS58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
@@ -176,8 +178,8 @@ export function dubServices(
         ...common,
         BIND_ADDR: `127.0.0.1:${ports.gateway}`,
         // Credentials are HMAC-signed for our own eturnal relay, not minted by Cloudflare
-        // (turn-api's default). The realm is public, so it belongs here; the signing secret
-        // and ICE_SERVERS depend on the host, so service.sh supplies them.
+        // (turn-api's default). The realm is public, so it belongs here; the signing secret,
+        // ICE_SERVERS and the TURN_PROOF_* settings depend on the host, so service.sh supplies them.
         TURN_PROVIDER: 'coturn',
         TURN_REALM,
       },
@@ -196,6 +198,12 @@ export function dubServices(
     },
     { name: 'invite-tickets-pool', role: 'invite-tickets-pool', env: { ...common } },
   ];
+}
+
+/** The products `services.dub.turnProofProducts` names, or none. */
+export function turnProofProducts(net: NetworkDef): string[] {
+  const dub = net.services['dub'];
+  return typeof dub === 'object' ? (dub.turnProofProducts ?? []) : [];
 }
 
 function tomlEnv(env: Record<string, string>): string {

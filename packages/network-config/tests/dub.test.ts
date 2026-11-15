@@ -11,7 +11,9 @@ import {
   dubDatabaseUrl,
   dubServices,
   peopleRpcUrl,
+  turnProofProducts,
 } from '../src/dub.js';
+import { loadNetwork } from '../src/load.js';
 
 const PORTS = { postgres: 5433, people: 10010, assetHub: 10020, gateway: 8092 };
 
@@ -167,6 +169,16 @@ describe('dubServices', () => {
         assert.ok(!value.startsWith('//'), `${svc.name} embeds a SURI: ${value}`);
       }
     }
+  });
+});
+
+describe('turnProofProducts', () => {
+  it('accepts Jollity on previewnet', () => {
+    assert.deepEqual(turnProofProducts(loadNetwork('previewnet')), ['dim2.testnet']);
+  });
+
+  it('is empty for a network that lists none', () => {
+    assert.deepEqual(turnProofProducts(loadNetwork('polkadot')), []);
   });
 });
 

@@ -3,6 +3,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   listNetworks,
   currentNetworkName,
@@ -16,6 +19,7 @@ import {
   DEFAULT_NETWORK,
 } from '../src/networks.js';
 import { loadNetwork } from '../src/load.js';
+import { repoRoot } from '../src/repo-root.js';
 import { pinsProducts } from '../src/fork-toml.js';
 import { paraIds, VALID_PARACHAINS } from '../src/toml-generator.js';
 
@@ -279,5 +283,34 @@ describe('product import', () => {
     assert.ok(pnv2.dotns?.resolver && pnv2.dotns?.gateway, 'pnv2 names a resolver and a gateway');
     assert.equal(pinsProducts(pnv2), false);
     assert.equal(pinsProducts(loadNetwork('devnet')), false);
+  });
+});
+
+describe('services.dub.turnProofProducts', () => {
+  function loadWith(services: Record<string, unknown>): () => unknown {
+    return () => {
+      const saved = process.env.PPN_HOME;
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-home-'));
+      fs.mkdirSync(path.join(home, 'networks'));
+      const raw = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks/previewnet.json'), 'utf-8'));
+      fs.writeFileSync(path.join(home, 'networks', 'proof-test.json'), JSON.stringify({ ...raw, name: 'proof-test', services }));
+      process.env.PPN_HOME = home;
+      try {
+        return loadNetwork('proof-test');
+      } finally {
+        if (saved === undefined) delete process.env.PPN_HOME;
+        else process.env.PPN_HOME = saved;
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    };
+  }
+
+  it('rejects a product that is not a dotNS name', () => {
+    assert.throws(loadWith({ dub: { turnProofProducts: ['dim2'] } }), /dotNS names/);
+    assert.throws(loadWith({ dub: { turnProofProducts: [] } }), /dotNS names/);
+  });
+
+  it('rejects products on a service other than dub', () => {
+    assert.throws(loadWith({ 'eth-rpc': { turnProofProducts: ['dim2.testnet'] } }), /only dub/);
   });
 });

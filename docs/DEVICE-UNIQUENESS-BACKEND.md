@@ -262,7 +262,8 @@ And the secrets, in `scripts/dub/service.sh` rather than the TOML (see
 `docs/PROFILES.md`): `CHAIN_WRITER_SIGNER_SURI`, `INVITER_SIGNER_SURI`,
 `JWT_ED25519_SECRET` with `JWT_ED25519_PUBLIC_KEY` derived from it, and `TURN_SECRET` with
 `ICE_SERVERS`, which `ppn service dub-turn-env` resolves together with the eturnal config
-(see [TURN.md](TURN.md)).
+(see [TURN.md](TURN.md)). It also resolves the `TURN_PROOF_*` settings, which are not secret
+but need the People chain's genesis hash.
 
 The rest stay dormant under the dev defaults: `PAYMENT_MASTER_ACCOUNT` /
 `PAYMENT_AMOUNT_PLANCK` are only read when `PAYMENT_LANE_ENABLED=true` (default false,

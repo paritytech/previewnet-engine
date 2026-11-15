@@ -57,7 +57,7 @@ export { hrmpChannels } from './toml-generator.js';
 export type { HrmpChannel } from './toml-generator.js';
 export { generateForkToml, FORK_PROCESSES } from './fork-toml.js';
 export type { GenerateForkTomlOptions } from './fork-toml.js';
-export { dubCustomProcesses, ALICE_SS58, BOB_SS58, TURN_REALM } from './dub.js';
+export { dubCustomProcesses, turnProofProducts, ALICE_SS58, BOB_SS58, TURN_REALM } from './dub.js';
 export {
   iceServers,
   runsTurnRelay,
