@@ -13,6 +13,7 @@ import {
   chainKey,
   dashboardModel,
   dotnsFromContracts,
+  networkTld,
   trinityStackModel,
   trinityStackUrl,
   type ChainKey,
@@ -262,7 +263,7 @@ export async function trinityStack(ctx: ServiceContext): Promise<void> {
     console.log('trinity-stack: an ephemeral run has no data directory to publish from');
     return;
   }
-  if (!ctx.net.stack?.tld && !ctx.net.genesisConfig?.networkSuffix) {
+  if (!networkTld(ctx.net)) {
     console.log(`trinity-stack: networks/${ctx.net.name}.json names no TLD, so there is no descriptor to write`);
     return;
   }

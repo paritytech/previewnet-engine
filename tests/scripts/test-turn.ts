@@ -184,6 +184,19 @@ export async function run(nodeName: string, _networkInfo: NetworkInfo, _args: st
     }
     console.log(`[TEST] ok relay allocated at ${xorAddress(relayed)}`);
 
+    // Previewnet lists TURN proof products, so turn-api serves the proof route. An empty body
+    // is rejected as malformed; without the route it is a 404.
+    const proof = await fetch(`${DUB_BASE}/api/v1/turn/issue-with-proof`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    if (proof.status !== 400) {
+      console.error(`[TEST] FAIL turn/issue-with-proof: ${proof.status} ${await proof.text()}`);
+      return FAILURE;
+    }
+    console.log("[TEST] ok turn/issue-with-proof is served");
+
     const refused = await allocate(creds.username, `${creds.password}x`);
     if (errorCode(refused) !== 401) {
       console.error(`[TEST] FAIL a wrong password was answered ${refused.type.toString(16)}, not 401`);

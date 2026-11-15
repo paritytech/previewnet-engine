@@ -389,7 +389,8 @@ export function generateForkToml(options: GenerateForkTomlOptions): string {
           },
           undefined,
           scriptsDir,
-          net.services['turn'] !== false
+          net.services['turn'] !== false,
+          net.turnProofProducts
         )
       : '';
 

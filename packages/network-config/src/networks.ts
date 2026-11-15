@@ -207,6 +207,11 @@ export interface NetworkDef {
   parachains: NetworkParachain[];
   /** Per-service switches and binaries for the custom processes. */
   services: Record<string, ServiceConfig>;
+  /**
+   * The dotNS products whose personhood proofs buy TURN credentials at DUB's
+   * `/api/v1/turn/issue-with-proof`, such as `dim2.testnet`. Empty leaves the route off.
+   */
+  turnProofProducts: string[];
   /** Local tools this network needs that are neither a chain nor a service. */
   tools: Record<string, BinaryRef>;
   /**
@@ -474,11 +479,42 @@ export function loadDescriptor(name: string): NetworkDef {
       rpcNodeArgs: parseArgs(`parachains.${p.key}.rpcNodeArgs`, p.rpcNodeArgs, bad),
     })),
     services,
+    turnProofProducts: parseTurnProofProducts(
+      'turnProofProducts',
+      raw.turnProofProducts,
+      networkTld({ stack, genesisConfig: raw.genesisConfig }),
+      bad
+    ),
     tools,
     dotns: raw.dotns,
     stack,
     todos,
   };
+}
+
+/** The dotNS TLD: `stack.tld`, else a genesis network's `genesisConfig.networkSuffix`. */
+export function networkTld(net: Pick<NetworkDef, 'stack' | 'genesisConfig'>): string | undefined {
+  return net.stack?.tld ?? net.genesisConfig?.networkSuffix;
+}
+
+/**
+ * `products` as TURN proof products, or `bad` unless each is a dotNS name under the network's
+ * `tld`: a host proves under the product's name on this network, so any other name never matches.
+ * Absent or empty is none, which leaves the route off.
+ */
+export function parseTurnProofProducts(
+  at: string,
+  products: unknown,
+  tld: string | undefined,
+  bad: (why: string) => never
+): string[] {
+  if (products === undefined || (Array.isArray(products) && !products.length)) return [];
+  if (!tld) bad(`${at}: the network has no dotNS TLD (stack.tld or genesisConfig.networkSuffix)`);
+  const name = new RegExp(`^[a-z0-9-]+\\.${tld}$`);
+  if (!Array.isArray(products) || products.some((product) => typeof product !== 'string' || !name.test(product))) {
+    bad(`${at} must be an array of dotNS names under .${tld}, such as "dim2.${tld}"`);
+  }
+  return products as string[];
 }
 
 /** `args` as node flags, or `bad` when it is not a list of "--flag" strings. Absent is none. */

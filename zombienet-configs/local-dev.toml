@@ -201,6 +201,9 @@ env = [
   { name = "BIND_ADDR", value = "127.0.0.1:8092" },
   { name = "TURN_PROVIDER", value = "coturn" },
   { name = "TURN_REALM", value = "previewnet.local" },
+  { name = "TURN_PROOF_ENABLED", value = "true" },
+  { name = "TURN_PROOF_RPC_URL", value = "ws://127.0.0.1:10010" },
+  { name = "TURN_PROOF_PRODUCTS", value = "dim2.testnet" },
 ]
 
 [[custom_processes]]

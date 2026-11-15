@@ -125,7 +125,8 @@ export function peopleRpcUrl(peoplePort: number): string {
 export function dubServices(
   ports: DubPorts,
   attesterAccount: string = ALICE_SS58,
-  inviterAccount: string = BOB_SS58
+  inviterAccount: string = BOB_SS58,
+  turnProofProducts: string[] = []
 ): DubService[] {
   const rpc = peopleRpcUrl(ports.people);
   const db = (name: (typeof DUB_DATABASES)[number]) => dubDatabaseUrl(name, ports.postgres);
@@ -180,6 +181,12 @@ export function dubServices(
         // and ICE_SERVERS depend on the host, so service.sh supplies them.
         TURN_PROVIDER: 'coturn',
         TURN_REALM,
+        // /api/v1/turn/issue-with-proof. service.sh adds TURN_PROOF_GENESIS, read from People.
+        ...(turnProofProducts.length && {
+          TURN_PROOF_ENABLED: 'true',
+          TURN_PROOF_RPC_URL: rpc,
+          TURN_PROOF_PRODUCTS: turnProofProducts.join(','),
+        }),
       },
     },
     {
@@ -229,13 +236,14 @@ export function dubCustomProcesses(
   // fork mode writes a standalone TOML with absolute paths already resolved.
   scriptsDir: string = '{{SCRIPTS}}',
   // The TURN/STUN relay whose credentials turn-api mints (docs/TURN.md).
-  turn: boolean = true
+  turn: boolean = true,
+  turnProofProducts: string[] = []
 ): string {
   const wait = `127.0.0.1:${ports.postgres}`;
 
   // zombienet validates custom_process args as CLI arguments — each must parse
   // as a flag or --key=value, so bare positionals are rejected outright.
-  const blocks = dubServices(ports, attesterAccount).map(
+  const blocks = dubServices(ports, attesterAccount, undefined, turnProofProducts).map(
     (svc) => `
 [[custom_processes]]
 name = "${svc.name}"

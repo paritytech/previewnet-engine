@@ -3,6 +3,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   listNetworks,
   currentNetworkName,
@@ -16,6 +19,7 @@ import {
   DEFAULT_NETWORK,
 } from '../src/networks.js';
 import { loadNetwork } from '../src/load.js';
+import { repoRoot } from '../src/repo-root.js';
 import { pinsProducts } from '../src/fork-toml.js';
 import { paraIds, VALID_PARACHAINS } from '../src/toml-generator.js';
 
@@ -279,5 +283,38 @@ describe('product import', () => {
     assert.ok(pnv2.dotns?.resolver && pnv2.dotns?.gateway, 'pnv2 names a resolver and a gateway');
     assert.equal(pinsProducts(pnv2), false);
     assert.equal(pinsProducts(loadNetwork('devnet')), false);
+  });
+});
+
+describe('turnProofProducts', () => {
+  function loadWith(fields: Record<string, unknown>): () => ReturnType<typeof loadNetwork> {
+    return () => {
+      const saved = process.env.PPN_HOME;
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-home-'));
+      fs.mkdirSync(path.join(home, 'networks'));
+      const raw = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks/previewnet.json'), 'utf-8'));
+      fs.writeFileSync(path.join(home, 'networks', 'proof-test.json'), JSON.stringify({ ...raw, name: 'proof-test', ...fields }));
+      process.env.PPN_HOME = home;
+      try {
+        return loadNetwork('proof-test');
+      } finally {
+        if (saved === undefined) delete process.env.PPN_HOME;
+        else process.env.PPN_HOME = saved;
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    };
+  }
+
+  it('accepts Jollity on previewnet, under its TLD', () => {
+    assert.deepEqual(loadNetwork('previewnet').turnProofProducts, ['dim2.testnet']);
+  });
+
+  it('is empty for a network that lists none', () => {
+    assert.deepEqual(loadNetwork('polkadot').turnProofProducts, []);
+  });
+
+  it('rejects a product that is not a name under the network TLD', () => {
+    assert.throws(loadWith({ turnProofProducts: ['dim2'] }), /dotNS names under \.testnet/);
+    assert.throws(loadWith({ turnProofProducts: ['dim2.paseo'] }), /dotNS names under \.testnet/);
   });
 });

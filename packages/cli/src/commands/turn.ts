@@ -1,15 +1,18 @@
 // `ppn service turn`: the TURN/STUN relay (eturnal) whose credentials DUB's turn-api mints.
-// `ppn service dub-turn-env`: the matching secret and ICE servers, as shell exports for
-// scripts/dub/service.sh. Both resolve from the same inputs, so they cannot disagree.
+// `ppn service dub-turn-env`: the matching secret and ICE servers, plus the People genesis the
+// proof route is bound to, as shell exports for scripts/dub/service.sh. Both resolve from the
+// same inputs, so they cannot disagree.
 // See docs/TURN.md.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { LOCAL_TURN_SECRET, eturnalConfig, iceServers, runsTurnRelay, turnSecret } from '@parity/ppn-network-config';
+import { LOCAL_TURN_SECRET, asHttp, eturnalConfig, iceServers, runsTurnRelay, turnSecret } from '@parity/ppn-network-config';
 import type { ServiceContext } from './service-context.js';
 import { secretsFile } from '../lib/secrets.js';
+import { rpc } from '../fork/rpc.js';
+import { sleep, type Sleep } from '../fork/sleep.js';
 import { ETURNAL_BREW_INSTALL, eturnalCtl, eturnalDist } from '../lib/eturnal.js';
 
 /** The host clients reach the network under; only its hostname and scheme matter here. */
@@ -35,8 +38,25 @@ export function dubTurnEnv(ctx: ServiceContext): Record<string, string> {
   };
 }
 
+/** The chain's genesis hash, once its RPC answers; it waits as long as that takes. */
+export async function waitForGenesisHash(rpcUrl: string, wait: Sleep = sleep): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await rpc<string>(asHttp(rpcUrl), 'chain_getBlockHash', [0]);
+    } catch (error) {
+      if (attempt % 15 === 1) console.error(`dub-turn-env: waiting for ${rpcUrl}: ${(error as Error).message}`);
+      await wait(2000);
+    }
+  }
+}
+
 export async function printDubTurnEnv(ctx: ServiceContext): Promise<void> {
-  for (const [k, v] of Object.entries(dubTurnEnv(ctx))) {
+  const env = dubTurnEnv(ctx);
+  // turn-api exits at start when the proof route is on and no genesis is set.
+  if (process.env.TURN_PROOF_ENABLED === 'true' && process.env.TURN_PROOF_RPC_URL) {
+    env.TURN_PROOF_GENESIS = await waitForGenesisHash(process.env.TURN_PROOF_RPC_URL);
+  }
+  for (const [k, v] of Object.entries(env)) {
     console.log(`export ${k}='${v.replace(/'/g, `'\\''`)}'`);
   }
 }

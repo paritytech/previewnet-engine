@@ -113,7 +113,8 @@ export CHAIN_WRITER_SIGNER_SURI="${PPN_DUB_ATTESTER_URI:-${PPN_IDENTITY_ATTESTER
 export INVITER_SIGNER_SURI="${PPN_INVITER_SURI:-//Bob}"
 
 # turn-api signs credentials for the eturnal relay and returns ICE_SERVERS with them. Resolved
-# by the same code that configures eturnal, so the secret and hosts match (docs/TURN.md).
+# by the same code that configures eturnal, so the secret and hosts match (docs/TURN.md). When
+# the network lists TURN proof products, dub-turn-env also waits for People to read its genesis.
 if [[ "$ROLE" == "all-in-one" ]]; then
     ENTRY="$PROJECT_DIR/bin/ppn.mjs"
     [[ -f "$ENTRY" ]] || ENTRY="$PROJECT_DIR/dist/bin.js"
@@ -168,8 +169,8 @@ fi
 #    ("pool timed out while waiting for an open connection"). custom_processes
 #    have no ordering, so waiting here is the only sequencing available.
 #
-#    No equivalent wait for the chain: the services block on the People Chain
-#    connect indefinitely and pick it up whenever it appears. They do not bind
+#    The services themselves do not wait for the chain: they block on the People
+#    Chain connect indefinitely and pick it up whenever it appears. They do not bind
 #    their HTTP port until that succeeds, so /livez and /readyz being
 #    unreachable while the parachain starts is expected, not a fault.
 WAIT_HOST="${WAIT_TARGET%:*}"

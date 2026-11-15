@@ -170,6 +170,22 @@ describe('dubServices', () => {
   });
 });
 
+describe('TURN proof issuance', () => {
+  // turn-api mounts /api/v1/turn/issue-with-proof only with these set, and rejects a product
+  // missing from the list. Jollity fetches its relay credentials there.
+  it('enables the proof route on dub-api for the listed products, against local People', () => {
+    const [api, ...workers] = dubServices(PORTS, undefined, undefined, ['dim2.testnet', 'vox.testnet']);
+    assert.equal(api.env.TURN_PROOF_ENABLED, 'true');
+    assert.equal(api.env.TURN_PROOF_RPC_URL, api.env.PEOPLE_RPC_URL);
+    assert.equal(api.env.TURN_PROOF_PRODUCTS, 'dim2.testnet,vox.testnet');
+    for (const svc of workers) assert.ok(!('TURN_PROOF_ENABLED' in svc.env));
+  });
+
+  it('leaves the route off without products', () => {
+    for (const svc of dubServices(PORTS)) assert.ok(!Object.keys(svc.env).some((k) => k.startsWith('TURN_PROOF_')));
+  });
+});
+
 describe('dubCustomProcesses', () => {
   const toml = dubCustomProcesses(PORTS);
 
