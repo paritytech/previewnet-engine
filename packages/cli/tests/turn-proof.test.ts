@@ -31,7 +31,7 @@ describe('genesisHash', () => {
   it('waits for People to answer', async () => {
     const rpc = await people(3);
     try {
-      assert.equal(await genesisHash(rpc.url, 10), GENESIS);
+      assert.equal(await genesisHash(rpc.url, async () => {}), GENESIS);
     } finally {
       rpc.close();
     }

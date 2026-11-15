@@ -4,12 +4,12 @@
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { keyOf } from './codec.js';
 
-export async function rpc<T = any>(url: string, method: string, params: unknown[] = [], timeoutMs = 60_000): Promise<T> {
+export async function rpc<T = any>(url: string, method: string, params: unknown[] = []): Promise<T> {
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: AbortSignal.timeout(60_000),
   });
   const j = (await r.json()) as { result?: T; error?: unknown };
   if (j.error) throw new Error(`${method}: ${JSON.stringify(j.error)}`);

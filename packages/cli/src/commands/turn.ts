@@ -1,6 +1,7 @@
 // `ppn service turn`: the TURN/STUN relay (eturnal) whose credentials DUB's turn-api mints.
 // `ppn service dub-turn-env`: the matching secret and ICE servers, plus the People genesis the
-// proof route is bound to, as shell exports for scripts/dub/service.sh. Both resolve from the same inputs, so they cannot disagree.
+// proof route is bound to, as shell exports for scripts/dub/service.sh. Both resolve from the
+// same inputs, so they cannot disagree.
 // See docs/TURN.md.
 
 import fs from 'node:fs';
@@ -11,6 +12,7 @@ import { LOCAL_TURN_SECRET, asHttp, eturnalConfig, iceServers, runsTurnRelay, tu
 import type { ServiceContext } from './service-context.js';
 import { secretsFile } from '../lib/secrets.js';
 import { rpc } from '../fork/rpc.js';
+import { sleep, type Sleep } from '../fork/sleep.js';
 import { ETURNAL_BREW_INSTALL, eturnalCtl, eturnalDist } from '../lib/eturnal.js';
 
 /** The host clients reach the network under; only its hostname and scheme matter here. */
@@ -37,13 +39,13 @@ export function dubTurnEnv(ctx: ServiceContext): Record<string, string> {
 }
 
 /** The chain's genesis hash, once its RPC answers; it waits as long as that takes. */
-export async function genesisHash(rpcUrl: string, delayMs = 2000): Promise<string> {
+export async function genesisHash(rpcUrl: string, wait: Sleep = sleep): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await rpc<string>(asHttp(rpcUrl), 'chain_getBlockHash', [0], 5000);
+      return await rpc<string>(asHttp(rpcUrl), 'chain_getBlockHash', [0]);
     } catch (error) {
       if (attempt % 15 === 1) console.error(`dub-turn-env: waiting for ${rpcUrl}: ${(error as Error).message}`);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await wait(2000);
     }
   }
 }
