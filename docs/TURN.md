@@ -16,7 +16,7 @@ A product without a DUB sign-in, such as Jollity, sends a personhood proof inste
 turn-api serves this route only for the products the network lists in `turnProofProducts`, such
 as `["dim2.testnet"]` on previewnet, and answers 404 when it lists none. Each product must be a
 dotNS name under the network's TLD, since that is the name a host proves under. A deployment
-replaces the list in its `PPN_NETWORK_OVERLAY` file:
+replaces the list in its `PPN_NETWORK_OVERLAY` file, where `[]` turns the route off:
 
 ```json
 { "previewnet": { "turnProofProducts": ["dim2.testnet", "vox.testnet"] } }

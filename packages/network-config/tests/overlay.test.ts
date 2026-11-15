@@ -118,15 +118,19 @@ describe('network overlay: TURN proof products', () => {
     assert.deepEqual(overlaid.turnProofProducts, ['dim2.testnet', 'vox.testnet']);
   });
 
-  it('keeps the network file\'s products when the section does not set them', () => {
+  it('leaves the network file\'s products unchanged when the section omits them', () => {
     assert.deepEqual(applyOverlay(net, write('none.json', { previewnet: {} })).turnProofProducts, ['dim2.testnet']);
   });
 
   it('rejects a product under another TLD, which no host on this network proves as', () =>
     assert.throws(
       () => applyOverlay(net, write('tld.json', { previewnet: { turnProofProducts: ['dim2.paseo'] } })),
-      /previewnet\.turnProofProducts must be a non-empty array of dotNS names under \.testnet/
+      /previewnet\.turnProofProducts must be an array of dotNS names under \.testnet/
     ));
+
+  it('turns the route off with an empty list', () => {
+    assert.deepEqual(applyOverlay(net, write('off.json', { previewnet: { turnProofProducts: [] } })).turnProofProducts, []);
+  });
 });
 
 describe('network overlay: a mistake fails instead of deploying defaults', () => {

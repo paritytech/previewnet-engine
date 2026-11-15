@@ -316,6 +316,5 @@ describe('turnProofProducts', () => {
   it('rejects a product that is not a name under the network TLD', () => {
     assert.throws(loadWith({ turnProofProducts: ['dim2'] }), /dotNS names under \.testnet/);
     assert.throws(loadWith({ turnProofProducts: ['dim2.paseo'] }), /dotNS names under \.testnet/);
-    assert.throws(loadWith({ turnProofProducts: [] }), /dotNS names under \.testnet/);
   });
 });

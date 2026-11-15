@@ -500,7 +500,7 @@ export function networkTld(net: Pick<NetworkDef, 'stack' | 'genesisConfig'>): st
 /**
  * `products` as TURN proof products, or `bad` unless each is a dotNS name under the network's
  * `tld`: a host proves under the product's name on this network, so any other name never matches.
- * Absent is none.
+ * Absent or empty is none, which leaves the route off.
  */
 export function parseTurnProofProducts(
   at: string,
@@ -508,11 +508,11 @@ export function parseTurnProofProducts(
   tld: string | undefined,
   bad: (why: string) => never
 ): string[] {
-  if (products === undefined) return [];
+  if (products === undefined || (Array.isArray(products) && !products.length)) return [];
   if (!tld) bad(`${at}: the network has no dotNS TLD (stack.tld or genesisConfig.networkSuffix)`);
   const name = new RegExp(`^[a-z0-9-]+\\.${tld}$`);
-  if (!Array.isArray(products) || !products.length || products.some((p) => typeof p !== 'string' || !name.test(p))) {
-    bad(`${at} must be a non-empty array of dotNS names under .${tld}, such as "dim2.${tld}"`);
+  if (!Array.isArray(products) || products.some((product) => typeof product !== 'string' || !name.test(product))) {
+    bad(`${at} must be an array of dotNS names under .${tld}, such as "dim2.${tld}"`);
   }
   return products as string[];
 }
