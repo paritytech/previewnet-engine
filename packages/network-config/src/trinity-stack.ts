@@ -6,7 +6,7 @@
 
 import type { Block, Chain, Model, Service, SpecFile } from '@parity/trinity-stack';
 import type { DashboardModel } from './dashboard-model.js';
-import type { ChainKey, NetworkDef } from './networks.js';
+import { networkTld, type ChainKey, type NetworkDef } from './networks.js';
 import { CHAIN_ARGS } from './toml-generator.js';
 
 /** RFC 0026 roles, plus Web3Storage, which serves tools. */
@@ -94,7 +94,7 @@ export function trinityStackUrl(baseUrl: string): string {
  * source publishes its own descriptor: `fork.of` is that pointer.
  */
 export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts: StackFacts): Model {
-  const tld = net.stack?.tld ?? net.genesisConfig?.networkSuffix;
+  const tld = networkTld(net);
   if (!tld) throw new Error(`networks/${net.name}.json has no stack.tld`);
   // `fork` requires `forkedAt` on every chain, so it is all or nothing.
   const everyForkedAt = Object.values(facts.chains).every((c) => c?.forkedAt);

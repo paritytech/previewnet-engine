@@ -479,7 +479,12 @@ export function loadDescriptor(name: string): NetworkDef {
       rpcNodeArgs: parseArgs(`parachains.${p.key}.rpcNodeArgs`, p.rpcNodeArgs, bad),
     })),
     services,
-    turnProofProducts: parseTurnProofProducts('turnProofProducts', raw.turnProofProducts, stack?.tld ?? raw.genesisConfig?.networkSuffix, bad),
+    turnProofProducts: parseTurnProofProducts(
+      'turnProofProducts',
+      raw.turnProofProducts,
+      networkTld({ stack, genesisConfig: raw.genesisConfig }),
+      bad
+    ),
     tools,
     dotns: raw.dotns,
     stack,
@@ -487,12 +492,22 @@ export function loadDescriptor(name: string): NetworkDef {
   };
 }
 
+/** The dotNS TLD: `stack.tld`, else a genesis network's `genesisConfig.networkSuffix`. */
+export function networkTld(net: Pick<NetworkDef, 'stack' | 'genesisConfig'>): string | undefined {
+  return net.stack?.tld ?? net.genesisConfig?.networkSuffix;
+}
+
 /**
  * `products` as TURN proof products, or `bad` unless each is a dotNS name under the network's
  * `tld`: a host proves under the product's name on this network, so any other name never matches.
  * Absent is none.
  */
-export function parseTurnProofProducts(at: string, products: unknown, tld: string | undefined, bad: (why: string) => never): string[] {
+export function parseTurnProofProducts(
+  at: string,
+  products: unknown,
+  tld: string | undefined,
+  bad: (why: string) => never
+): string[] {
   if (products === undefined) return [];
   if (!tld) bad(`${at}: the network has no dotNS TLD (stack.tld or genesisConfig.networkSuffix)`);
   const name = new RegExp(`^[a-z0-9-]+\\.${tld}$`);
