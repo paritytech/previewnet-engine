@@ -286,14 +286,14 @@ describe('product import', () => {
   });
 });
 
-describe('services.dub.turnProofProducts', () => {
-  function loadWith(services: Record<string, unknown>): () => unknown {
+describe('turnProofProducts', () => {
+  function loadWith(fields: Record<string, unknown>): () => ReturnType<typeof loadNetwork> {
     return () => {
       const saved = process.env.PPN_HOME;
       const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-home-'));
       fs.mkdirSync(path.join(home, 'networks'));
       const raw = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks/previewnet.json'), 'utf-8'));
-      fs.writeFileSync(path.join(home, 'networks', 'proof-test.json'), JSON.stringify({ ...raw, name: 'proof-test', services }));
+      fs.writeFileSync(path.join(home, 'networks', 'proof-test.json'), JSON.stringify({ ...raw, name: 'proof-test', ...fields }));
       process.env.PPN_HOME = home;
       try {
         return loadNetwork('proof-test');
@@ -305,12 +305,17 @@ describe('services.dub.turnProofProducts', () => {
     };
   }
 
-  it('rejects a product that is not a dotNS name', () => {
-    assert.throws(loadWith({ dub: { turnProofProducts: ['dim2'] } }), /dotNS names/);
-    assert.throws(loadWith({ dub: { turnProofProducts: [] } }), /dotNS names/);
+  it('accepts Jollity on previewnet, under its TLD', () => {
+    assert.deepEqual(loadNetwork('previewnet').turnProofProducts, ['dim2.testnet']);
   });
 
-  it('rejects products on a service other than dub', () => {
-    assert.throws(loadWith({ 'eth-rpc': { turnProofProducts: ['dim2.testnet'] } }), /only dub/);
+  it('is empty for a network that lists none', () => {
+    assert.deepEqual(loadNetwork('polkadot').turnProofProducts, []);
+  });
+
+  it('rejects a product that is not a name under the network TLD', () => {
+    assert.throws(loadWith({ turnProofProducts: ['dim2'] }), /dotNS names under \.testnet/);
+    assert.throws(loadWith({ turnProofProducts: ['dim2.paseo'] }), /dotNS names under \.testnet/);
+    assert.throws(loadWith({ turnProofProducts: [] }), /dotNS names under \.testnet/);
   });
 });

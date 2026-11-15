@@ -151,16 +151,7 @@ export type NetworkChain = ChainFields & {
 };
 
 /** false disables a service; an object configures it (its binary, when it has one). */
-export type ServiceConfig =
-  | boolean
-  | {
-      binary?: BinaryRef;
-      /**
-       * `dub` only: the dotNS products whose personhood proofs buy TURN credentials at
-       * `/api/v1/turn/issue-with-proof`, such as `dim2.testnet`. Without it the route is absent.
-       */
-      turnProofProducts?: string[];
-    };
+export type ServiceConfig = boolean | { binary?: BinaryRef };
 
 /**
  * A Trinity stack descriptor's facts about the live network that the rest of the file does
@@ -216,6 +207,11 @@ export interface NetworkDef {
   parachains: NetworkParachain[];
   /** Per-service switches and binaries for the custom processes. */
   services: Record<string, ServiceConfig>;
+  /**
+   * The dotNS products whose personhood proofs buy TURN credentials at DUB's
+   * `/api/v1/turn/issue-with-proof`, such as `dim2.testnet`. Empty leaves the route off.
+   */
+  turnProofProducts: string[];
   /** Local tools this network needs that are neither a chain nor a service. */
   tools: Record<string, BinaryRef>;
   /**
@@ -437,13 +433,6 @@ export function loadDescriptor(name: string): NetworkDef {
   const services: Record<string, ServiceConfig> = raw.services ?? {};
   for (const [svc, cfg] of Object.entries(services)) {
     if (cfg && typeof cfg === 'object' && cfg.binary) checkBinary(`services."${svc}"`, cfg.binary);
-    const products = cfg && typeof cfg === 'object' ? cfg.turnProofProducts : undefined;
-    if (products !== undefined) {
-      if (svc !== 'dub') bad(`services."${svc}".turnProofProducts: only dub issues TURN credentials`);
-      if (!Array.isArray(products) || !products.length || !products.every((p) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(p))) {
-        bad('services."dub".turnProofProducts must be a non-empty list of dotNS names, such as "dim2.testnet"');
-      }
-    }
   }
   const tools: Record<string, BinaryRef> = Object.fromEntries(
     Object.entries(raw.tools ?? {}).filter(([k]) => !k.startsWith('_'))
@@ -490,11 +479,27 @@ export function loadDescriptor(name: string): NetworkDef {
       rpcNodeArgs: parseArgs(`parachains.${p.key}.rpcNodeArgs`, p.rpcNodeArgs, bad),
     })),
     services,
+    turnProofProducts: parseTurnProofProducts('turnProofProducts', raw.turnProofProducts, stack?.tld ?? raw.genesisConfig?.networkSuffix, bad),
     tools,
     dotns: raw.dotns,
     stack,
     todos,
   };
+}
+
+/**
+ * `products` as TURN proof products, or `bad` unless each is a dotNS name under the network's
+ * `tld`: a host proves under the product's name on this network, so any other name never matches.
+ * Absent is none.
+ */
+export function parseTurnProofProducts(at: string, products: unknown, tld: string | undefined, bad: (why: string) => never): string[] {
+  if (products === undefined) return [];
+  if (!tld) bad(`${at}: the network has no dotNS TLD (stack.tld or genesisConfig.networkSuffix)`);
+  const name = new RegExp(`^[a-z0-9-]+\\.${tld}$`);
+  if (!Array.isArray(products) || !products.length || products.some((p) => typeof p !== 'string' || !name.test(p))) {
+    bad(`${at} must be a non-empty array of dotNS names under .${tld}, such as "dim2.${tld}"`);
+  }
+  return products as string[];
 }
 
 /** `args` as node flags, or `bad` when it is not a list of "--flag" strings. Absent is none. */

@@ -11,9 +11,7 @@ import {
   dubDatabaseUrl,
   dubServices,
   peopleRpcUrl,
-  turnProofProducts,
 } from '../src/dub.js';
-import { loadNetwork } from '../src/load.js';
 
 const PORTS = { postgres: 5433, people: 10010, assetHub: 10020, gateway: 8092 };
 
@@ -172,13 +170,19 @@ describe('dubServices', () => {
   });
 });
 
-describe('turnProofProducts', () => {
-  it('accepts Jollity on previewnet', () => {
-    assert.deepEqual(turnProofProducts(loadNetwork('previewnet')), ['dim2.testnet']);
+describe('TURN proof issuance', () => {
+  // turn-api mounts /api/v1/turn/issue-with-proof only with these set, and refuses a product
+  // missing from the list. Jollity fetches its relay credentials there.
+  it('enables the proof route on dub-api for the given products, against local People', () => {
+    const [api, ...workers] = dubServices(PORTS, undefined, undefined, ['dim2.testnet', 'vox.testnet']);
+    assert.equal(api.env.TURN_PROOF_ENABLED, 'true');
+    assert.equal(api.env.TURN_PROOF_RPC_URL, api.env.PEOPLE_RPC_URL);
+    assert.equal(api.env.TURN_PROOF_PRODUCTS, 'dim2.testnet,vox.testnet');
+    for (const svc of workers) assert.ok(!('TURN_PROOF_ENABLED' in svc.env));
   });
 
-  it('is empty for a network that lists none', () => {
-    assert.deepEqual(turnProofProducts(loadNetwork('polkadot')), []);
+  it('leaves the route off without products', () => {
+    for (const svc of dubServices(PORTS)) assert.ok(!Object.keys(svc.env).some((k) => k.startsWith('TURN_PROOF_')));
   });
 });
 

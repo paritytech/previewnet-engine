@@ -1,5 +1,5 @@
 // A deployment's own shape for a network, without a release of the engine: RPC nodes in front of
-// a chain, or different flags on its nodes. Keyed by network, so loading another network (as
+// a chain, different flags on its nodes, or the products its TURN proof route accepts. Keyed by network, so loading another network (as
 // `ppn networks` does) is unaffected by a section written for this one.
 //
 //   PPN_NETWORK_OVERLAY=/etc/ppn/network-overlay.json
@@ -9,14 +9,15 @@
 
 import fs from 'node:fs';
 import { overrideArgs } from './args.js';
-import { listNetworks, parseArgs, parseRpcNodes, type NetworkDef } from './networks.js';
+import { listNetworks, parseArgs, parseRpcNodes, parseTurnProofProducts, type NetworkDef } from './networks.js';
 
 const RELAY_FIELDS = ['extraArgs'];
 const PARACHAIN_FIELDS = ['extraArgs', 'rpcNodes', 'rpcNodeArgs'];
 
 /**
  * `net` with the overlay file's section for it applied: its extraArgs and rpcNodeArgs override
- * the descriptor's flag by flag, and rpcNodes replaces the count. Throws on an unreadable file,
+ * the descriptor's flag by flag, and rpcNodes and turnProofProducts replace the descriptor's.
+ * Throws on an unreadable file,
  * an unknown network, chain or field, or a value the descriptor itself would reject.
  */
 export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
@@ -42,7 +43,7 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
   if (strangers.length) bad(`unknown networks ${strangers.join(', ')} (known: ${networks.join(', ')})`);
   if (raw[net.name] === undefined) return net;
 
-  const section = object(net.name, raw[net.name], ['relay', 'parachains']);
+  const section = object(net.name, raw[net.name], ['relay', 'parachains', 'turnProofProducts']);
   const relay = object(`${net.name}.relay`, section.relay ?? {}, RELAY_FIELDS);
   const parachains = object(`${net.name}.parachains`, section.parachains ?? {});
   const parachainKeys: string[] = net.parachains.map((parachain) => parachain.key);
@@ -51,8 +52,13 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
     bad(`${net.name} has no parachains ${unknownKeys.join(', ')} (declared: ${parachainKeys.join(', ')})`);
   }
 
+  const tld = net.stack?.tld ?? net.genesisConfig?.networkSuffix;
   return {
     ...net,
+    turnProofProducts:
+      section.turnProofProducts === undefined
+        ? net.turnProofProducts
+        : parseTurnProofProducts(`${net.name}.turnProofProducts`, section.turnProofProducts, tld, bad),
     relay: {
       ...net.relay,
       extraArgs: overrideArgs(net.relay.extraArgs, parseArgs(`${net.name}.relay.extraArgs`, relay.extraArgs, bad)),

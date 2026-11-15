@@ -26,8 +26,6 @@
 // deployable profile already draws: public identifiers at generate time,
 // private keys at runtime only.
 
-import type { NetworkDef } from './networks.js';
-
 /** Well-known dev account. Also what PPN grants attestation allowance to. */
 export const ALICE_SS58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
@@ -127,7 +125,8 @@ export function peopleRpcUrl(peoplePort: number): string {
 export function dubServices(
   ports: DubPorts,
   attesterAccount: string = ALICE_SS58,
-  inviterAccount: string = BOB_SS58
+  inviterAccount: string = BOB_SS58,
+  turnProofProducts: string[] = []
 ): DubService[] {
   const rpc = peopleRpcUrl(ports.people);
   const db = (name: (typeof DUB_DATABASES)[number]) => dubDatabaseUrl(name, ports.postgres);
@@ -178,10 +177,16 @@ export function dubServices(
         ...common,
         BIND_ADDR: `127.0.0.1:${ports.gateway}`,
         // Credentials are HMAC-signed for our own eturnal relay, not minted by Cloudflare
-        // (turn-api's default). The realm is public, so it belongs here; the signing secret,
-        // ICE_SERVERS and the TURN_PROOF_* settings depend on the host, so service.sh supplies them.
+        // (turn-api's default). The realm is public, so it belongs here; the signing secret
+        // and ICE_SERVERS depend on the host, so service.sh supplies them.
         TURN_PROVIDER: 'coturn',
         TURN_REALM,
+        // /api/v1/turn/issue-with-proof. service.sh adds TURN_PROOF_GENESIS, read from People.
+        ...(turnProofProducts.length && {
+          TURN_PROOF_ENABLED: 'true',
+          TURN_PROOF_RPC_URL: rpc,
+          TURN_PROOF_PRODUCTS: turnProofProducts.join(','),
+        }),
       },
     },
     {
@@ -198,12 +203,6 @@ export function dubServices(
     },
     { name: 'invite-tickets-pool', role: 'invite-tickets-pool', env: { ...common } },
   ];
-}
-
-/** The products `services.dub.turnProofProducts` names, or none. */
-export function turnProofProducts(net: NetworkDef): string[] {
-  const dub = net.services['dub'];
-  return typeof dub === 'object' ? (dub.turnProofProducts ?? []) : [];
 }
 
 function tomlEnv(env: Record<string, string>): string {
@@ -237,13 +236,14 @@ export function dubCustomProcesses(
   // fork mode writes a standalone TOML with absolute paths already resolved.
   scriptsDir: string = '{{SCRIPTS}}',
   // The TURN/STUN relay whose credentials turn-api mints (docs/TURN.md).
-  turn: boolean = true
+  turn: boolean = true,
+  turnProofProducts: string[] = []
 ): string {
   const wait = `127.0.0.1:${ports.postgres}`;
 
   // zombienet validates custom_process args as CLI arguments — each must parse
   // as a flag or --key=value, so bare positionals are rejected outright.
-  const blocks = dubServices(ports, attesterAccount).map(
+  const blocks = dubServices(ports, attesterAccount, undefined, turnProofProducts).map(
     (svc) => `
 [[custom_processes]]
 name = "${svc.name}"

@@ -108,6 +108,27 @@ describe('network overlay: RPC nodes in front of People', () => {
   });
 });
 
+describe('network overlay: TURN proof products', () => {
+  const net = loadDescriptorOnly('previewnet');
+
+  // A deployment accepts its own products' proofs without an engine release, and dub-api is
+  // started with that list rather than the network file's.
+  it("replaces the network file's products in dub-api's environment", () => {
+    const overlaid = applyOverlay(net, write('turn.json', { previewnet: { turnProofProducts: ['dim2.testnet', 'vox.testnet'] } }));
+    assert.deepEqual(overlaid.turnProofProducts, ['dim2.testnet', 'vox.testnet']);
+  });
+
+  it('keeps the network file\'s products when the section does not set them', () => {
+    assert.deepEqual(applyOverlay(net, write('none.json', { previewnet: {} })).turnProofProducts, ['dim2.testnet']);
+  });
+
+  it('rejects a product under another TLD, which no host on this network proves as', () =>
+    assert.throws(
+      () => applyOverlay(net, write('tld.json', { previewnet: { turnProofProducts: ['dim2.paseo'] } })),
+      /previewnet\.turnProofProducts must be a non-empty array of dotNS names under \.testnet/
+    ));
+});
+
 describe('network overlay: a mistake fails instead of deploying defaults', () => {
   const net = loadDescriptorOnly('previewnet');
   const rejects = (body: unknown, message: RegExp) =>

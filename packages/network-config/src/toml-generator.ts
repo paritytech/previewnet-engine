@@ -584,7 +584,7 @@ command = "{{SCRIPTS}}/grant-invites.sh"
     people: PORTS.people,
     assetHub: PORTS['asset-hub'],
     gateway: requiredPort('DUB_PORT'),
-  }, undefined, undefined, serviceEnabled('turn'))
+  }, undefined, undefined, serviceEnabled('turn'), genesisNet().turnProofProducts)
 )}
 ${section(serviceEnabled('patch-bootnodes'), `
 [[custom_processes]]
