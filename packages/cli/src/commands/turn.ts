@@ -39,7 +39,7 @@ export function dubTurnEnv(ctx: ServiceContext): Record<string, string> {
 }
 
 /** The chain's genesis hash, once its RPC answers; it waits as long as that takes. */
-export async function genesisHash(rpcUrl: string, wait: Sleep = sleep): Promise<string> {
+export async function waitForGenesisHash(rpcUrl: string, wait: Sleep = sleep): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await rpc<string>(asHttp(rpcUrl), 'chain_getBlockHash', [0]);
@@ -52,9 +52,9 @@ export async function genesisHash(rpcUrl: string, wait: Sleep = sleep): Promise<
 
 export async function printDubTurnEnv(ctx: ServiceContext): Promise<void> {
   const env = dubTurnEnv(ctx);
-  // turn-api refuses to start with the proof route on and no genesis to check People against.
+  // turn-api exits at start when the proof route is on and no genesis is set.
   if (process.env.TURN_PROOF_ENABLED === 'true' && process.env.TURN_PROOF_RPC_URL) {
-    env.TURN_PROOF_GENESIS = await genesisHash(process.env.TURN_PROOF_RPC_URL);
+    env.TURN_PROOF_GENESIS = await waitForGenesisHash(process.env.TURN_PROOF_RPC_URL);
   }
   for (const [k, v] of Object.entries(env)) {
     console.log(`export ${k}='${v.replace(/'/g, `'\\''`)}'`);
