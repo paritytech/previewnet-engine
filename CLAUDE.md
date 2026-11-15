@@ -75,10 +75,11 @@ registrations and balances are already present. A fork that is started again res
 stopped, as long as the data came from the bundle being spawned. See `docs/FORK.md`.
 
 Only previewnet can start from genesis. Every other network (paseo-next-v2, devnet, kusama,
-polkadot) is fork-only, defined by a descriptor in `networks/<name>.json` —
+polkadot, westend) is fork-only, defined by a descriptor in `networks/<name>.json` —
 see `networks/README.md` for the schema and per-network status. Polkadot forks relay, Asset Hub,
 People and Bulletin with the fellowship's runtimes authorized at bite time; `docs/POLKADOT-FORK.md`
-is the runbook for a dedicated machine.
+is the runbook for a dedicated machine. Westend forks relay, Asset Hub and People: the relay and
+Asset Hub have sudo and People doesn't, so a People runtime under test is authorized at bite time.
 
 A descriptor states, explicitly, which binary each chain runs and from which release,
 which runtime it starts from (genesis networks), its services, tools and bite tool.
@@ -120,7 +121,8 @@ networks/                     # Network descriptors (see networks/README.md)
 ├── paseo-next-v2.json        # Fork-only: paseo relay, previewnet para-id band
 ├── devnet.json               # Fork-only: paseo relay, system-chain para ids (1000+)
 ├── kusama.json               # Fork-only, no sudo, on-the-fly bite: relay + Asset Hub
-└── polkadot.json             # Fork-only, no sudo, on-the-fly bite: relay + Asset Hub + People + Bulletin
+├── polkadot.json             # Fork-only, no sudo, on-the-fly bite: relay + Asset Hub + People + Bulletin
+└── westend.json              # Fork-only, on-the-fly bite: relay + Asset Hub (sudo) + People (no sudo)
 
 config/
 ├── ports.env                 # Port configuration for all services

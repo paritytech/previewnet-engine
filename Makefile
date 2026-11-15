@@ -18,7 +18,7 @@
 #   FRESH_BITE=1            # With FORK=1: bite the live network now instead of
 #                           # downloading the latest published bundle
 #   UPGRADES="<chain>=<wasm> ..."  # With a bite: runtimes to authorize at import, for a
-#                           # network without sudo (kusama, polkadot). See docs/FORK.md.
+#                           # chain without sudo (kusama, polkadot, westend's people). See docs/FORK.md.
 #
 # Examples:
 #   make start                        # Native, persistent, from genesis

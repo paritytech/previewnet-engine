@@ -466,7 +466,7 @@ export function buildProgram(): Command {
         'Download the binaries, runtimes and tooling the selected network declares.\n' +
           'What gets fetched comes from networks/<name>.json — see `ppn show`.'
       )
-      .option('--if-needed', 'do nothing when everything the descriptor declares is present')
+      .option('--if-needed', 'skip the downloads when everything the descriptor declares is present (file: pins are still copied)')
       .option('--force', 're-download every artifact, even ones the last stamp proves current')
   ).action(
     async (

@@ -1,9 +1,8 @@
 // Tests for copyLocalBinary in packages/cli/src/commands/fetch.ts
 // Run with: tsx --test tests/fetch-local.test.ts
 //
-// A `file:` pinned polkadot is a local build, and polkadot validates PVFs with the two workers
-// built alongside it. Copying only polkadot left a node that spawns and then fails every
-// candidate it is asked to validate.
+// A `file:` pinned polkadot is a local build, and polkadot validates PVFs only with the two
+// workers from its own build.
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -41,7 +40,7 @@ describe('copyLocalBinary', () => {
     }
   });
 
-  it('fails, copying nothing, when a worker is missing next to polkadot', () => {
+  it('fails without copying anything when a worker is missing next to polkadot', () => {
     writeBuild('polkadot', 'polkadot-execute-worker');
     assert.throws(
       () => copyLocalBinary('polkadot', path.join(buildDir, 'polkadot'), nodeDest),

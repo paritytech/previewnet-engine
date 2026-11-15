@@ -62,10 +62,13 @@ what you can do with it afterwards:
 | `devnet` | the Polkadot Products Devnet on public Paseo, system-chain para ids | yes | a bite of the live network |
 | `kusama` | Kusama relay and Asset Hub | no | a bite, with the runtime under test authorized at import |
 | `polkadot` | Polkadot relay, Asset Hub, People and Bulletin | no | a bite, with the runtime under test authorized at import |
+| `westend` | Westend relay, Asset Hub and People | relay and Asset Hub; People doesn't | a bite of the live network, with People's runtime under test authorized at import |
 
-**Forking a testnet with sudo.** The bundle is bitten for you every night, so a start is a
-download. Once the fork runs, sudo is `//Alice`, and anything that needs root works as it
-does on genesis: runtime upgrades, HRMP, core assignment, the People grants.
+**Forking a testnet with sudo.** Previewnet's and paseo-next-v2's bundles are bitten for you
+every night, so a start is a download; devnet and westend are bitten on the fly. Once the fork
+runs, sudo is `//Alice`, and anything that needs root works as it does on genesis: runtime
+upgrades, HRMP, core assignment, the People grants (off on westend). Westend's People doesn't have a Sudo pallet, so a
+People runtime under test is authorized at bite: `make bite NETWORK=westend UPGRADES="people=<wasm>"`.
 
 ```bash
 ppn start --fork                        # previewnet, from last night's bundle
@@ -141,7 +144,7 @@ ppn upgrade people --ws wss://my-host/people ./people_runtime.wasm   # a remote 
 ```
 
 Sudo dispatches the authorization, so this is for genesis and for forks of a sudo network. On
-a fork of Kusama or Polkadot the authorization comes from the bite, as described under
+a fork of Kusama, Polkadot or Westend's People the authorization comes from the bite, as described under
 "Forking a mainnet without sudo" above. See
 [docs/RUNTIME-UPGRADE.md](docs/RUNTIME-UPGRADE.md).
 
