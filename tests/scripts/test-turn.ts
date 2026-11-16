@@ -197,6 +197,26 @@ export async function run(nodeName: string, _networkInfo: NetworkInfo, _args: st
     }
     console.log("[TEST] ok turn/issue-with-proof is served");
 
+    // A well-formed request with a zero proof: 403 once DUB has the People chain's ring roots,
+    // 503 while it has none.
+    const proofResponse = await fetch(`${DUB_BASE}/api/v1/turn/issue-with-proof`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        productId: "dim2.testnet",
+        collection: `0x${Buffer.from("pop:polkadot.network/people-lite").toString("hex")}`,
+        proof: `0x${"00".repeat(785)}`,
+        ringIndex: 0,
+        ringRevision: 0,
+        timestamp: Math.floor(Date.now() / 1000),
+      }),
+    });
+    if (proofResponse.status !== 403) {
+      console.error(`[TEST] FAIL turn/issue-with-proof with a zero proof: ${proofResponse.status} ${await proofResponse.text()}`);
+      return FAILURE;
+    }
+    console.log("[TEST] ok turn/issue-with-proof has the ring roots");
+
     const refused = await allocate(creds.username, `${creds.password}x`);
     if (errorCode(refused) !== 401) {
       console.error(`[TEST] FAIL a wrong password was answered ${refused.type.toString(16)}, not 401`);

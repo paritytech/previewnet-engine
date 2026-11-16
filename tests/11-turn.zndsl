@@ -18,5 +18,6 @@ alice-paseo-validator: parachain 1502 block height is at least 5 within 500 seco
 
 # STUN Binding, then a JWT -> POST /api/v1/turn/issue, then a TURN Allocate with those
 # credentials. The allocation is the assertion that turn-api and eturnal agree on the
-# secret and realm; a wrong password must still be refused.
+# secret and realm; a wrong password must still be refused, and a zero proof at
+# issue-with-proof gets 403 once DUB has the ring roots.
 people-collator1: js-script ./scripts/dist/test-turn.js return is equal to 1 within 600 seconds

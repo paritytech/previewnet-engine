@@ -370,7 +370,8 @@ brings up no identity backend. `make generate-toml` regenerates the checked-in
 `tests/08-dub.zndsl` asserts the surfaces are up and owned by the right
 service:
 
-- `/livez`, and `/readyz` reporting every merged service's dependencies up
+- `/livez`, and `/readyz` reporting every merged service's dependencies up, turn-api's
+  `proof-roots` (the People ring roots) among them
 - `/api/v1/attester` returns the account the allowance was granted to
 - `/.well-known/jwks.json` returns a usable key set
 - `/api/v1/usernames/search` reaches the indexer
