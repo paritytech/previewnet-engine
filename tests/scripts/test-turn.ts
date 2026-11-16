@@ -199,7 +199,7 @@ export async function run(nodeName: string, _networkInfo: NetworkInfo, _args: st
 
     // A well-formed request with a zero proof: 403 once DUB has the People chain's ring roots,
     // 503 while it has none.
-    const rooted = await fetch(`${DUB_BASE}/api/v1/turn/issue-with-proof`, {
+    const proofResponse = await fetch(`${DUB_BASE}/api/v1/turn/issue-with-proof`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -211,8 +211,8 @@ export async function run(nodeName: string, _networkInfo: NetworkInfo, _args: st
         timestamp: Math.floor(Date.now() / 1000),
       }),
     });
-    if (rooted.status !== 403) {
-      console.error(`[TEST] FAIL turn/issue-with-proof with a zero proof: ${rooted.status} ${await rooted.text()}`);
+    if (proofResponse.status !== 403) {
+      console.error(`[TEST] FAIL turn/issue-with-proof with a zero proof: ${proofResponse.status} ${await proofResponse.text()}`);
       return FAILURE;
     }
     console.log("[TEST] ok turn/issue-with-proof has the ring roots");
