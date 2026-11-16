@@ -197,35 +197,25 @@ export async function run(nodeName: string, _networkInfo: NetworkInfo, _args: st
     }
     console.log("[TEST] ok turn/issue-with-proof is served");
 
-    // A well-formed request with a zero proof: 403 once DUB has loaded the People chain's ring
-    // roots and checked the proof against them, 503 while it has none.
-    const proofBody = () =>
-      JSON.stringify({
+    // A well-formed request with a zero proof: 403 once DUB has the People chain's ring roots,
+    // 503 while it has none.
+    const rooted = await fetch(`${DUB_BASE}/api/v1/turn/issue-with-proof`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
         productId: "dim2.testnet",
         collection: `0x${Buffer.from("pop:polkadot.network/people-lite").toString("hex")}`,
         proof: `0x${"00".repeat(785)}`,
         ringIndex: 0,
         ringRevision: 0,
         timestamp: Math.floor(Date.now() / 1000),
-      });
-    const verifyDeadline = Date.now() + 120_000;
-    let verifyStatus = 503;
-    let verifyBody = "";
-    while (verifyStatus === 503 && Date.now() < verifyDeadline) {
-      const answer = await fetch(`${DUB_BASE}/api/v1/turn/issue-with-proof`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: proofBody(),
-      });
-      verifyStatus = answer.status;
-      verifyBody = await answer.text();
-      if (verifyStatus === 503) await new Promise((resolve) => setTimeout(resolve, 3_000));
-    }
-    if (verifyStatus !== 403) {
-      console.error(`[TEST] FAIL turn/issue-with-proof with a zero proof: ${verifyStatus} ${verifyBody}`);
+      }),
+    });
+    if (rooted.status !== 403) {
+      console.error(`[TEST] FAIL turn/issue-with-proof with a zero proof: ${rooted.status} ${await rooted.text()}`);
       return FAILURE;
     }
-    console.log("[TEST] ok turn/issue-with-proof checks proofs against the ring roots");
+    console.log("[TEST] ok turn/issue-with-proof has the ring roots");
 
     const refused = await allocate(creds.username, `${creds.password}x`);
     if (errorCode(refused) !== 401) {
