@@ -66,6 +66,8 @@ export interface Settings {
   dataDir: string;
   bootnodeHost: string;
   secret?: Uint8Array;
+  /** Signs a fork, from PPN_STACK_FORK_SECRET. */
+  forkSecret?: Uint8Array;
   faucet?: string;
   webGateway?: string;
   /** Asset Hub contracts by name deployed on this instance, from PPN_STACK_CONTRACTS. */
@@ -258,9 +260,9 @@ export async function writeStack(
   const previous = readState(stateFile);
   const generation = previous?.generation ?? spawn?.spawnedAt ?? now.toISOString();
   // A descriptor signed with a stack's key is that stack, and a fork machine may hold its
-  // source's key, so a fork is published unsigned.
-  if (forked && s.secret) console.warn('trinity-stack: a fork is published unsigned; PPN_STACK_SECRET is ignored');
-  const secret = forked ? undefined : s.secret;
+  // source's key as PPN_STACK_SECRET, so a fork signs only with a key of its own.
+  if (forked && s.secret) console.warn('trinity-stack: PPN_STACK_SECRET is ignored on a fork; PPN_STACK_FORK_SECRET signs one');
+  const secret = forked ? s.forkSecret : s.secret;
   const published = await publish(stack, { generation, state: previous?.state, secret, now });
   writeIfChanged(path.join(s.dataDir, STACK_FILE), published.document);
 
@@ -297,9 +299,9 @@ export function parseContracts(value: string | undefined): Record<string, string
   return contracts;
 }
 
-function hexSecret(value: string | undefined): Uint8Array | undefined {
+function hexSecret(name: string, value: string | undefined): Uint8Array | undefined {
   if (!value) return undefined;
-  if (!/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error('PPN_STACK_SECRET must be 0x and 64 hex digits');
+  if (!/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error(`${name} must be 0x and 64 hex digits`);
   return Uint8Array.from(Buffer.from(value.slice(2), 'hex'));
 }
 
@@ -329,7 +331,8 @@ export async function trinityStack(ctx: ServiceContext): Promise<void> {
     baseUrl: ctx.baseUrl,
     dataDir: ctx.dataDir,
     bootnodeHost: setting('BOOTNODE_HOSTNAME') || '127.0.0.1',
-    secret: hexSecret(setting('PPN_STACK_SECRET')),
+    secret: hexSecret('PPN_STACK_SECRET', setting('PPN_STACK_SECRET')),
+    forkSecret: hexSecret('PPN_STACK_FORK_SECRET', setting('PPN_STACK_FORK_SECRET')),
     faucet: setting('PPN_STACK_FAUCET_URL'),
     webGateway: setting('PPN_STACK_WEB_GATEWAY_URL'),
     contracts: parseContracts(setting('PPN_STACK_CONTRACTS')),

@@ -101,7 +101,8 @@ into `config/ports.env`, where each has an empty default. The key goes in the se
 
 | Setting | Effect |
 | --- | --- |
-| `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. Ignored on a fork, which is always published unsigned: a descriptor signed with its source's key would be the source. |
+| `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. Ignored on a fork: a descriptor signed with its source's key would be the source, and a fork machine may hold that key. |
+| `PPN_STACK_FORK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs a fork's descriptor, and the pointer carries its public key. Generate a key for the fork alone, never the source's. Without it a fork is published unsigned. |
 | `PPN_STACK_FAUCET_URL` | Adds a `faucet` service. |
 | `PPN_STACK_WEB_GATEWAY_URL` | Adds a `web-gateway` service, published as written: its path ends in `/`, and a query may follow, as in `https://testnet.li/?network=previewnet`. Only the instance the gateway resolves names against sets it, so staging leaves it empty when the gateway serves production. |
 | `PPN_STACK_CONTRACTS` | Publishes `contracts`: the Asset Hub contracts deployed on this instance, as `name=address` pairs separated by commas, such as `accountDataStore=0x18b7116d0c15c1fffe55469bc163a304f702e044` for the account data store hosts read. A contract exists only in the chain state it was deployed to, so each deployment sets its own. |

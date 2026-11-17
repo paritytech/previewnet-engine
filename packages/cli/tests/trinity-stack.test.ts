@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadDescriptorOnly, P2P_PORTS, PORTS, RELAY_BASE_PORT } from '@parity/ppn-network-config';
-import { checkSpec, lightSpecGenesis, open } from '@parity/trinity-stack';
+import { checkSpec, lightSpecGenesis, open, publicKey } from '@parity/trinity-stack';
 import { parseContracts, trinityStack, writeStack, type Settings } from '../src/commands/trinity-stack.js';
 import type { ServiceContext } from '../src/commands/service-context.js';
 
@@ -148,11 +148,20 @@ describe('writeStack — what it writes', () => {
     }
   });
 
-  it('never signs a fork, whose machine may hold its source key', async () => {
+  it('never signs a fork with PPN_STACK_SECRET, which may be its source key', async () => {
     stamp({ mode: 'fork' });
     const { written } = await writeStack({ net }, settings({ secret: new Uint8Array(32).fill(7) }));
     assert.equal(written.pointer.key, undefined);
     assert.equal(open(read('trinity-stack.json'), written.pointer).signed, false);
+  });
+
+  // A host build that runs a fork, such as one on polkadot-test, bundles it like any signed stack.
+  it('signs a fork with its own key, and the pointer carries it', async () => {
+    stamp({ mode: 'fork' });
+    const forkSecret = new Uint8Array(32).fill(9);
+    const { written } = await writeStack({ net }, settings({ secret: new Uint8Array(32).fill(7), forkSecret }));
+    assert.equal(written.pointer.key, publicKey(forkSecret));
+    assert.ok(open(read('trinity-stack.json'), written.pointer).signed);
   });
 
   const blocks = { relay: 100, '1500': 200, '1502': 300, '1501': 400, '1600': 500 };
