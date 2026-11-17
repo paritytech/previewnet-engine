@@ -24,7 +24,7 @@ What is where:
 
 | File | Role |
 | --- | --- |
-| `vm.env` | Domain, public IP, run user, start flags. Committed. |
+| `vm.env` | Domain, public IP, run user, start flags, and the contracts deployed on the fork (`STACK_CONTRACTS`), which the descriptor lists. Committed. |
 | `local.env` | The dashboard actions token. Gitignored; created on first apply. |
 | `apply.sh` | The command. Idempotent; installs missing packages on a fresh box. |
 | `start.sh` | What the unit runs: `ppn start polkadot --fork $START_FLAGS`. |
@@ -34,7 +34,8 @@ What is where:
 
 Not done by apply, ever: the bite. That is a deliberate `make bite NETWORK=polkadot` (plus
 `UPGRADES=...` for a runtime under test; see `docs/POLKADOT-FORK.md`), followed by `apply.sh` or
-`systemctl start ppn-polkadot`.
+`systemctl start ppn-polkadot`. A bite starts from the live chain again, so the account data store
+in `STACK_CONTRACTS` has to be deployed again and its new address put there.
 
 And the certificate, once: `sudo certbot certonly --standalone -d <domain>` while nginx is
 stopped; apply skips nginx until it exists and prints the command.

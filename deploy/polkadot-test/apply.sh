@@ -107,8 +107,9 @@ sed -i \
   -e "s|^P2P_LISTEN_IP=.*|P2P_LISTEN_IP=$PUBLIC_IP|" \
   -e "s|^DASHBOARD_ACTIONS_TOKEN=.*|DASHBOARD_ACTIONS_TOKEN=${DASHBOARD_ACTIONS_TOKEN:-}|" \
   -e "s|^PPN_SECRETS_FILE=.*|PPN_SECRETS_FILE=$SECRETS_FILE|" \
+  -e "s|^PPN_STACK_CONTRACTS=.*|PPN_STACK_CONTRACTS=$STACK_CONTRACTS|" \
   config/ports.env
-say "ports.env: domain $DOMAIN, listen ip $PUBLIC_IP, secrets $SECRETS_FILE"
+say "ports.env: domain $DOMAIN, listen ip $PUBLIC_IP, secrets $SECRETS_FILE, contracts $STACK_CONTRACTS"
 
 # ---- 5. nginx ---------------------------------------------------------------------------
 TLS_DIR="/etc/letsencrypt/live/$DOMAIN"
