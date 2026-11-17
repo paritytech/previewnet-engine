@@ -100,6 +100,11 @@ if ! sudo grep -q '^PPN_PROFILE=' "$SECRETS_FILE"; then
   echo 'PPN_PROFILE=local' | sudo tee -a "$SECRETS_FILE" >/dev/null
   say "$SECRETS_FILE: added PPN_PROFILE=local"
 fi
+# The fork's descriptor signing key. Host builds pin its public key, so it is never rotated here.
+if ! sudo grep -q '^PPN_STACK_FORK_SECRET=' "$SECRETS_FILE"; then
+  echo "PPN_STACK_FORK_SECRET=0x$(openssl rand -hex 32)" | sudo tee -a "$SECRETS_FILE" >/dev/null
+  say "$SECRETS_FILE: added PPN_STACK_FORK_SECRET"
+fi
 sed -i \
   -e "s|^BOOTNODE_HOSTNAME=.*|BOOTNODE_HOSTNAME=$DOMAIN|" \
   -e "s|^PPN_PUBLIC_URL=.*|PPN_PUBLIC_URL=https://$DOMAIN|" \

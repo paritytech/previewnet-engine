@@ -30,12 +30,15 @@ What is where:
 | `start.sh` | What the unit runs: `ppn start polkadot --fork $START_FLAGS`. |
 | `ppn-polkadot.service` | systemd unit template; `__ROOT__`/`__USER__` filled by apply. |
 | `nginx/` | v1's template and websocket snippet, ours to patch here. |
-| `/etc/ppn/secrets.env` | Created by apply on a fresh box with `TURN_SECRET`, `JWT_ED25519_SECRET` and `PPN_PROFILE=local`, and never rotated. Optional keys from `config/secrets.env.example`, such as push notifications, are added by hand. `ports.env` names it as `PPN_SECRETS_FILE`. |
+| `/etc/ppn/secrets.env` | Created by apply on a fresh box with `TURN_SECRET`, `JWT_ED25519_SECRET` and `PPN_PROFILE=local`; apply adds `PPN_STACK_FORK_SECRET`, the descriptor signing key, when it is missing. Never rotated. Optional keys from `config/secrets.env.example`, such as push notifications, are added by hand. `ports.env` names it as `PPN_SECRETS_FILE`. |
 
 Not done by apply, ever: the bite. That is a deliberate `make bite NETWORK=polkadot` (plus
 `UPGRADES=...` for a runtime under test; see `docs/POLKADOT-FORK.md`), followed by `apply.sh` or
 `systemctl start ppn-polkadot`. A bite starts from the live chain again, so the account data store
 in `STACK_CONTRACTS` has to be deployed again and its new address put there.
+
+Host builds bundle the stack's signed pointer, which `curl -s https://<domain>/api/stack | jq -r .link` prints.
+A new `PPN_STACK_FORK_SECRET` means a new pointer in every build that bundles this stack.
 
 And the certificate, once: `sudo certbot certonly --standalone -d <domain>` while nginx is
 stopped; apply skips nginx until it exists and prints the command.
