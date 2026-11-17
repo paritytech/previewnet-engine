@@ -48,6 +48,9 @@ The descriptor is built from the dashboard model, so its URLs are the ones the d
 - `assets` and `coinage`: `stack.assets` and `stack.coinage` in the network file, for a network
   whose runtime has them. Previewnet pays in pUSD (asset 50000413 on Asset Hub) and runs Coinage
   instance 0 on People.
+- `contracts`: the Asset Hub contracts a deployment lists in `PPN_STACK_CONTRACTS`, by name, such
+  as `accountDataStore`. A network file doesn't list them, because a contract deployed by hand
+  exists in one instance's state only.
 - `dotns`: the dotNS contract addresses by `DotnsConstants` key, such as `storeFactory`, plus
   `protocolRegistry` for the registry itself, so readers take them from the descriptor rather
   than read them from Asset Hub.
@@ -98,6 +101,7 @@ into `config/ports.env`, where each has an empty default. The key goes in the se
 | `PPN_STACK_SECRET` | `0x` and 64 hex digits, in the secrets file. Signs the descriptor, and the pointer carries its public key. Ignored on a fork, which is always published unsigned: a descriptor signed with its source's key would be the source. |
 | `PPN_STACK_FAUCET_URL` | Adds a `faucet` service. |
 | `PPN_STACK_WEB_GATEWAY_URL` | Adds a `web-gateway` service, published as written: its path ends in `/`, and a query may follow, as in `https://testnet.li/?network=previewnet`. Only the instance the gateway resolves names against sets it, so staging leaves it empty when the gateway serves production. |
+| `PPN_STACK_CONTRACTS` | Publishes `contracts`: the Asset Hub contracts deployed on this instance, as `name=address` pairs separated by commas, such as `accountDataStore=0x18b7116d0c15c1fffe55469bc163a304f702e044` for the account data store hosts read. A contract exists only in the chain state it was deployed to, so each deployment sets its own. |
 | `PPN_STACK_EXPIRES_AT` | Unix seconds when the network is torn down, for spawner instances. |
 | `PPN_STACK_VALID_FOR` | Seconds a reader may use a copy before fetching it again. |
 | `PPN_STACK_REFRESH_SECONDS` | How often the files are rewritten. |
