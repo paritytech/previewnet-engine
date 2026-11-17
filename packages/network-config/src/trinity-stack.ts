@@ -42,6 +42,8 @@ export interface StackFacts {
   validUntil?: number;
   /** dotNS contract addresses by protocol registry key. */
   dotns?: Record<string, string>;
+  /** Asset Hub contracts by name, such as `accountDataStore`, deployed on this instance. */
+  contracts?: Record<string, string>;
 }
 
 /**
@@ -161,6 +163,7 @@ export function trinityStackModel(net: NetworkDef, model: DashboardModel, facts:
     services,
     ...(net.stack?.assets && { assets: net.stack.assets }),
     ...(net.stack?.coinage && { coinage: net.stack.coinage }),
+    ...(facts.contracts && { contracts: facts.contracts }),
     ...(dotns && { dotns }),
   };
 }
