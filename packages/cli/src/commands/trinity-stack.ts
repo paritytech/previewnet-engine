@@ -68,6 +68,8 @@ export interface Settings {
   secret?: Uint8Array;
   faucet?: string;
   webGateway?: string;
+  /** Asset Hub contracts by name deployed on this instance, from PPN_STACK_CONTRACTS. */
+  contracts?: Record<string, string>;
   expiresAt?: number;
   validFor?: number;
   /** The dotNS deployment's contract addresses by contract name, from the dotns release. */
@@ -244,6 +246,7 @@ export async function writeStack(
     forkAt: bite ? Math.floor(Date.parse(bite.at) / 1000) : undefined,
     faucet: s.faucet,
     webGateway: s.webGateway,
+    contracts: s.contracts,
     dotns: dotnsFacts.dotns,
     expiresAt: s.expiresAt,
     validUntil: s.validFor ? Math.floor(now.getTime() / 1000) + s.validFor : undefined,
@@ -275,6 +278,23 @@ function readDotnsAddresses(binDir: string): Record<string, string> | undefined 
   } catch {
     return undefined;
   }
+}
+
+/**
+ * PPN_STACK_CONTRACTS as a name-to-address map with lowercase addresses. Throws on an entry
+ * that isn't name=0x<40 hex digits>.
+ */
+export function parseContracts(value: string | undefined): Record<string, string> | undefined {
+  if (!value) return undefined;
+  const contracts: Record<string, string> = {};
+  for (const entry of value.split(',')) {
+    const [name, address, extra] = entry.trim().split('=');
+    if (!name || extra !== undefined || !/^0x[0-9a-fA-F]{40}$/.test(address ?? '')) {
+      throw new Error(`PPN_STACK_CONTRACTS must be name=0x<40 hex digits>, comma-separated, not '${entry}'`);
+    }
+    contracts[name] = address.toLowerCase();
+  }
+  return contracts;
 }
 
 function hexSecret(value: string | undefined): Uint8Array | undefined {
@@ -312,6 +332,7 @@ export async function trinityStack(ctx: ServiceContext): Promise<void> {
     secret: hexSecret(setting('PPN_STACK_SECRET')),
     faucet: setting('PPN_STACK_FAUCET_URL'),
     webGateway: setting('PPN_STACK_WEB_GATEWAY_URL'),
+    contracts: parseContracts(setting('PPN_STACK_CONTRACTS')),
     expiresAt: optionalNumber('PPN_STACK_EXPIRES_AT', setting('PPN_STACK_EXPIRES_AT')),
     validFor: optionalNumber('PPN_STACK_VALID_FOR', setting('PPN_STACK_VALID_FOR')),
     // `ppn fetch` writes the release's list only for a genesis network, so on any other one a

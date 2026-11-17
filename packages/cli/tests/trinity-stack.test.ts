@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadDescriptorOnly, P2P_PORTS, PORTS, RELAY_BASE_PORT } from '@parity/ppn-network-config';
 import { checkSpec, lightSpecGenesis, open } from '@parity/trinity-stack';
-import { trinityStack, writeStack, type Settings } from '../src/commands/trinity-stack.js';
+import { parseContracts, trinityStack, writeStack, type Settings } from '../src/commands/trinity-stack.js';
 import type { ServiceContext } from '../src/commands/service-context.js';
 
 const net = loadDescriptorOnly('previewnet');
@@ -118,6 +118,34 @@ describe('writeStack — what it writes', () => {
     const { written } = await writeStack({ net }, settings({ secret: new Uint8Array(32).fill(7) }));
     assert.match(written.pointer.key ?? '', /^0x[0-9a-f]{64}$/);
     assert.ok(open(read('trinity-stack.json'), written.pointer).signed);
+  });
+
+  // Hosts read the account data store's address from the descriptor, and readers accept only
+  // lowercase hex there, so a checksummed address from a deploy log still has to publish.
+  it('publishes PPN_STACK_CONTRACTS by name with lowercase addresses', async () => {
+    const contracts = parseContracts(
+      'accountDataStore=0x18B7116D0c15c1FFFe55469bc163a304f702E044, other=0x898a76b646cb1ebb3083dca781bab4f167be6801'
+    );
+    const { written } = await writeStack({ net }, settings({ contracts }));
+    assert.deepEqual(open(read('trinity-stack.json'), written.pointer).descriptor.contracts, {
+      accountDataStore: '0x18b7116d0c15c1fffe55469bc163a304f702e044',
+      other: '0x898a76b646cb1ebb3083dca781bab4f167be6801',
+    });
+  });
+
+  // A fork carries the contracts deployed on it, as polkadot-test does, though it is unsigned.
+  it('publishes the contracts on a fork too', async () => {
+    stamp({ mode: 'fork' });
+    const contracts = parseContracts('accountDataStore=0x4b50651b01f4fa0387957b2b4de54785d4435a50');
+    const { written } = await writeStack({ net }, settings({ contracts }));
+    assert.deepEqual(open(read('trinity-stack.json'), written.pointer).descriptor.contracts, contracts);
+  });
+
+  it('rejects a PPN_STACK_CONTRACTS entry that is not name=address', () => {
+    const address = '0x18b7116d0c15c1fffe55469bc163a304f702e044';
+    for (const value of ['accountDataStore', `=${address}`, 'accountDataStore=0x18b7', `a=${address}=x`, `a=${address},`]) {
+      assert.throws(() => parseContracts(value), /PPN_STACK_CONTRACTS must be name=0x<40 hex digits>/);
+    }
   });
 
   it('never signs a fork, whose machine may hold its source key', async () => {
