@@ -158,7 +158,9 @@ jobs:
   # resolving into node_modules once descriptors shipped, and the launchers dying on zombienet's
   # HOME-less environment. No test running in a checkout could see any of them.
   npm-install-smoke-test:
-    runs-on: ubuntu-latest
+    # The bundled Postgres links libxml2.so.2, which Ubuntu 26.04 (ubuntu-latest) no longer
+    # ships. 24.04 is what the Docker image and the deployed servers run.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
