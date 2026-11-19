@@ -47,7 +47,7 @@ describe('eturnalConfig', () => {
     assert.ok(!yml.includes('whitelist_peers'));
     assert.match(yml, /ip: "203\.0\.113\.4"\n {6}port: 3478\n {6}transport: udp/);
     assert.match(yml, /ip: "127\.0\.0\.1"\n {6}port: 3479\n {6}transport: tcp\n {6}proxy_protocol: true/);
-    assert.match(yml, /relay_min_port: 49152\n {2}relay_max_port: 49407/);
+    assert.match(yml, /relay_min_port: 49152\n {2}relay_max_port: 65535/);
   });
 
   it('never writes the secret to disk', () => {
