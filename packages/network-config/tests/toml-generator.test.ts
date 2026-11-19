@@ -331,6 +331,11 @@ describe('generateToml with custom log targets', () => {
     assert.ok(toml.includes('--force-authoring'));
     assert.ok(toml.includes('-lsync=info'));
   });
+
+  it('runs the web3-storage collator slot-based, the only authoring that sends the relay parent descendants its runtime requires', () => {
+    const toml = generateToml(['web3-storage']);
+    assert.ok(toml.includes('--authoring=slot-based'));
+  });
 });
 
 describe('generateToml with enableHop', () => {
