@@ -252,6 +252,7 @@ const CHAIN_ARGS: Record<ChainKey, ChainDef> = {
   'web3-storage': {
     required: [
       '--collator',
+      '--authoring=slot-based',
       '--rpc-max-connections=500',
       '--unsafe-rpc-external',
       '--rpc-max-response-size=50',

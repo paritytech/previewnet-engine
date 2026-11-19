@@ -204,7 +204,9 @@ jobs:
   # ==========================================================================
   build-docker:
     needs: prepare
-    runs-on: ubuntu-latest
+    # `ppn fetch` runs the bundled Postgres, which needs libxml2.so.2: Ubuntu 26.04 has none,
+    # and the image itself is 24.04.
+    runs-on: ubuntu-24.04
     # No environment on a dry run: it exists to carry the registry credentials, and a run
     # that pushes nothing needs none — which also keeps the build off any approval gate.
     environment: ${{ needs.prepare.outputs.publish == 'true' && 'docker' || '' }}

@@ -735,9 +735,10 @@ async function storageProviderNode(ctx: ServiceContext, _deps: ServiceDeps = {})
     console.log(`  using sibling build: ${binary}`);
   }
 
-  const keyfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-sp-')), 'key');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-sp-'));
+  process.on('exit', () => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const keyfile = path.join(tempDir, 'key');
   fs.writeFileSync(keyfile, '//Alice\n', { mode: 0o600 });
-  process.on('exit', () => fs.rmSync(path.dirname(keyfile), { recursive: true, force: true }));
 
   const chainPort = ctx.ports.WEB3_STORAGE_PORT;
   console.log(`storage-provider-node: waiting for the web3-storage chain on 127.0.0.1:${chainPort}...`);
@@ -749,27 +750,22 @@ async function storageProviderNode(ctx: ServiceContext, _deps: ServiceDeps = {})
     publicMultiaddr = `/dns4/${hostname}/tcp/443/tls/http/http-path/web3-storage-provider`;
   }
 
-  const inMemory = (ctx.ports.WEB3_STORAGE_PROVIDER_STORAGE_MODE ?? 'disk') === 'inmemory';
-  const storageArgs = ['--storage-mode', 'inmemory'];
-  if (!inMemory) {
-    const storagePath =
-      process.env.STORAGE_PATH ||
-      ctx.ports.WEB3_STORAGE_PROVIDER_DATA_DIR ||
-      path.join(ctx.dataDir, 'web3-storage-provider');
-    fs.mkdirSync(storagePath, { recursive: true });
-    storageArgs.length = 0;
-    storageArgs.push('--storage-mode', 'disk', '--storage-path', storagePath);
-  }
+  const storagePath =
+    ctx.ports.PPN_EPHEMERAL === '1'
+      ? path.join(tempDir, 'data')
+      : process.env.STORAGE_PATH ||
+        ctx.ports.WEB3_STORAGE_PROVIDER_DATA_DIR ||
+        path.join(ctx.dataDir, 'web3-storage-provider');
+  fs.mkdirSync(storagePath, { recursive: true });
 
   const args = [
     '--keyfile', keyfile,
-    ...storageArgs,
+    '--storage-path', storagePath,
     '--bind-addr', `127.0.0.1:${ctx.ports.WEB3_STORAGE_PROVIDER_PORT}`,
     '--chain-rpc', `ws://127.0.0.1:${chainPort}`,
     ...(publicMultiaddr ? ['--public-multiaddr', publicMultiaddr] : []),
-    '--enable-checkpoint-coordinator',
   ];
-  console.log(`  storage: ${storageArgs.join(' ')}`);
+  console.log(`  storage: ${storagePath}`);
   if (publicMultiaddr) console.log(`  advertising: ${publicMultiaddr}`);
 
   // Replaces this process for the lifetime of the network, the way the wrapper's exec did.

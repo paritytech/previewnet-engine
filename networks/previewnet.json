@@ -33,7 +33,7 @@
     },
     "web3-storage": {
       "repo": "paritytech/web3-storage",
-      "tag": "latest"
+      "tag": "v0.5.1-paseo"
     }
   },
   "genesisConfig": {
