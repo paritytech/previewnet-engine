@@ -551,15 +551,11 @@ jobs:
         # Re-enable (drop continue-on-error) once the previewnet preset's
         # min_duration is lowered to match the demo (todo).
         continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         timeout-minutes: 15
         run: |
           set -e
           source ./config/ports.env
-          W3S_TAG=$(curl -sL -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/paritytech/web3-storage/releases/latest" \
-            | jq -r .tag_name)
+          W3S_TAG=$(jq -r '.releases["web3-storage"].tag' networks/previewnet.json)
           echo "Cloning paritytech/web3-storage @ $W3S_TAG"
           git clone --depth 1 --branch "$W3S_TAG" \
             https://github.com/paritytech/web3-storage.git /tmp/w3s
