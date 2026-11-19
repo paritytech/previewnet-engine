@@ -117,7 +117,7 @@ rpc_port = 10040
 p2p_port = 30337
 prometheus_port = 20040
 command = "{{SCRIPTS}}/omni-node.sh"
-args = ["-lruntime=info", "--collator", "--rpc-max-connections=500", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--listen-addr=/ip4/127.0.0.1/udp/30337/webrtc-direct"]
+args = ["-lruntime=info", "--collator", "--authoring=slot-based", "--rpc-max-connections=500", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--listen-addr=/ip4/127.0.0.1/udp/30337/webrtc-direct"]
 
 [[hrmp_channels]]
 sender = 1502
