@@ -9,7 +9,7 @@ import { planExtraCores } from '../src/commands/service.js';
 
 const PARACHAINS = loadNetwork('previewnet').parachains;
 
-/** Cores to para ids, as assignedCores() reads them off the relay. */
+/** Cores to para ids, as readCoreAssignments() reads them off the relay. */
 const cores = (layout: Record<number, number>) =>
   new Map(Object.entries(layout).map(([core, paraId]) => [Number(core), [paraId]]));
 

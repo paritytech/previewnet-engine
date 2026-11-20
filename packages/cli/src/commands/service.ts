@@ -118,27 +118,25 @@ export async function run(args: string[], deps: ServiceDeps = {}): Promise<void>
 // ---------------------------------------------------------------------------
 
 /**
- * The assignments that bring each parachain the relay runs up to its descriptor core count, and
- * what still lacks a core afterwards. A parachain on no core is not running there (a spawn of a
- * subset of chains) and gets none. Uses only cores below `coreCount`, the cores the relay
- * schedules, that nothing is assigned to, lowest first, and never moves an assigned core, so
- * running it again on a kept chain changes nothing.
+ * Assignments that bring each parachain on the relay up to its descriptor core count from free
+ * cores below `coreCount`, without moving an assigned core, and the chains still short. A
+ * parachain on no core isn't running on this relay (a spawn of some chains only) and gets none.
  */
 export function planExtraCores(
   paras: PlannedPara[],
-  assigned: Map<number, number[]>,
+  coreParaIds: Map<number, number[]>,
   coreCount: number
 ): { assignments: CoreAssignment[]; missing: { key: string; cores: number }[] } {
-  const free = Array.from({ length: coreCount }, (_, core) => core).filter((core) => !assigned.has(core));
+  const free = Array.from({ length: coreCount }, (_, core) => core).filter((core) => !coreParaIds.has(core));
   const assignments: CoreAssignment[] = [];
   const missing: { key: string; cores: number }[] = [];
   for (const para of paras) {
-    const held = [...assigned.values()].filter((paraIds) => paraIds.includes(para.paraId)).length;
-    if (held === 0) continue;
-    const lacking = Math.max(0, para.cores - held);
-    const granted = free.splice(0, lacking);
-    assignments.push(...granted.map((core) => ({ core, paraId: para.paraId })));
-    if (granted.length < lacking) missing.push({ key: para.key, cores: lacking - granted.length });
+    const currentCores = [...coreParaIds.values()].filter((paraIds) => paraIds.includes(para.paraId)).length;
+    if (currentCores === 0) continue;
+    const lacking = Math.max(0, para.cores - currentCores);
+    const newCores = free.splice(0, lacking);
+    assignments.push(...newCores.map((core) => ({ core, paraId: para.paraId })));
+    if (newCores.length < lacking) missing.push({ key: para.key, cores: lacking - newCores.length });
   }
   return { assignments, missing };
 }
@@ -150,7 +148,7 @@ type CoreWorkJson = { assignments: [{ task?: number }, unknown][] };
  * The para ids on each core with an assignment, as the relay will run them: a queued schedule
  * replaces the current work once its block is reached, so the latest one wins.
  */
-async function assignedCores(api: ApiPromise): Promise<Map<number, number[]>> {
+async function readCoreAssignments(api: ApiPromise): Promise<Map<number, number[]>> {
   const paraIdsOf = (work: CoreWorkJson | null) =>
     (work?.assignments ?? []).flatMap(([{ task }]) => (task === undefined ? [] : [task]));
   // Decoded against the relay's own metadata, so the shape is the runtime's.
@@ -158,23 +156,23 @@ async function assignedCores(api: ApiPromise): Promise<Map<number, number[]>> {
     string,
     { queue: { last: number } | null; currentWork: CoreWorkJson | null }
   >;
-  const assigned = new Map<number, number[]>();
+  const coreParaIds = new Map<number, number[]>();
   for (const [core, { queue, currentWork }] of Object.entries(descriptors)) {
     if (queue) {
       const schedule = (await api.query.paraScheduler.coreSchedules([queue.last, Number(core)])).toJSON();
-      assigned.set(Number(core), paraIdsOf(schedule as unknown as CoreWorkJson | null));
+      coreParaIds.set(Number(core), paraIdsOf(schedule as unknown as CoreWorkJson | null));
     } else if (currentWork) {
-      assigned.set(Number(core), paraIdsOf(currentWork));
+      coreParaIds.set(Number(core), paraIdsOf(currentWork));
     }
   }
-  return assigned;
+  return coreParaIds;
 }
 
 /**
  * Put every parachain on as many cores as the descriptor states, from the cores the relay
  * schedules and nothing is assigned to. At genesis those are the extra cores the genesis TOML
  * adds; on a kept chain that has already been laid out there is nothing to do. A relay with too
- * few validators gets the free cores there are, and the log says which chain still lacks how many.
+ * few validators gets the free cores there are, and the log lists how many cores each chain lacks.
  */
 async function assignCores(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
   await waitSeconds('the relay chain', 30);
@@ -183,15 +181,15 @@ async function assignCores(ctx: ServiceContext, _deps: ServiceDeps = {}): Promis
   const api = await ApiPromise.create({ provider: new WsProvider(ctx.relayWs) });
   try {
     // One core per validator group, and at least `num_cores`: the genesis session has no groups,
-    // so until the first session change only the configuration says how many cores there are.
+    // so until the first session change `num_cores` is the only count of cores.
     const groups = (await api.query.paraScheduler.validatorGroups()).toJSON() as unknown[];
     const config = (await api.query.configuration.activeConfig()).toJSON() as { schedulerParams: { numCores: number } };
     const coreCount = Math.max(groups.length, config.schedulerParams.numCores);
-    const { assignments, missing } = planExtraCores(ctx.net.parachains, await assignedCores(api), coreCount);
+    const { assignments, missing } = planExtraCores(ctx.net.parachains, await readCoreAssignments(api), coreCount);
     for (const { key, cores } of missing) {
       console.log(
         `assign-cores: ${key} lacks ${cores} core(s), and the relay has no free one among its ${coreCount}: ` +
-          'it needs one validator per core'
+          'the relay schedules one core per validator group'
       );
     }
     if (assignments.length === 0) {

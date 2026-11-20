@@ -48,19 +48,18 @@ export interface CoreAssignment {
 export interface PlannedPara {
   key: string;
   paraId: number;
-  /** The descriptor's core count for it. */
   cores: number;
 }
 
-/** How many cores a parachain gets: the descriptor's count, unless the bite was asked for another (`ppn bite --cores people=3`). */
+/** How many cores a parachain gets: the descriptor's count, unless `ppn bite --cores` sets another. */
 export function coresFor(para: PlannedPara, cores: Record<string, number> = {}): number {
   return cores[para.key] ?? para.cores;
 }
 
 /**
  * Whether a bite lays the relay's cores out anew. A shared relay's layout is wrong for us, and a
- * bite asked for cores is asking for a layout production does not have; otherwise production's
- * own layout is kept, with the validators it already staffs.
+ * bite with `--cores` lays out cores production does not have; otherwise production's own layout
+ * is kept, with the validators it already staffs.
  */
 export function replacesCoreLayout(sharedRelay: boolean, cores: Record<string, number> = {}): boolean {
   return sharedRelay || Object.keys(cores).length > 0;

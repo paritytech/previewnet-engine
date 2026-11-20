@@ -327,7 +327,6 @@ function tomlArgs(args: string[]): string {
   return '[' + args.map((a) => `"${a}"`).join(', ') + ']';
 }
 
-/** A parachain's genesis section, titled `name`, with its core count when it runs on more than one. */
 function genesisParachainSection(key: Parachain, name: string, args: string[]): string {
   const chain = genesisChainOf(key) as NetworkParachain;
   const launch = `command = "{{SCRIPTS}}/omni-node.sh"${genesisCollatorEnv(key)}`;
