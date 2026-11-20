@@ -22,10 +22,11 @@ import { addMissing, flagOf, overrideArgs } from './args.js';
 const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'] as const;
 
 /**
- * The name of the i-th relay node in fork mode. The first six are the well-known names, which
- * zombienet maps to the well-known dev keys; past them zombienet derives a node's keys from
- * `//<Name>` — the same rule that makes `Collator-<paraId>` work — so any name serves, as long
- * as the bite installs the keys derived from it (cli fork/validators.ts).
+ * The name of the i-th relay node: the well-known names, then `Validator-<i+1>`. A fork uses them
+ * as they are, which zombienet maps to the well-known dev keys for the first six; past them, and
+ * for genesis names with the network's suffix, zombienet derives a node's keys from `//<Name>` —
+ * the same rule that makes `Collator-<paraId>` work — so any name serves, as long as a bite
+ * installs the keys derived from it (cli fork/validators.ts).
  */
 function relayNodeName(i: number): string {
   return VALIDATORS[i] ?? `Validator-${i + 1}`;
@@ -43,9 +44,9 @@ const VALID_PARACHAINS: Parachain[] = PARACHAIN_KEYS;
 
 // Genesis is previewnet-only by design (see networks/README.md), but everything about
 // previewnet that the descriptor states — para ids, chain ids, spec files, binaries,
-// per-chain flags, core counts, validator count and naming, which services run — is read
-// from it here rather than restated, so this generator and fork mode cannot disagree, and
-// editing the descriptor changes both.
+// per-chain flags, core counts, validator naming, which services run — is read from it here
+// rather than restated, so this generator and fork mode cannot disagree, and editing the
+// descriptor changes both.
 //
 // What stays in code is what the descriptor does not describe: the HRMP topology and the
 // bootstrap processes' own arguments.

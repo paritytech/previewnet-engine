@@ -6,7 +6,7 @@
 // can only follow what the bundle says. A bundle bitten with the defaults carries no topology.
 
 import { MAX_VALIDATORS, type ForkTopology, type NetworkDef } from '@parity/ppn-network-config';
-import { planCores, relaysCores } from './shared-relay.js';
+import { planCores, replacesCoreLayout } from './shared-relay.js';
 
 function parseCounts(flag: string, specs: string[] | undefined, net: NetworkDef): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -42,7 +42,7 @@ export function resolveTopology(
   const collators = parseCounts('--collators', opts.collators, net);
   if (!Object.keys(cores).length && !Object.keys(collators).length) return undefined;
 
-  const totalCores = relaysCores(net.bite.sharedRelay === true, cores) ? planCores(net.parachains, cores).length : 0;
+  const totalCores = replacesCoreLayout(net.bite.sharedRelay === true, cores) ? planCores(net.parachains, cores).length : 0;
   const validators = Math.max(net.relay.validators, totalCores);
   if (validators > MAX_VALIDATORS) {
     throw new Error(

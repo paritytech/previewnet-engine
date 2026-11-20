@@ -62,7 +62,7 @@ export function coresFor(para: PlannedPara, cores: Record<string, number> = {}):
  * bite asked for cores is asking for a layout production does not have; otherwise production's
  * own layout is kept, with the validators it already staffs.
  */
-export function relaysCores(sharedRelay: boolean, cores: Record<string, number> = {}): boolean {
+export function replacesCoreLayout(sharedRelay: boolean, cores: Record<string, number> = {}): boolean {
   return sharedRelay || Object.keys(cores).length > 0;
 }
 
@@ -236,8 +236,8 @@ export function transactionStorageWipes(): Record<string, string> {
  * map, where the one bug this file's verification already caught in a sibling value was a
  * missing compact length. The registry knows the shape; we should not restate it.
  *
- * `ratio`/`step` of 57600 is a whole core (the parts-per-core unit the relay uses), matching
- * what `ppn service assign-cores` submits for Asset Hub's extra cores on a genesis network.
+ * `ratio`/`step` of 57600 is a whole core (the parts-per-core unit the relay uses), which is also
+ * what `ppn service assign-cores` gives each extra core on a genesis network.
  */
 export const FULL_CORE = 57600;
 

@@ -20,7 +20,7 @@ import {
   hrmpParaKey,
   paraMessagingWipes,
   planCores,
-  relaysCores,
+  replacesCoreLayout,
   transactionStorageWipes,
   validatorGroups,
   type PlannedPara,
@@ -389,7 +389,7 @@ export async function relayOverrides(
 
   // Order matters: these values replace the ones relayCandidates() sets (ValidatorGroups above
   // all), so they come second.
-  const relaid = relaysCores(layout.sharedRelay, layout.cores);
+  const relaid = replacesCoreLayout(layout.sharedRelay, layout.cores);
   const candidates = {
     ...relayCandidates(validators),
     ...(relaid ? await coreLayoutCandidates(index, relayUrl, layout) : {}),
