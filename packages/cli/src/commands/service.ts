@@ -20,6 +20,7 @@ import { loadCurrentNetwork, readEnvFile, hrmpChannels, type NetworkDef, repoRoo
 } from '@parity/ppn-network-config';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
 import { loadSecrets } from '../lib/secrets.js';
+import type { CoreAssignment, PlannedPara } from '../fork/shared-relay.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
@@ -116,33 +117,28 @@ export async function run(args: string[], deps: ServiceDeps = {}): Promise<void>
 // assign-cores — elastic scaling
 // ---------------------------------------------------------------------------
 
-/** A parachain's core count as the descriptor states it. */
-export interface CoreTarget {
-  key: string;
-  paraId: number;
-  cores: number;
-}
-
 /**
- * The assignments that bring each parachain up to its descriptor core count, and what still
- * lacks a core afterwards. Uses only cores below `coreCount` (one per validator group, since a
- * core without a group backs nothing) that nothing is assigned to, lowest first, and never
- * moves an assigned core, so running it again on a kept chain changes nothing.
+ * The assignments that bring each parachain the relay runs up to its descriptor core count, and
+ * what still lacks a core afterwards. A parachain on no core is not running there (a spawn of a
+ * subset of chains) and gets none. Uses only cores below `coreCount` (one per validator group,
+ * since a core without a group backs nothing) that nothing is assigned to, lowest first, and
+ * never moves an assigned core, so running it again on a kept chain changes nothing.
  */
 export function planExtraCores(
-  targets: CoreTarget[],
+  paras: PlannedPara[],
   assigned: Map<number, number[]>,
   coreCount: number
-): { assignments: { core: number; paraId: number }[]; missing: { key: string; cores: number }[] } {
+): { assignments: CoreAssignment[]; missing: { key: string; cores: number }[] } {
   const free = Array.from({ length: coreCount }, (_, core) => core).filter((core) => !assigned.has(core));
-  const assignments: { core: number; paraId: number }[] = [];
+  const assignments: CoreAssignment[] = [];
   const missing: { key: string; cores: number }[] = [];
-  for (const target of targets) {
-    const held = [...assigned.values()].filter((paraIds) => paraIds.includes(target.paraId)).length;
-    const lacking = Math.max(0, target.cores - held);
+  for (const para of paras) {
+    const held = [...assigned.values()].filter((paraIds) => paraIds.includes(para.paraId)).length;
+    if (held === 0) continue;
+    const lacking = Math.max(0, para.cores - held);
     const granted = free.splice(0, lacking);
-    assignments.push(...granted.map((core) => ({ core, paraId: target.paraId })));
-    if (granted.length < lacking) missing.push({ key: target.key, cores: lacking - granted.length });
+    assignments.push(...granted.map((core) => ({ core, paraId: para.paraId })));
+    if (granted.length < lacking) missing.push({ key: para.key, cores: lacking - granted.length });
   }
   return { assignments, missing };
 }

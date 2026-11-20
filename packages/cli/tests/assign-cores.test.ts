@@ -51,4 +51,16 @@ describe('planExtraCores', () => {
       missing: [],
     });
   });
+
+  // `PPN_PARACHAINS=people,bulletin`: Asset Hub comes first in the descriptor but is not registered.
+  it('gives no core to a parachain the relay does not run', () => {
+    const subset = cores({ 2: 1502, 3: 1501 });
+    assert.deepEqual(planExtraCores(PARACHAINS, subset, 5), {
+      assignments: [
+        { core: 0, paraId: 1502 },
+        { core: 1, paraId: 1502 },
+      ],
+      missing: [],
+    });
+  });
 });
