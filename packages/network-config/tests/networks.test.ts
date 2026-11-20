@@ -56,7 +56,7 @@ describe('network descriptors', () => {
     // The one place bundle spec name and chain key differ.
     assert.equal(net.parachains.find((p) => p.key === 'people')!.spec, 'individuality');
     assert.equal(net.relay.chain, 'paseo');
-    assert.equal(net.relay.validators, 8);
+    assert.equal(net.relay.validators, 6);
     assert.deepEqual(
       Object.fromEntries(net.parachains.map((p) => [p.key, p.cores])),
       { 'asset-hub': 3, people: 3, bulletin: 1, 'web3-storage': 1 }
@@ -335,10 +335,10 @@ describe('cores', () => {
     assert.deepEqual(net.parachains.map((p) => p.cores), [1, 1, 1, 1]);
   });
 
-  it('rejects fewer relay validators than cores', () => {
+  it('rejects more cores than a relay can have validators for', () => {
     assert.throws(
-      loadEdited((raw) => ({ ...raw, relay: { ...raw.relay, validators: 7 } })),
-      /relay\.validators is 7, fewer than the 8 cores/
+      loadEdited((raw) => ({ ...raw, parachains: raw.parachains.map((p) => (p.key === 'people' ? { ...p, cores: 6 } : p)) })),
+      /run on 11 cores, each needing a validator, and a relay runs at most 10/
     );
   });
 

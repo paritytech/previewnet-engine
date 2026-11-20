@@ -105,9 +105,8 @@ export function dashboardModel(net: NetworkDef, baseUrl: string): DashboardModel
   const base = baseUrl.replace(/\/$/, '');
   const chains: DashboardChain[] = [];
 
-  // Relay validators this network runs, up to the six well-known ones: those past them get no
-  // public path.
-  for (let i = 0; i < Math.min(net.relay.validators, VALIDATORS.length); i++) {
+  // Relay validators. Only the ones this network runs (a fork may run fewer than six).
+  for (let i = 0; i < net.relay.validators; i++) {
     const name = VALIDATORS[i];
     const path = `/relay/${name}`;
     const port = RELAY_BASE_PORT + i;

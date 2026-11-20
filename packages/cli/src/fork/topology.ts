@@ -6,7 +6,7 @@
 // can only follow what the bundle says. A bundle bitten with the defaults carries no topology.
 
 import { MAX_VALIDATORS, type ForkTopology, type NetworkDef } from '@parity/ppn-network-config';
-import { planCores } from './shared-relay.js';
+import { planCores, relaysCores } from './shared-relay.js';
 
 function parseCounts(flag: string, specs: string[] | undefined, net: NetworkDef): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -30,9 +30,9 @@ function parseCounts(flag: string, specs: string[] | undefined, net: NetworkDef)
 /**
  * The topology a bite was asked for, or undefined when it was asked for nothing.
  *
- * The validator count is not asked for: every core needs a validator group of its own or nothing
- * backs the blocks on it, so it is the descriptor's count or the number of cores, whichever is
- * larger. That is capped where the relay ports run out (MAX_VALIDATORS).
+ * The validator count is not asked for: every core a bite lays out needs a validator group of its
+ * own or nothing backs the blocks on it, so it is the descriptor's count or the number of those
+ * cores, whichever is larger. That is capped where the relay ports run out (MAX_VALIDATORS).
  */
 export function resolveTopology(
   opts: { cores?: string[]; collators?: string[] },
@@ -42,7 +42,7 @@ export function resolveTopology(
   const collators = parseCounts('--collators', opts.collators, net);
   if (!Object.keys(cores).length && !Object.keys(collators).length) return undefined;
 
-  const totalCores = planCores(net.parachains, cores).length;
+  const totalCores = relaysCores(net.bite.sharedRelay === true, cores) ? planCores(net.parachains, cores).length : 0;
   const validators = Math.max(net.relay.validators, totalCores);
   if (validators > MAX_VALIDATORS) {
     throw new Error(

@@ -109,7 +109,7 @@ refuses a bundle whose recorded layout differs from what it was asked for and sa
 The bundle's `manifest.json` carries the layout under `topology`, and the fork TOML follows it.
 
 The relay grows to one validator per core, because a core with no validator group backs nothing:
-paseo-next-v2 with `people=3` is 3 + 3 + 1 = 7 cores, so 7 validators. Past the well-known six
+previewnet with `people=3` is 3 + 3 + 1 + 1 = 8 cores, so 8 validators. Past the well-known six
 they are named `Validator-7`, `Validator-8`, … and their keys derived from those names, the same
 way zombienet does it; the cap is 10, where the relay RPC ports (`10000 + i`) would run into
 People's. Extra collators are `Collator-<paraId>-2` … and restore the same snapshot as the first;

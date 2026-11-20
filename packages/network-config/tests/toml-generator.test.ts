@@ -85,11 +85,11 @@ describe('generateToml', () => {
     assert.ok(toml.includes('chain = "paseo-local"'));
     assert.ok(toml.includes('chain_spec_path = "{{BIN}}/relay_paseo.json"'));
 
-    // 8 validators: one per core (3 + 3 + 1), plus one, capped at the descriptor's 8
-    for (const name of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'Validator-7', 'Validator-8']) {
+    // 7 validators: one per core (3 + 3 + 1), past the descriptor's 6
+    for (const name of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'Validator-7']) {
       assert.ok(toml.includes(`name = "${name}-paseo-validator"`), name);
     }
-    assert.ok(!toml.includes('Validator-9'));
+    assert.ok(!toml.includes('Validator-8'));
 
     // All parachains
     assert.ok(toml.includes('id = 1500'));
@@ -440,14 +440,14 @@ describe('calcValidatorCount', () => {
     assert.equal(calcValidatorCount(['people']), 4);
   });
 
-  it('gives every core of the selection a validator, plus one', () => {
-    assert.equal(calcValidatorCount(['asset-hub', 'people']), 7);
+  it('gives every core of the selection a validator, plus one up to the descriptor count', () => {
     assert.equal(calcValidatorCount(['asset-hub', 'bulletin']), 5);
     assert.equal(calcValidatorCount(['people', 'bulletin']), 5);
+    assert.equal(calcValidatorCount(['asset-hub', 'people']), 6);
   });
 
-  it('caps at the descriptor count, which covers every core', () => {
-    assert.equal(calcValidatorCount(['asset-hub', 'people', 'bulletin']), 8);
+  it('runs one validator per core past the descriptor count', () => {
+    assert.equal(calcValidatorCount(['asset-hub', 'people', 'bulletin']), 7);
     assert.equal(calcValidatorCount([...VALID_PARACHAINS]), 8);
   });
 

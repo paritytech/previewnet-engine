@@ -48,7 +48,7 @@
     "spec": "paseo",
     "rpc": "relay/alice",
     "specSource": "chainspecs/paseo-local.json",
-    "validators": 8,
+    "validators": 6,
     "binary": {
       "name": "polkadot",
       "release": "polkadot-sdk"

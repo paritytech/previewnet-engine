@@ -58,6 +58,15 @@ export function coresFor(para: PlannedPara, cores: Record<string, number> = {}):
 }
 
 /**
+ * Whether a bite lays the relay's cores out anew. A shared relay's layout is wrong for us, and a
+ * bite asked for cores is asking for a layout production does not have; otherwise production's
+ * own layout is kept, with the validators it already staffs.
+ */
+export function relaysCores(sharedRelay: boolean, cores: Record<string, number> = {}): boolean {
+  return sharedRelay || Object.keys(cores).length > 0;
+}
+
+/**
  * Lay the parachains out from core 0 upward.
  *
  * Upward from zero because those are the cores that end up with validator groups: the runtime

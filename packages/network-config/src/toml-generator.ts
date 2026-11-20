@@ -410,9 +410,9 @@ function calcValidatorCount(parachains: Parachain[] | null): number {
     (parachains || []).filter((p) => VALID_PARACHAINS.includes(p))
   );
   const cores = genesisNet().parachains.filter((p) => selected.has(p.key)).reduce((sum, p) => sum + p.cores, 0);
-  // Every core needs a validator group of its own. The ceiling is what the descriptor says this
-  // network runs with, and the descriptor rejects a count below its cores.
-  return Math.max(4, Math.min(genesisNet().relay.validators, cores + 1));
+  // One more validator than cores, up to the descriptor's count, and never fewer than the cores:
+  // a core without a validator group of its own backs nothing.
+  return Math.max(4, cores, Math.min(genesisNet().relay.validators, cores + 1));
 }
 
 /** The section title, with the core count of a chain that runs on more than one. */

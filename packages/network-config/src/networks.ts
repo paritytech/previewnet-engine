@@ -147,8 +147,9 @@ export interface NetworkRelay extends ChainFields {
   /** Built-in chain name doppelganger runs with (ZOMBIE_CHAIN), e.g. 'paseo'. */
   chain: string;
   /**
-   * Relay validators: alice…ferdie, then Validator-7… up to MAX_VALIDATORS. At least one per
-   * parachain core, since a core without a validator group backs nothing.
+   * Dev-key validators the fork runs with, max 6 (alice…ferdie). A genesis spawn runs one per
+   * parachain core where that is more, named Validator-7… past the six: a core without a
+   * validator group backs nothing.
    */
   validators: number;
   /** Same as `runtime`, but used when `PPN_PROFILE` is `local`. Needs a different `file`. */
@@ -444,12 +445,12 @@ export function loadDescriptor(name: string): NetworkDef {
     })
   );
   const totalCores = Object.values(cores).reduce((sum, count) => sum + count, 0);
-  const validators = raw.relay.validators ?? 6;
-  if (!Number.isInteger(validators) || validators < 1 || validators > MAX_VALIDATORS) {
-    bad(`relay.validators must be 1..${MAX_VALIDATORS}`);
+  if (totalCores > MAX_VALIDATORS) {
+    bad(`the parachains run on ${totalCores} cores, each needing a validator, and a relay runs at most ${MAX_VALIDATORS}`);
   }
-  if (validators < totalCores) {
-    bad(`relay.validators is ${validators}, fewer than the ${totalCores} cores of the parachains: a core without a validator backs nothing`);
+  const validators = raw.relay.validators ?? 6;
+  if (!Number.isInteger(validators) || validators < 1 || validators > 6) {
+    bad('relay.validators must be 1..6 (alice…ferdie)');
   }
 
   const services: Record<string, ServiceConfig> = raw.services ?? {};

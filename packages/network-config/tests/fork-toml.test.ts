@@ -162,8 +162,8 @@ describe('generateForkToml — relay chain', () => {
   it('sets the dispute lifetime env var on every relay node', () => {
     const nodes = toml.split('[[relaychain.nodes]]').length - 1;
     const envs = toml.split('ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION').length - 1;
-    assert.equal(nodes, 8);
-    assert.equal(envs, 8);
+    assert.equal(nodes, 6);
+    assert.equal(envs, 6);
   });
 
   it('only gives a p2p port to the first node', () => {
