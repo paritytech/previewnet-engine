@@ -11,7 +11,7 @@
 import { Keyring } from '@polkadot/keyring';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le } from './codec.js';
-import { collatorNodeName, relayNodeName, type AuraScheme } from '@parity/ppn-network-config';
+import { collatorNodeName, MAX_VALIDATORS, relayNodeName, type AuraScheme } from '@parity/ppn-network-config';
 
 export const ALICE_SR = 'd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
 
@@ -25,20 +25,17 @@ export interface DevValidator {
   authorityDiscovery: string;
 }
 
-/** Relay RPC ports are `RELAY_BASE_PORT + i`, and the eleventh would land on People's. */
-export const MAX_VALIDATORS = 10;
-
 /**
  * The names the relay's dev keys derive from, in the order the authority set lists them.
  *
  * The first six are zombie-bite's get_validator_keys() order — ALICE, BOB, CHARLIE, DAVE,
  * FERDIE, EVE (note FERDIE before EVE) — because ActiveValidatorIndices and ValidatorGroups
  * index into the list positionally, and a bundle bitten with the old hard-coded keys had that
- * order. The names beyond them are whatever the fork TOML calls the extra nodes: zombienet
- * derives a non-well-known node's keys from `//<Name>`, exactly as done here.
+ * order. Then the keyring's One and Two, and past them whatever the fork TOML calls the extra
+ * nodes: zombienet derives a node's keys from `//<Name>`, exactly as done here.
  */
 function validatorNames(count: number): string[] {
-  const wellKnown = ['Alice', 'Bob', 'Charlie', 'Dave', 'Ferdie', 'Eve'];
+  const wellKnown = ['Alice', 'Bob', 'Charlie', 'Dave', 'Ferdie', 'Eve', 'One', 'Two'];
   return Array.from({ length: count }, (_, i) => wellKnown[i] ?? relayNodeName(i));
 }
 

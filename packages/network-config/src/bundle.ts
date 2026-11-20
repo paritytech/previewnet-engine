@@ -18,10 +18,9 @@ export interface ForkManifestChain {
 
 /**
  * How many nodes and cores a bite laid the network out with, when `ppn bite --cores/--collators`
- * asked for something other than the default (one collator per parachain, three cores for Asset
- * Hub and one for everything else, the descriptor's validators). Fixed at bite time: the
- * authority sets and the core layout are state inside the snapshots, so a spawn can only follow
- * what the bundle says.
+ * asked for something other than the default (one collator per parachain, the descriptor's cores
+ * and validators). Fixed at bite time: the authority sets and the core layout are state inside
+ * the snapshots, so a spawn can only follow what the bundle says.
  */
 export interface ForkTopology {
   /** Relay validators — at least one per core, so this grows with `cores`. */
