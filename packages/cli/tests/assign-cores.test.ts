@@ -52,6 +52,14 @@ describe('planExtraCores', () => {
     });
   });
 
+  it('gives a relay one validator short the free core there is, and reports the other', () => {
+    const oneShort = cores({ 0: 1500, 1: 1500, 2: 1500, 3: 1502, 4: 1501, 5: 1600 });
+    assert.deepEqual(planExtraCores(PARACHAINS, oneShort, 7), {
+      assignments: [{ core: 6, paraId: 1502 }],
+      missing: [{ key: 'people', cores: 1 }],
+    });
+  });
+
   // `PPN_PARACHAINS=people,bulletin`: Asset Hub comes first in the descriptor but is not registered.
   it('gives no core to a parachain the relay does not run', () => {
     const subset = cores({ 2: 1502, 3: 1501 });

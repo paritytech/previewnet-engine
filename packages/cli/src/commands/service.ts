@@ -20,7 +20,7 @@ import { loadCurrentNetwork, readEnvFile, hrmpChannels, type NetworkDef, repoRoo
 } from '@parity/ppn-network-config';
 import { forkBundleName } from '../lib/fork-bundle-name.js';
 import { loadSecrets } from '../lib/secrets.js';
-import type { CoreAssignment, PlannedPara } from '../fork/shared-relay.js';
+import { FULL_CORE, type CoreAssignment, type PlannedPara } from '../fork/shared-relay.js';
 
 const REPO = repoRoot();
 /** Mutable state — binaries, chain data, bundles — lives in the workspace, not the package. */
@@ -120,9 +120,9 @@ export async function run(args: string[], deps: ServiceDeps = {}): Promise<void>
 /**
  * The assignments that bring each parachain the relay runs up to its descriptor core count, and
  * what still lacks a core afterwards. A parachain on no core is not running there (a spawn of a
- * subset of chains) and gets none. Uses only cores below `coreCount` (one per validator group,
- * since a core without a group backs nothing) that nothing is assigned to, lowest first, and
- * never moves an assigned core, so running it again on a kept chain changes nothing.
+ * subset of chains) and gets none. Uses only cores below `coreCount`, the cores the relay
+ * schedules, that nothing is assigned to, lowest first, and never moves an assigned core, so
+ * running it again on a kept chain changes nothing.
  */
 export function planExtraCores(
   paras: PlannedPara[],
@@ -177,10 +177,10 @@ async function assignedCores(api: ApiPromise): Promise<Map<number, number[]>> {
 }
 
 /**
- * Put every parachain on as many cores as the descriptor states, from the cores the relay has
- * validator groups for and nothing assigned to. At genesis those are the extra cores the genesis
- * TOML adds; on a kept chain that has already been laid out there is nothing to do, and one
- * whose relay lacks validators for the cores is reported rather than half laid out.
+ * Put every parachain on as many cores as the descriptor states, from the cores the relay
+ * schedules and nothing is assigned to. At genesis those are the extra cores the genesis TOML
+ * adds; on a kept chain that has already been laid out there is nothing to do. A relay with too
+ * few validators gets the free cores there are, and the log says which chain still lacks how many.
  */
 async function assignCores(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
   await waitSeconds('the relay chain', 30);
@@ -188,12 +188,16 @@ async function assignCores(ctx: ServiceContext, _deps: ServiceDeps = {}): Promis
   console.log(`assign-cores: relay ${ctx.relayWs}`);
   const api = await ApiPromise.create({ provider: new WsProvider(ctx.relayWs) });
   try {
-    const coreCount = ((await api.query.paraScheduler.validatorGroups()).toJSON() as unknown[]).length;
+    // One core per validator group, and at least `num_cores`: the genesis session has no groups,
+    // so until the first session change only the configuration says how many cores there are.
+    const groups = (await api.query.paraScheduler.validatorGroups()).toJSON() as unknown[];
+    const config = (await api.query.configuration.activeConfig()).toJSON() as { schedulerParams: { numCores: number } };
+    const coreCount = Math.max(groups.length, config.schedulerParams.numCores);
     const { assignments, missing } = planExtraCores(ctx.net.parachains, await assignedCores(api), coreCount);
     for (const { key, cores } of missing) {
       console.log(
-        `assign-cores: ${key} lacks ${cores} core(s), and none of the relay's ${coreCount} validator groups ` +
-          'has a free core: the relay needs one validator per core'
+        `assign-cores: ${key} lacks ${cores} core(s), and the relay has no free one among its ${coreCount}: ` +
+          'it needs one validator per core'
       );
     }
     if (assignments.length === 0) {
@@ -202,9 +206,9 @@ async function assignCores(ctx: ServiceContext, _deps: ServiceDeps = {}): Promis
     }
 
     const signer = new Keyring({ type: 'sr25519' }).addFromUri(ctx.sudoUri);
-    // begin 0: from the next block; 57600 parts: the whole core.
+    // begin 0: from the next block.
     const calls = assignments.map(({ core, paraId }) =>
-      api.tx.coretime.assignCore(core, 0, [[{ Task: paraId }, 57600]], null)
+      api.tx.coretime.assignCore(core, 0, [[{ Task: paraId }, FULL_CORE]], null)
     );
     await submitSudo(api, signer, api.tx.sudo.sudo(api.tx.utility.batch(calls)));
     for (const { core, paraId } of assignments) console.log(`assign-cores: core ${core} -> para ${paraId}`);
