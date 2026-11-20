@@ -49,6 +49,7 @@
     {
       "key": "people",
       "paraId": 1004,
+      "cores": 3,
       "spec": "people",
       "rpc": "wss://polkadot-people-rpc.polkadot.io",
       "specSource": "builtin:people-polkadot",

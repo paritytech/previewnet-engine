@@ -342,14 +342,6 @@ describe('cores', () => {
     );
   });
 
-  // previewnet's own relay keeps production's layout on a fork; a shared relay's is laid out anew.
-  it('rejects a shared relay with fewer validators than cores', () => {
-    assert.throws(
-      loadEdited((raw) => ({ ...raw, bite: { ...(raw.bite as object), sharedRelay: true } })),
-      /relay\.validators is 6, fewer than the parachains' 8 cores/
-    );
-  });
-
   it('rejects a parachain on no core', () => {
     assert.throws(
       loadEdited((raw) => ({ ...raw, parachains: raw.parachains.map((p) => (p.key === 'people' ? { ...p, cores: 0 } : p)) })),

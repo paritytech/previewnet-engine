@@ -3,7 +3,8 @@
 //
 // Settled at bite time, not at spawn: the collator authority sets and the relay's core layout
 // are state inside the snapshots (fork/validators.ts, fork/shared-relay.ts), so the fork TOML
-// can only follow what the bundle says. A bundle bitten with the defaults carries no topology.
+// can only follow what the bundle says. A bundle carries a topology only when it was asked for
+// one or its descriptor's cores need more validators than `relay.validators`.
 
 import { MAX_VALIDATORS, type ForkTopology, type NetworkDef } from '@parity/ppn-network-config';
 import { planCores, replacesCoreLayout } from './shared-relay.js';
@@ -28,7 +29,8 @@ function parseCounts(flag: string, specs: string[] | undefined, net: NetworkDef)
 }
 
 /**
- * The topology a bite was asked for, or undefined when it was asked for nothing.
+ * The topology of a bite, or undefined when it was asked for nothing and the descriptor's
+ * validators staff every core it lays out.
  *
  * The validator count is not asked for: every core a bite lays out needs a validator group of its
  * own or nothing backs the blocks on it, so it is the descriptor's count or the number of those
@@ -40,23 +42,25 @@ export function resolveTopology(
 ): ForkTopology | undefined {
   const cores = parseCounts('--cores', opts.cores, net);
   const collators = parseCounts('--collators', opts.collators, net);
-  if (!Object.keys(cores).length && !Object.keys(collators).length) return undefined;
-
   const totalCores = replacesCoreLayout(net.bite.sharedRelay === true, cores) ? planCores(net.parachains, cores).length : 0;
   const validators = Math.max(net.relay.validators, totalCores);
   if (validators > MAX_VALIDATORS) {
     throw new Error(
-      `--cores adds up to ${totalCores} cores, which need ${totalCores} validators; a fork runs at most ${MAX_VALIDATORS}`
+      `the bite lays out ${totalCores} cores, which need ${totalCores} validators; a fork runs at most ${MAX_VALIDATORS}`
     );
   }
-  return { validators, cores, collators };
+  const asked = Object.keys(cores).length > 0 || Object.keys(collators).length > 0;
+  return asked || validators > net.relay.validators ? { validators, cores, collators } : undefined;
 }
 
-/** Whether a bundle was bitten with this topology — both absent counts as the same. */
+/**
+ * Whether a bundle was bitten with the `--cores` and `--collators` a run asks for, none on both
+ * sides counting as the same. The validator count follows from them and the descriptor of the
+ * engine that bit the bundle, and the fork TOML takes it from the bundle.
+ */
 export function sameTopology(a: ForkTopology | undefined, b: ForkTopology | undefined): boolean {
-  const norm = (t: ForkTopology | undefined) =>
-    JSON.stringify(t ? { v: t.validators, c: sorted(t.cores), k: sorted(t.collators) } : null);
-  const sorted = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).sort());
+  const sorted = (r: Record<string, number> = {}) => Object.fromEntries(Object.entries(r).sort());
+  const norm = (t: ForkTopology | undefined) => JSON.stringify({ c: sorted(t?.cores), k: sorted(t?.collators) });
   return norm(a) === norm(b);
 }
 

@@ -46,6 +46,7 @@
     {
       "key": "people",
       "paraId": 1004,
+      "cores": 3,
       "spec": "people",
       "rpc": "wss://westend-people-rpc.polkadot.io",
       "specSource": "builtin:people-westend",

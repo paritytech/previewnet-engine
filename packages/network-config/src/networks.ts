@@ -452,10 +452,6 @@ export function loadDescriptor(name: string): NetworkDef {
   if (!Number.isInteger(validators) || validators < 1 || validators > 6) {
     bad('relay.validators must be 1..6 (alice…ferdie)');
   }
-  // A shared relay's fork lays the parachains out on their declared cores with these validators.
-  if (raw.bite?.sharedRelay === true && validators < totalCores) {
-    bad(`relay.validators is ${validators}, fewer than the parachains' ${totalCores} cores, which a fork of a shared relay lays out`);
-  }
 
   const services: Record<string, ServiceConfig> = raw.services ?? {};
   for (const [svc, cfg] of Object.entries(services)) {

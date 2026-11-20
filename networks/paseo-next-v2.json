@@ -51,6 +51,7 @@
     {
       "key": "people",
       "paraId": 1502,
+      "cores": 3,
       "spec": "people",
       "rpc": "wss://paseo-people-next-system-rpc.polkadot.io",
       "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/paseo/parachain/people-next-system/raw.json",

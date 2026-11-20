@@ -32,8 +32,8 @@ const PNV2 = loadNetwork('paseo-next-v2').parachains;
 const [ASSET_HUB, PEOPLE] = PNV2;
 
 describe('planCores', () => {
-  it('takes each parachain core count from the descriptor: Asset Hub on three, the rest on one', () => {
-    assert.deepEqual(PNV2.map((p) => [p.key, coresFor(p)]), [['asset-hub', 3], ['people', 1], ['bulletin', 1]]);
+  it('takes each parachain core count from the descriptor', () => {
+    assert.deepEqual(PNV2.map((p) => [p.key, coresFor(p)]), [['asset-hub', 3], ['people', 3], ['bulletin', 1]]);
   });
 
   // Upward from zero is the whole point: those are the cores the runtime staffs first.
@@ -43,30 +43,22 @@ describe('planCores', () => {
       { core: 1, paraId: 1500 },
       { core: 2, paraId: 1500 },
       { core: 3, paraId: 1502 },
-      { core: 4, paraId: 1501 },
+      { core: 4, paraId: 1502 },
+      { core: 5, paraId: 1502 },
+      { core: 6, paraId: 1501 },
     ]);
   });
 
-  // 5 cores + 1 = 6 validators, which is exactly the number of dev keys a fork runs by
-  // default. If this ever exceeds them, groups start coming out empty again and blocks stop
-  // being backed — which is why a bite asked for more cores grows the validator set to match.
-  it('plans no more cores than six validators can staff, by default', () => {
-    assert.ok(planCores(PNV2).length < 6, 'a fork has six dev validators');
-  });
-
-  // `ppn bite --cores people=3`: the asked-for count replaces the default for that chain only.
+  // `ppn bite --cores people=1`: the asked-for count replaces the descriptor's for that chain only.
   it('lays a parachain out on as many cores as the bite asked for', () => {
-    assert.equal(coresFor(PEOPLE, { people: 3 }), 3);
-    assert.equal(coresFor(ASSET_HUB, { people: 3 }), 3, 'the default stays for the others');
-    assert.equal(coresFor(ASSET_HUB, { 'asset-hub': 1 }), 1, 'and can be cut too');
-    assert.deepEqual(planCores(PNV2, { people: 3 }), [
+    assert.equal(coresFor(PEOPLE, { people: 1 }), 1);
+    assert.equal(coresFor(ASSET_HUB, { people: 1 }), 3, 'the descriptor count stays for the others');
+    assert.deepEqual(planCores(PNV2, { people: 1 }), [
       { core: 0, paraId: 1500 },
       { core: 1, paraId: 1500 },
       { core: 2, paraId: 1500 },
       { core: 3, paraId: 1502 },
-      { core: 4, paraId: 1502 },
-      { core: 5, paraId: 1502 },
-      { core: 6, paraId: 1501 },
+      { core: 4, paraId: 1501 },
     ]);
   });
 });
@@ -236,10 +228,10 @@ describe('coreDescriptorsValue', () => {
 
   it('describes every planned core', () => {
     const value = coreDescriptorsValue(planCores(PNV2));
-    assert.deepEqual(Object.keys(value), ['0', '1', '2', '3', '4']);
+    assert.deepEqual(Object.keys(value), ['0', '1', '2', '3', '4', '5', '6']);
     assert.deepEqual(
       Object.values(value).map((d: any) => d.currentWork.assignments[0][0].Task),
-      [1500, 1500, 1500, 1502, 1501]
+      [1500, 1500, 1500, 1502, 1502, 1502, 1501]
     );
   });
 });

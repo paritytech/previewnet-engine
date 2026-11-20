@@ -28,6 +28,12 @@ describe('resolveTopology', () => {
     assert.equal(resolveTopology({ collators: ['people=5'] }, previewnet)?.validators, previewnet.relay.validators);
   });
 
+  // paseo-next-v2's relay is shared, so a bite lays its chains out on their declared cores:
+  // Asset Hub 3 + People 3 + Bulletin 1 = 7, one more than the descriptor's six validators.
+  it('grows a default bite to one validator per core it lays out', () => {
+    assert.deepEqual(resolveTopology({}, loadNetwork('paseo-next-v2')), { validators: 7, cores: {}, collators: {} });
+  });
+
   it('refuses a chain the network does not run, a bad count, and a malformed spec', () => {
     assert.throws(() => resolveTopology({ cores: ['kitchen-sink=3'] }, previewnet), /does not run/);
     assert.throws(() => resolveTopology({ cores: ['people=0'] }, previewnet), /at least 1/);
@@ -51,6 +57,11 @@ describe('sameTopology', () => {
   it('tells a default bundle from an asked-for one, either way round', () => {
     assert.ok(!sameTopology(t, undefined));
     assert.ok(!sameTopology(undefined, t));
+  });
+
+  // A bundle bitten before the default grew still spawns with its own six validators.
+  it('treats a default bite grown to the descriptor cores as the same as an older default bundle', () => {
+    assert.ok(sameTopology({ validators: 7, cores: {}, collators: {} }, undefined));
   });
 
   it('compares what was asked for, not key order', () => {
