@@ -327,12 +327,14 @@ function tomlArgs(args: string[]): string {
   return '[' + args.map((a) => `"${a}"`).join(', ') + ']';
 }
 
-function genesisParachainSection(key: Parachain, title: string, args: string[]): string {
+/** A parachain's genesis section, titled `name`, with its core count when it runs on more than one. */
+function genesisParachainSection(key: Parachain, name: string, args: string[]): string {
+  const chain = genesisChainOf(key) as NetworkParachain;
   const launch = `command = "{{SCRIPTS}}/omni-node.sh"${genesisCollatorEnv(key)}`;
   return `
-## ${title}
+## ${name} (Parachain ${chain.paraId})${chain.cores > 1 ? ` - Elastic Scaling on ${chain.cores} cores` : ''}
 [[parachains]]
-id = ${paraIds()[key]}
+id = ${chain.paraId}
 cumulus_based = true
 chain = "${genesisSpecOf(key).chainId}"
 chain_spec_path = "{{BIN}}/${genesisSpecOf(key).file}"
@@ -344,21 +346,20 @@ p2p_port = ${P2P_PORTS[key]}
 prometheus_port = ${prometheusPort(PORTS[key])}
 ${launch}
 args = ${tomlArgs(args)}
-${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
+${rpcNodeBlocks(chain, args, launch)}`;
 }
 
 function validatorNodes(count: number): string {
-  return Array.from({ length: count }, (_, i) => relayNodeName(i))
-    .map(
-      (v, i) => `
+  return Array.from(
+    { length: count },
+    (_, i) => `
 [[relaychain.nodes]]
-name = "${v}-${genesisConfig().validatorNameSuffix}"
+name = "${relayNodeName(i)}-${genesisConfig().validatorNameSuffix}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
 prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}
 balance = 1000000000000000`
-    )
-    .join('\n');
+  ).join('\n');
 }
 
 /** Which parachains talk to each other. Both directions are opened for each pair. */
@@ -414,12 +415,6 @@ function calcValidatorCount(parachains: Parachain[] | null): number {
   // One more validator than cores, up to the descriptor's count, and never fewer than the cores:
   // a core without a validator group of its own backs nothing.
   return Math.max(4, cores, Math.min(genesisNet().relay.validators, cores + 1));
-}
-
-/** The section title, with the core count of a chain that runs on more than one. */
-function parachainTitle(key: Parachain, name: string): string {
-  const cores = (genesisChainOf(key) as NetworkParachain).cores;
-  return `${name} (Parachain ${paraIds()[key]})${cores > 1 ? ` - Elastic Scaling on ${cores} cores` : ''}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -503,28 +498,16 @@ default_args = ${relayArgs}
 ${validatorNodes(validatorCount)}
 ${section(
   has('asset-hub'),
-  genesisParachainSection(
-    'asset-hub',
-    parachainTitle('asset-hub', 'Asset Hub Paseo Next'),
-    genesisChainArgs('asset-hub', lt['asset-hub'])
-  )
+  genesisParachainSection('asset-hub', 'Asset Hub Paseo Next', genesisChainArgs('asset-hub', lt['asset-hub']))
 )}${section(
   has('people'),
-  genesisParachainSection('people', parachainTitle('people', 'People Chain'), genesisChainArgs('people', lt.people))
+  genesisParachainSection('people', 'People Chain', genesisChainArgs('people', lt.people))
 )}${section(
   has('bulletin'),
-  genesisParachainSection(
-    'bulletin',
-    parachainTitle('bulletin', 'Bulletin Chain'),
-    genesisChainArgs('bulletin', lt.bulletin, options.enableHop)
-  )
+  genesisParachainSection('bulletin', 'Bulletin Chain', genesisChainArgs('bulletin', lt.bulletin, options.enableHop))
 )}${section(
   has('web3-storage'),
-  genesisParachainSection(
-    'web3-storage',
-    parachainTitle('web3-storage', 'Web3 Storage Chain'),
-    genesisChainArgs('web3-storage', lt['web3-storage'])
-  )
+  genesisParachainSection('web3-storage', 'Web3 Storage Chain', genesisChainArgs('web3-storage', lt['web3-storage']))
 )}${section(both('people', 'bulletin'), hrmpPair(paraIds().people, paraIds().bulletin))}
 ${section(both('people', 'asset-hub'), hrmpPair(paraIds().people, paraIds()['asset-hub']))}
 ${section(
@@ -618,7 +601,7 @@ name = "assign-cores"
 command = "{{SCRIPTS}}/assign-cores.sh"
 `
 )}${section(
-  has('asset-hub') && serviceEnabled('assign-cores'),
+  has('asset-hub') && serviceEnabled('set-dispatcher-address'),
   `
 [[custom_processes]]
 name = "set-dispatcher-address"
