@@ -84,7 +84,7 @@ export async function run(args: string[]): Promise<void> {
         endpointOf(relay, NETWORK, baseUrl),
         `${outDir}/rc_overrides.json`,
         {
-          paras: PARACHAINS,
+          paras: NETWORK.parachains,
           validators: topology?.validators ?? NETWORK.relay.validators,
           cores: topology?.cores,
           sharedRelay: NETWORK.bite.sharedRelay === true,

@@ -143,34 +143,28 @@ export function planExtraCores(
   return { assignments, missing };
 }
 
-/** `ParaScheduler::CoreDescriptors` as polkadot.js decodes it to JSON. */
-type CoreDescriptorsJson = Record<
-  string,
-  { queue: { last: number } | null; currentWork: { assignments: [unknown, unknown][] } | null }
->;
+/** A core's work (current or scheduled) as polkadot.js decodes it to JSON; a `Task` assignment is `{ task }`. */
+type CoreWorkJson = { assignments: [{ task?: number }, unknown][] };
 
 /**
  * The para ids on each core with an assignment, as the relay will run them: a queued schedule
  * replaces the current work once its block is reached, so the latest one wins.
  */
 async function assignedCores(api: ApiPromise): Promise<Map<number, number[]>> {
-  const paraIdsOf = (assignments: [unknown, unknown][] = []) =>
-    assignments.flatMap(([assignment]) =>
-      typeof assignment === 'object' && assignment !== null && 'task' in assignment && typeof assignment.task === 'number'
-        ? [assignment.task]
-        : []
-    );
+  const paraIdsOf = (work: CoreWorkJson | null) =>
+    (work?.assignments ?? []).flatMap(([{ task }]) => (task === undefined ? [] : [task]));
   // Decoded against the relay's own metadata, so the shape is the runtime's.
-  const descriptors = (await api.query.paraScheduler.coreDescriptors()).toJSON() as unknown as CoreDescriptorsJson;
+  const descriptors = (await api.query.paraScheduler.coreDescriptors()).toJSON() as unknown as Record<
+    string,
+    { queue: { last: number } | null; currentWork: CoreWorkJson | null }
+  >;
   const assigned = new Map<number, number[]>();
-  for (const [core, descriptor] of Object.entries(descriptors)) {
-    if (descriptor.queue) {
-      const schedule = (await api.query.paraScheduler.coreSchedules([descriptor.queue.last, Number(core)])).toJSON() as {
-        assignments: [unknown, unknown][];
-      } | null;
-      assigned.set(Number(core), paraIdsOf(schedule?.assignments));
-    } else if (descriptor.currentWork) {
-      assigned.set(Number(core), paraIdsOf(descriptor.currentWork.assignments));
+  for (const [core, { queue, currentWork }] of Object.entries(descriptors)) {
+    if (queue) {
+      const schedule = (await api.query.paraScheduler.coreSchedules([queue.last, Number(core)])).toJSON();
+      assigned.set(Number(core), paraIdsOf(schedule as unknown as CoreWorkJson | null));
+    } else if (currentWork) {
+      assigned.set(Number(core), paraIdsOf(currentWork));
     }
   }
   return assigned;

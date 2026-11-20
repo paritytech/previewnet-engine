@@ -24,7 +24,6 @@ export interface ForkParachain extends ForkChain {
   paraId: number;
   /** Curve this chain's Aura keys are on, as the descriptor declares it. */
   aura?: AuraScheme;
-  cores: number;
 }
 
 export function parachainsOf(net: NetworkDef): ForkParachain[] {
@@ -34,7 +33,6 @@ export function parachainsOf(net: NetworkDef): ForkParachain[] {
     endpoint: p.rpc,
     paraId: p.paraId,
     aura: p.aura,
-    cores: p.cores,
   }));
 }
 
