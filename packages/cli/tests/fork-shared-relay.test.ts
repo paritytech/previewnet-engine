@@ -7,6 +7,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { loadNetwork } from '@parity/ppn-network-config';
 
 import { compactLen, keyOf, twox64Concat, u32le } from '../src/fork/codec.js';
 import {
@@ -27,17 +28,12 @@ import {
   FULL_CORE,
 } from '../src/fork/shared-relay.js';
 
-const PNV2 = [
-  { key: 'asset-hub', paraId: 1500 },
-  { key: 'people', paraId: 1502 },
-  { key: 'bulletin', paraId: 1501 },
-];
+const PNV2 = loadNetwork('paseo-next-v2').parachains;
+const [ASSET_HUB, PEOPLE] = PNV2;
 
 describe('planCores', () => {
-  it('keeps Asset Hub on three cores, everything else on one', () => {
-    assert.equal(coresFor('asset-hub'), 3);
-    assert.equal(coresFor('people'), 1);
-    assert.equal(coresFor('bulletin'), 1);
+  it('takes each parachain core count from the descriptor: Asset Hub on three, the rest on one', () => {
+    assert.deepEqual(PNV2.map((p) => [p.key, coresFor(p)]), [['asset-hub', 3], ['people', 1], ['bulletin', 1]]);
   });
 
   // Upward from zero is the whole point: those are the cores the runtime staffs first.
@@ -60,9 +56,9 @@ describe('planCores', () => {
 
   // `ppn bite --cores people=3`: the asked-for count replaces the default for that chain only.
   it('lays a parachain out on as many cores as the bite asked for', () => {
-    assert.equal(coresFor('people', { people: 3 }), 3);
-    assert.equal(coresFor('asset-hub', { people: 3 }), 3, 'the default stays for the others');
-    assert.equal(coresFor('asset-hub', { 'asset-hub': 1 }), 1, 'and can be cut too');
+    assert.equal(coresFor(PEOPLE, { people: 3 }), 3);
+    assert.equal(coresFor(ASSET_HUB, { people: 3 }), 3, 'the default stays for the others');
+    assert.equal(coresFor(ASSET_HUB, { 'asset-hub': 1 }), 1, 'and can be cut too');
     assert.deepEqual(planCores(PNV2, { people: 3 }), [
       { core: 0, paraId: 1500 },
       { core: 1, paraId: 1500 },

@@ -14,7 +14,7 @@ import path from 'node:path';
 import { repoRoot } from './repo-root.js';
 import { PARACHAIN_KEYS } from './types.js';
 import type { Parachain, ChainKey, ChainDef, LogLevel, GenerateTomlOptions } from './types.js';
-import { DEFAULT_NETWORK, type NetworkDef, type NetworkParachain } from './networks.js';
+import { DEFAULT_NETWORK, MAX_VALIDATORS, type NetworkDef, type NetworkParachain } from './networks.js';
 import { loadNetwork } from './load.js';
 import { dubCustomProcesses } from './dub.js';
 import { addMissing, flagOf, overrideArgs } from './args.js';
@@ -43,12 +43,12 @@ const VALID_PARACHAINS: Parachain[] = PARACHAIN_KEYS;
 
 // Genesis is previewnet-only by design (see networks/README.md), but everything about
 // previewnet that the descriptor states — para ids, chain ids, spec files, binaries,
-// per-chain flags, validator count and naming, which services run — is read from it
-// here rather than restated, so this generator and fork mode cannot disagree, and
+// per-chain flags, core counts, validator count and naming, which services run — is read
+// from it here rather than restated, so this generator and fork mode cannot disagree, and
 // editing the descriptor changes both.
 //
-// What stays in code is what the descriptor does not describe: the elastic-scaling
-// core count, the HRMP topology, and the bootstrap processes' own arguments.
+// What stays in code is what the descriptor does not describe: the HRMP topology and the
+// bootstrap processes' own arguments.
 // Loaded on first use, not at import. A module-level load makes importing this package
 // require a descriptor on disk — which is fine in a checkout and fatal once published: a
 // consumer that only wants the types or the generators cannot even import it, and the failure
@@ -137,7 +137,8 @@ function prometheusPort(rpcPort: number): number {
 /** RPC ports of a parachain's RPC nodes: the chain's own port + 1..rpcNodes. Throws on a port another chain uses. */
 function rpcNodePorts(parachain: NetworkParachain): number[] {
   const ports = Array.from({ length: parachain.rpcNodes }, (_, index) => PORTS[parachain.key] + index + 1);
-  const used = [...Object.values(PORTS), ...VALIDATORS.map((_, index) => RELAY_BASE_PORT + index)];
+  const relayPorts = Array.from({ length: MAX_VALIDATORS }, (_, index) => RELAY_BASE_PORT + index);
+  const used = [...Object.values(PORTS), ...relayPorts];
   const clash = ports.find((port) => used.includes(port));
   if (clash !== undefined) {
     throw new Error(
@@ -346,7 +347,7 @@ ${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
 }
 
 function validatorNodes(count: number): string {
-  return VALIDATORS.slice(0, count)
+  return Array.from({ length: count }, (_, i) => relayNodeName(i))
     .map(
       (v, i) => `
 [[relaychain.nodes]]
@@ -408,12 +409,16 @@ function calcValidatorCount(parachains: Parachain[] | null): number {
   const selected = new Set(
     (parachains || []).filter((p) => VALID_PARACHAINS.includes(p))
   );
-  // Asset Hub's elastic scaling needs two extra validators for the extra cores. The
-  // ceiling is what the descriptor says this network runs with.
-  return Math.max(
-    4,
-    Math.min(genesisNet().relay.validators, selected.size + (selected.has('asset-hub') ? 2 : 0) + 1)
-  );
+  const cores = genesisNet().parachains.filter((p) => selected.has(p.key)).reduce((sum, p) => sum + p.cores, 0);
+  // Every core needs a validator group of its own. The ceiling is what the descriptor says this
+  // network runs with, and the descriptor rejects a count below its cores.
+  return Math.max(4, Math.min(genesisNet().relay.validators, cores + 1));
+}
+
+/** The section title, with the core count of a chain that runs on more than one. */
+function parachainTitle(key: Parachain, name: string): string {
+  const cores = (genesisChainOf(key) as NetworkParachain).cores;
+  return `${name} (Parachain ${paraIds()[key]})${cores > 1 ? ` - Elastic Scaling on ${cores} cores` : ''}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +469,9 @@ function generateToml(parachains: Parachain[] | null, options: GenerateTomlOptio
   const lt = options.logTargets || {};
 
   const validatorCount = calcValidatorCount(parachains);
+  // The relay puts each parachain registered at genesis on one core after these; assign-cores
+  // hands these out to the chains that run on more than one.
+  const extraCores = genesisNet().parachains.filter((p) => has(p.key)).reduce((sum, p) => sum + p.cores - 1, 0);
 
   const hasChannels = both('people', 'bulletin') || both('people', 'asset-hub');
 
@@ -478,11 +486,11 @@ function generateToml(parachains: Parachain[] | null, options: GenerateTomlOptio
 timeout = 600
 node_spawn_timeout = 240
 ${section(
-  has('asset-hub'),
+  extraCores > 0,
   `
-# Elastic scaling: 2 extra cores for Asset Hub 2-second blocks
+# Elastic scaling: the cores beyond each parachain's first, which assign-cores hands out
 [relaychain.genesis.configuration.config.scheduler_params]
-num_cores = 2
+num_cores = ${extraCores}
 max_validators_per_core = 1
 `
 )}
@@ -496,24 +504,24 @@ ${section(
   has('asset-hub'),
   genesisParachainSection(
     'asset-hub',
-    `Asset Hub Paseo Next (Parachain ${paraIds()['asset-hub']}) - Elastic Scaling with 2-second blocks`,
+    parachainTitle('asset-hub', 'Asset Hub Paseo Next'),
     genesisChainArgs('asset-hub', lt['asset-hub'])
   )
 )}${section(
   has('people'),
-  genesisParachainSection('people', `People Chain (Parachain ${paraIds().people})`, genesisChainArgs('people', lt.people))
+  genesisParachainSection('people', parachainTitle('people', 'People Chain'), genesisChainArgs('people', lt.people))
 )}${section(
   has('bulletin'),
   genesisParachainSection(
     'bulletin',
-    `Bulletin Chain (Parachain ${paraIds().bulletin})`,
+    parachainTitle('bulletin', 'Bulletin Chain'),
     genesisChainArgs('bulletin', lt.bulletin, options.enableHop)
   )
 )}${section(
   has('web3-storage'),
   genesisParachainSection(
     'web3-storage',
-    `Web3 Storage Chain (Parachain ${paraIds()['web3-storage']})`,
+    parachainTitle('web3-storage', 'Web3 Storage Chain'),
     genesisChainArgs('web3-storage', lt['web3-storage'])
   )
 )}${section(both('people', 'bulletin'), hrmpPair(paraIds().people, paraIds().bulletin))}
@@ -602,12 +610,15 @@ ${section(serviceEnabled('pin-design-families'), `
 name = "pin-design-families"
 command = "{{SCRIPTS}}/pin-design-families.sh"
 `)}${section(
-  has('asset-hub') && serviceEnabled('assign-cores'),
+  extraCores > 0 && serviceEnabled('assign-cores'),
   `
 [[custom_processes]]
 name = "assign-cores"
 command = "{{SCRIPTS}}/assign-cores.sh"
-
+`
+)}${section(
+  has('asset-hub') && serviceEnabled('assign-cores'),
+  `
 [[custom_processes]]
 name = "set-dispatcher-address"
 command = "{{SCRIPTS}}/set-dispatcher-address.sh"

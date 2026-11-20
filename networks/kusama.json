@@ -35,6 +35,7 @@
     {
       "key": "asset-hub",
       "paraId": 1000,
+      "cores": 3,
       "spec": "asset-hub",
       "rpc": "wss://kusama-asset-hub-rpc.polkadot.io",
       "specSource": "builtin:asset-hub-kusama",

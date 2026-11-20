@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   ALICE_SR,
-  MAX_VALIDATORS,
   collatorKey,
   collatorKeys,
   devValidators,
@@ -21,6 +20,7 @@ import {
   authorizedUpgradeCandidate,
   type DevValidator,
 } from '../src/fork/validators.js';
+import { MAX_VALIDATORS } from '@parity/ppn-network-config';
 import { verify, verifyInjects } from '../src/fork/overrides.js';
 import { compactLen, keyOf, twox64Concat, u32le } from '../src/fork/codec.js';
 import { TypeRegistry } from '@polkadot/types';

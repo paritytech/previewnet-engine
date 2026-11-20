@@ -48,7 +48,7 @@
     "spec": "paseo",
     "rpc": "relay/alice",
     "specSource": "chainspecs/paseo-local.json",
-    "validators": 6,
+    "validators": 8,
     "binary": {
       "name": "polkadot",
       "release": "polkadot-sdk"
@@ -75,6 +75,7 @@
     {
       "key": "asset-hub",
       "paraId": 1500,
+      "cores": 3,
       "spec": "asset-hub",
       "rpc": "asset-hub",
       "specSource": "chainspecs/asset-hub-local.json",
@@ -97,6 +98,7 @@
     {
       "key": "people",
       "paraId": 1502,
+      "cores": 3,
       "spec": "individuality",
       "rpc": "people",
       "specSource": "chainspecs/individuality-local.json",

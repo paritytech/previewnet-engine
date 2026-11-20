@@ -6,8 +6,8 @@
 > been audited, is actively experimental, and may contain bugs, vulnerabilities, or incomplete
 > features. Use at your own risk.
 
-A complete Polkadot ecosystem on your machine, in one command: a relay chain with six
-validators, plus Asset Hub (2-second blocks via elastic scaling), People, Bulletin and Web3
+A complete Polkadot ecosystem on your machine, in one command: a relay chain with eight
+validators, plus Asset Hub and People (2-second blocks via elastic scaling), Bulletin and Web3
 Storage, plus the Ethereum RPC, IPFS, identity backend and storage provider those chains
 expect, already wired together. The same tool forks a live network, Polkadot included, so the
 chains come up carrying real state instead of an empty genesis.
@@ -175,9 +175,9 @@ strips the dev keys from anything long-lived. A server's secrets file holds the 
 
 | | Endpoint | |
 | --- | --- | --- |
-| Relay (alice … ferdie) | `ws://127.0.0.1:10000` – `10005` | 6 validators |
+| Relay (alice … ferdie) | `ws://127.0.0.1:10000` – `10005` | 8 validators; Validator-7 and -8 on `10006`, `10007` |
 | Asset Hub | `ws://127.0.0.1:10020` | **2-second blocks**, elastic scaling |
-| People | `ws://127.0.0.1:10010` | individuality |
+| People | `ws://127.0.0.1:10010` | individuality, **2-second blocks**, elastic scaling |
 | Bulletin | `ws://127.0.0.1:10030` | transaction storage |
 | Web3 Storage | `ws://127.0.0.1:10040` | storage parachain, previewnet only |
 | Dashboard | <http://127.0.0.1:8090> | status UI and API for all of the above |

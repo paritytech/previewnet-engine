@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import type { ServiceContext } from './service-context.js';
+import type { ApiPromise } from '@polkadot/api';
 import { loadCurrentNetwork, readEnvFile, hrmpChannels, type NetworkDef, repoRoot,
   workspaceRoot,
   BOB_SS58,
@@ -112,57 +113,105 @@ export async function run(args: string[], deps: ServiceDeps = {}): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
-// assign-cores — Asset Hub's 2-second blocks
+// assign-cores — elastic scaling
 // ---------------------------------------------------------------------------
 
+/** A parachain's core count as the descriptor states it. */
+export interface CoreTarget {
+  key: string;
+  paraId: number;
+  cores: number;
+}
+
 /**
- * Give Asset Hub two extra cores so it can author at 2 seconds via elastic scaling.
- * zombienet assigns it one; these are cores 0 and 1 at 100% each (57600 parts).
- *
- * Which para id gets them comes from the descriptor — this used to be a shell script
- * exporting an env var into a Node script, with the id fetched by a third process.
+ * The assignments that bring each parachain up to its descriptor core count, and what still
+ * lacks a core afterwards. Uses only cores below `coreCount` (one per validator group, since a
+ * core without a group backs nothing) that nothing is assigned to, lowest first, and never
+ * moves an assigned core, so running it again on a kept chain changes nothing.
+ */
+export function planExtraCores(
+  targets: CoreTarget[],
+  assigned: Map<number, number[]>,
+  coreCount: number
+): { assignments: { core: number; paraId: number }[]; missing: { key: string; cores: number }[] } {
+  const free = Array.from({ length: coreCount }, (_, core) => core).filter((core) => !assigned.has(core));
+  const assignments: { core: number; paraId: number }[] = [];
+  const missing: { key: string; cores: number }[] = [];
+  for (const target of targets) {
+    const held = [...assigned.values()].filter((paraIds) => paraIds.includes(target.paraId)).length;
+    const lacking = Math.max(0, target.cores - held);
+    const granted = free.splice(0, lacking);
+    assignments.push(...granted.map((core) => ({ core, paraId: target.paraId })));
+    if (granted.length < lacking) missing.push({ key: target.key, cores: lacking - granted.length });
+  }
+  return { assignments, missing };
+}
+
+/** `ParaScheduler::CoreDescriptors` as polkadot.js decodes it to JSON. */
+type CoreDescriptorsJson = Record<
+  string,
+  { queue: { last: number } | null; currentWork: { assignments: [unknown, unknown][] } | null }
+>;
+
+/**
+ * The para ids on each core with an assignment, as the relay will run them: a queued schedule
+ * replaces the current work once its block is reached, so the latest one wins.
+ */
+async function assignedCores(api: ApiPromise): Promise<Map<number, number[]>> {
+  const paraIdsOf = (assignments: [unknown, unknown][] = []) =>
+    assignments.flatMap(([assignment]) =>
+      typeof assignment === 'object' && assignment !== null && 'task' in assignment && typeof assignment.task === 'number'
+        ? [assignment.task]
+        : []
+    );
+  // Decoded against the relay's own metadata, so the shape is the runtime's.
+  const descriptors = (await api.query.paraScheduler.coreDescriptors()).toJSON() as unknown as CoreDescriptorsJson;
+  const assigned = new Map<number, number[]>();
+  for (const [core, descriptor] of Object.entries(descriptors)) {
+    if (descriptor.queue) {
+      const schedule = (await api.query.paraScheduler.coreSchedules([descriptor.queue.last, Number(core)])).toJSON() as {
+        assignments: [unknown, unknown][];
+      } | null;
+      assigned.set(Number(core), paraIdsOf(schedule?.assignments));
+    } else if (descriptor.currentWork) {
+      assigned.set(Number(core), paraIdsOf(descriptor.currentWork.assignments));
+    }
+  }
+  return assigned;
+}
+
+/**
+ * Put every parachain on as many cores as the descriptor states, from the cores the relay has
+ * validator groups for and nothing assigned to. At genesis those are the extra cores the genesis
+ * TOML adds; on a kept chain that has already been laid out there is nothing to do, and one
+ * whose relay lacks validators for the cores is reported rather than half laid out.
  */
 async function assignCores(ctx: ServiceContext, _deps: ServiceDeps = {}): Promise<void> {
-  const assetHub = ctx.net.parachains.find((p) => p.key === 'asset-hub');
-  if (!assetHub) {
-    console.log(`assign-cores: ${ctx.net.name} has no asset-hub — nothing to assign`);
-    return;
-  }
-  const waitSeconds = Number(process.env.WAIT_SECONDS ?? 30);
-  if (waitSeconds > 0) {
-    console.log(`assign-cores: waiting ${waitSeconds}s for the relay chain to be ready...`);
-    await new Promise((r) => setTimeout(r, waitSeconds * 1000));
-  }
-
+  await waitSeconds('the relay chain', 30);
   const { ApiPromise, WsProvider, Keyring } = await import('@polkadot/api');
-  console.log(`assign-cores: relay ${ctx.relayWs}, para ${assetHub.paraId}`);
+  console.log(`assign-cores: relay ${ctx.relayWs}`);
   const api = await ApiPromise.create({ provider: new WsProvider(ctx.relayWs) });
   try {
-    console.log(`  connected to ${(await api.rpc.system.chain()).toString()}`);
+    const coreCount = ((await api.query.paraScheduler.validatorGroups()).toJSON() as unknown[]).length;
+    const { assignments, missing } = planExtraCores(ctx.net.parachains, await assignedCores(api), coreCount);
+    for (const { key, cores } of missing) {
+      console.log(
+        `assign-cores: ${key} lacks ${cores} core(s), and none of the relay's ${coreCount} validator groups ` +
+          'has a free core: the relay needs one validator per core'
+      );
+    }
+    if (assignments.length === 0) {
+      console.log('assign-cores: nothing to assign');
+      return;
+    }
+
     const signer = new Keyring({ type: 'sr25519' }).addFromUri(ctx.sudoUri);
-
-    // assignCore(coreIndex, begin=0 (immediately), [[assignment, parts]], endHint=null)
-    const assign = (core: number) =>
-      api.tx.coretime.assignCore(core, 0, [[{ Task: assetHub.paraId }, 57600]], null);
-    const call = api.tx.sudo.sudo(api.tx.utility.batch([assign(0), assign(1)]));
-
-    await new Promise<void>((resolve, reject) => {
-      call
-        .signAndSend(signer, ({ status, dispatchError }) => {
-          if (status.isInBlock) console.log(`  included in ${status.asInBlock.toString()}`);
-          if (!status.isFinalized) return;
-          console.log(`  finalized in ${status.asFinalized.toString()}`);
-          if (!dispatchError) return resolve();
-          if (dispatchError.isModule) {
-            const e = api.registry.findMetaError(dispatchError.asModule);
-            reject(new Error(`${e.section}.${e.name}: ${e.docs.join(' ')}`));
-          } else {
-            reject(new Error(dispatchError.toString()));
-          }
-        })
-        .catch(reject);
-    });
-    console.log(`assign-cores: para ${assetHub.paraId} now has 3 cores (1 from zombienet + 2 here) — ~2s blocks`);
+    // begin 0: from the next block; 57600 parts: the whole core.
+    const calls = assignments.map(({ core, paraId }) =>
+      api.tx.coretime.assignCore(core, 0, [[{ Task: paraId }, 57600]], null)
+    );
+    await submitSudo(api, signer, api.tx.sudo.sudo(api.tx.utility.batch(calls)));
+    for (const { core, paraId } of assignments) console.log(`assign-cores: core ${core} -> para ${paraId}`);
   } finally {
     await api.disconnect();
   }

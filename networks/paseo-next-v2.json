@@ -39,6 +39,7 @@
     {
       "key": "asset-hub",
       "paraId": 1500,
+      "cores": 3,
       "spec": "asset-hub",
       "rpc": "wss://paseo-asset-hub-next-rpc.polkadot.io",
       "specSource": "https://raw.githubusercontent.com/paritytech/chainspecs/main/paseo/parachain/asset-hub-next/raw.json",

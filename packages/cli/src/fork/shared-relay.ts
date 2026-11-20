@@ -48,17 +48,13 @@ export interface CoreAssignment {
 export interface PlannedPara {
   key: string;
   paraId: number;
+  /** The descriptor's core count for it. */
+  cores: number;
 }
 
-/**
- * How many cores each parachain gets.
- *
- * Asset Hub keeps three: that is what gives it 2-second blocks through elastic scaling, and it
- * is the one place where the number is a property of the network rather than a default. The
- * rest get one each — unless the bite was asked for more (`ppn bite --cores people=3`).
- */
-export function coresFor(key: string, cores: Record<string, number> = {}): number {
-  return cores[key] ?? (key === 'asset-hub' ? 3 : 1);
+/** How many cores a parachain gets: the descriptor's count, unless the bite was asked for another (`ppn bite --cores people=3`). */
+export function coresFor(para: PlannedPara, cores: Record<string, number> = {}): number {
+  return cores[para.key] ?? para.cores;
 }
 
 /**
@@ -72,7 +68,7 @@ export function planCores(paras: PlannedPara[], cores: Record<string, number> = 
   const plan: CoreAssignment[] = [];
   let core = 0;
   for (const para of paras) {
-    for (let i = 0; i < coresFor(para.key, cores); i++) plan.push({ core: core++, paraId: para.paraId });
+    for (let i = 0; i < coresFor(para, cores); i++) plan.push({ core: core++, paraId: para.paraId });
   }
   return plan;
 }

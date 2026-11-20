@@ -10,10 +10,10 @@ Do not add `Co-Authored-By: Claude` (or any other AI attribution) lines to commi
 
 Product Preview Network (PPN) is infrastructure tooling for spinning up a local Polkadot ecosystem with Zombienet. It provides pre-built binaries, WASM runtimes, and configuration for:
 
-- **Relay Chain**: Paseo (6 validators: alice, bob, charlie, dave, eve, ferdie)
+- **Relay Chain**: Paseo (8 validators: alice, bob, charlie, dave, eve, ferdie, Validator-7, Validator-8)
 - **Parachains**:
   - Asset Hub (ID 1500) - port 10020 - **2-second blocks** via elastic scaling
-  - People/Individuality Chain (ID 1502) - port 10010
+  - People/Individuality Chain (ID 1502) - port 10010 - **2-second blocks** via elastic scaling
   - Bulletin Chain (ID 1501) - port 10030
   - Web3 Storage Chain (ID 1600) - port 10040
 
@@ -235,11 +235,13 @@ zombienet-configs/
 | DUB API Reference | `http://127.0.0.1:8092/docs` | Generated OpenAPI reference |
 | TURN/STUN (eturnal) | `stun:127.0.0.1:3478`, `turn:127.0.0.1:3478` | Relay for p2p clients; credentials from DUB `/api/v1/turn/issue` (see `docs/TURN.md`) |
 
-## Elastic Scaling (Asset Hub)
+## Elastic Scaling (Asset Hub, People)
 
-Asset Hub runs with 2-second block times using elastic scaling:
-- 6 validators required for 5 cores (3 parachains + 2 extra for Asset Hub)
-- Core assignment via `scripts/assign-cores.sh` (runs automatically as custom_process)
+Asset Hub and People run with 2-second block times on three cores each (`parachains[].cores` in
+the descriptor):
+- 8 validators for 8 cores (one per core, or a core has no group to back its blocks)
+- The genesis TOML adds the extra cores; `ppn service assign-cores` (a custom process) hands
+  them out, and on a kept chain assigns only cores that have a validator group and no assignment
 
 ## Testing
 

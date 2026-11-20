@@ -5,9 +5,8 @@
 // are state inside the snapshots (fork/validators.ts, fork/shared-relay.ts), so the fork TOML
 // can only follow what the bundle says. A bundle bitten with the defaults carries no topology.
 
-import type { ForkTopology, NetworkDef } from '@parity/ppn-network-config';
+import { MAX_VALIDATORS, type ForkTopology, type NetworkDef } from '@parity/ppn-network-config';
 import { planCores } from './shared-relay.js';
-import { MAX_VALIDATORS } from './validators.js';
 
 function parseCounts(flag: string, specs: string[] | undefined, net: NetworkDef): Record<string, number> {
   const counts: Record<string, number> = {};

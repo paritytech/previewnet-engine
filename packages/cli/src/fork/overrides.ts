@@ -268,7 +268,7 @@ async function coreLayoutCandidates(
   const config = patchNumCores(index, liveConfig, plan.length);
 
   console.log(
-    `  cores: ${paras.map((p) => `${p.key}=${coresFor(p.key, cores)}`).join(', ')} on cores 0-${plan.length - 1}, ` +
+    `  cores: ${paras.map((p) => `${p.key}=${coresFor(p, cores)}`).join(', ')} on cores 0-${plan.length - 1}, ` +
       `num_cores ${config.before} -> ${plan.length}, ${validators} validators`
   );
 

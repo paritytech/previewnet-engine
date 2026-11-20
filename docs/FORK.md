@@ -90,8 +90,9 @@ instead of driving doppelganger itself ([#120](https://github.com/paritytech/zom
 ## What you get, and what you don't
 
 The fork resumes at the bite block and diverges from there — it is a real fork, not a mirror. It
-runs six relay validators and one collator per parachain, on PPN's normal ports, with Asset Hub's
-2-second elastic scaling intact — unless the bite was asked for a different layout, below.
+runs the descriptor's relay validators and one collator per parachain, on PPN's normal ports. A
+previewnet fork keeps the core layout it bit; a fork of a shared relay lays the parachains out on
+the descriptor's `cores` — unless the bite was asked for a different layout, below.
 
 ### Cores and collators
 
@@ -100,15 +101,15 @@ make start FORK=1 FRESH_BITE=1 CORES=people=3 COLLATORS=people=5
 make bite CORES="people=3 asset-hub=1" COLLATORS=people=5
 ```
 
-`CORES=<chain>=<n>` lays a parachain out on that many cores (Asset Hub defaults to three, the
-rest to one); `COLLATORS=<chain>=<n>` installs that many collators as its authorities. Both are
+`CORES=<chain>=<n>` lays a parachain out on that many cores (the descriptor's `cores` otherwise);
+`COLLATORS=<chain>=<n>` installs that many collators as its authorities. Both are
 **bite-time** settings: the collator authority sets and the relay's core layout are state inside
 the snapshots, so a published bundle — bitten with the defaults — cannot take them. `ppn start`
 refuses a bundle whose recorded layout differs from what it was asked for and says how to re-bite.
 The bundle's `manifest.json` carries the layout under `topology`, and the fork TOML follows it.
 
 The relay grows to one validator per core, because a core with no validator group backs nothing:
-previewnet with `people=3` is 3 + 3 + 1 + 1 = 8 cores, so 8 validators. Past the well-known six
+paseo-next-v2 with `people=3` is 3 + 3 + 1 = 7 cores, so 7 validators. Past the well-known six
 they are named `Validator-7`, `Validator-8`, … and their keys derived from those names, the same
 way zombienet does it; the cap is 10, where the relay RPC ports (`10000 + i`) would run into
 People's. Extra collators are `Collator-<paraId>-2` … and restore the same snapshot as the first;

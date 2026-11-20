@@ -11,7 +11,7 @@
 import { Keyring } from '@polkadot/keyring';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { blake2128Concat, compactLen, keyOf, twox64Concat, u128le, u32le } from './codec.js';
-import { collatorNodeName, relayNodeName, type AuraScheme } from '@parity/ppn-network-config';
+import { collatorNodeName, MAX_VALIDATORS, relayNodeName, type AuraScheme } from '@parity/ppn-network-config';
 
 export const ALICE_SR = 'd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
 
@@ -24,9 +24,6 @@ export interface DevValidator {
   paraAssignment: string;
   authorityDiscovery: string;
 }
-
-/** Relay RPC ports are `RELAY_BASE_PORT + i`, and the eleventh would land on People's. */
-export const MAX_VALIDATORS = 10;
 
 /**
  * The names the relay's dev keys derive from, in the order the authority set lists them.
