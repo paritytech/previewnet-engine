@@ -338,7 +338,15 @@ describe('cores', () => {
   it('rejects more cores than a relay can have validators for', () => {
     assert.throws(
       loadEdited((raw) => ({ ...raw, parachains: raw.parachains.map((p) => (p.key === 'people' ? { ...p, cores: 6 } : p)) })),
-      /run on 11 cores, each needing a validator, and a relay runs at most 10/
+      /run on 11 cores, one validator per core, and a relay runs at most 10 validators/
+    );
+  });
+
+  // previewnet's own relay keeps production's layout on a fork; a shared relay's is laid out anew.
+  it('rejects a shared relay with fewer validators than cores', () => {
+    assert.throws(
+      loadEdited((raw) => ({ ...raw, bite: { ...(raw.bite as object), sharedRelay: true } })),
+      /relay\.validators is 6, fewer than the parachains' 8 cores/
     );
   });
 

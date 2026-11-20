@@ -148,7 +148,7 @@ export interface NetworkRelay extends ChainFields {
   chain: string;
   /**
    * Dev-key validators the fork runs with, max 6 (alice…ferdie). A genesis spawn runs one per
-   * parachain core where that is more, named Validator-7… past the six: a core without a
+   * parachain core where that is more, called Validator-7… past the six: a core without a
    * validator group backs nothing.
    */
   validators: number;
@@ -446,11 +446,15 @@ export function loadDescriptor(name: string): NetworkDef {
   );
   const totalCores = Object.values(cores).reduce((sum, count) => sum + count, 0);
   if (totalCores > MAX_VALIDATORS) {
-    bad(`the parachains run on ${totalCores} cores, each needing a validator, and a relay runs at most ${MAX_VALIDATORS}`);
+    bad(`the parachains run on ${totalCores} cores, one validator per core, and a relay runs at most ${MAX_VALIDATORS} validators`);
   }
   const validators = raw.relay.validators ?? 6;
   if (!Number.isInteger(validators) || validators < 1 || validators > 6) {
     bad('relay.validators must be 1..6 (alice…ferdie)');
+  }
+  // A shared relay's fork lays the parachains out on their declared cores with these validators.
+  if (raw.bite?.sharedRelay === true && validators < totalCores) {
+    bad(`relay.validators is ${validators}, fewer than the parachains' ${totalCores} cores, which a fork of a shared relay lays out`);
   }
 
   const services: Record<string, ServiceConfig> = raw.services ?? {};
