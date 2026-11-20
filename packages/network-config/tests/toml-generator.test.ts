@@ -86,10 +86,10 @@ describe('generateToml', () => {
     assert.ok(toml.includes('chain_spec_path = "{{BIN}}/relay_paseo.json"'));
 
     // 7 validators: one per core (3 + 3 + 1), past the descriptor's 6
-    for (const name of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'Validator-7']) {
+    for (const name of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'one']) {
       assert.ok(toml.includes(`name = "${name}-paseo-validator"`), name);
     }
-    assert.ok(!toml.includes('Validator-8'));
+    assert.ok(!toml.includes('two-paseo-validator'));
 
     // All parachains
     assert.ok(toml.includes('id = 1500'));

@@ -175,7 +175,7 @@ strips the dev keys from anything long-lived. A server's secrets file holds the 
 
 | | Endpoint | |
 | --- | --- | --- |
-| Relay (alice … ferdie) | `ws://127.0.0.1:10000` – `10005` | 8 validators; Validator-7 and -8 on `10006`, `10007` |
+| Relay (alice … ferdie) | `ws://127.0.0.1:10000` – `10005` | 8 validators; `one` and `two` on `10006`, `10007` |
 | Asset Hub | `ws://127.0.0.1:10020` | **2-second blocks**, elastic scaling |
 | People | `ws://127.0.0.1:10010` | individuality, **2-second blocks**, elastic scaling |
 | Bulletin | `ws://127.0.0.1:10030` | transaction storage |

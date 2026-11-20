@@ -10,7 +10,7 @@ Do not add `Co-Authored-By: Claude` (or any other AI attribution) lines to commi
 
 Product Preview Network (PPN) is infrastructure tooling for spinning up a local Polkadot ecosystem with Zombienet. It provides pre-built binaries, WASM runtimes, and configuration for:
 
-- **Relay Chain**: Paseo (8 validators: alice, bob, charlie, dave, eve, ferdie, Validator-7, Validator-8)
+- **Relay Chain**: Paseo (8 validators: alice, bob, charlie, dave, eve, ferdie, one, two)
 - **Parachains**:
   - Asset Hub (ID 1500) - port 10020 - **2-second blocks** via elastic scaling
   - People/Individuality Chain (ID 1502) - port 10010 - **2-second blocks** via elastic scaling

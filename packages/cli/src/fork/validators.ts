@@ -31,11 +31,11 @@ export interface DevValidator {
  * The first six are zombie-bite's get_validator_keys() order — ALICE, BOB, CHARLIE, DAVE,
  * FERDIE, EVE (note FERDIE before EVE) — because ActiveValidatorIndices and ValidatorGroups
  * index into the list positionally, and a bundle bitten with the old hard-coded keys had that
- * order. The names beyond them are whatever the fork TOML calls the extra nodes: zombienet
- * derives a non-well-known node's keys from `//<Name>`, exactly as done here.
+ * order. Then the keyring's One and Two, and past them whatever the fork TOML calls the extra
+ * nodes: zombienet derives a node's keys from `//<Name>`, exactly as done here.
  */
 function validatorNames(count: number): string[] {
-  const wellKnown = ['Alice', 'Bob', 'Charlie', 'Dave', 'Ferdie', 'Eve'];
+  const wellKnown = ['Alice', 'Bob', 'Charlie', 'Dave', 'Ferdie', 'Eve', 'One', 'Two'];
   return Array.from({ length: count }, (_, i) => wellKnown[i] ?? relayNodeName(i));
 }
 

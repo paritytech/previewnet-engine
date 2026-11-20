@@ -179,7 +179,7 @@ describe('generateForkToml — topology from the bundle', () => {
 
   it('runs as many relay validators as the bite installed keys for', () => {
     assert.equal(toml.split('[[relaychain.nodes]]').length - 1, 8);
-    for (const [i, name] of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'Validator-7', 'Validator-8'].entries()) {
+    for (const [i, name] of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'one', 'two'].entries()) {
       assert.ok(toml.includes(`name = "${name}"\nvalidator = true\nrpc_port = ${RELAY_BASE_PORT + i}`),
         `${name} missing or on the wrong port`);
     }

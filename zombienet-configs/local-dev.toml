@@ -60,14 +60,14 @@ prometheus_port = 20005
 balance = 1000000000000000
 
 [[relaychain.nodes]]
-name = "Validator-7-paseo-validator"
+name = "one-paseo-validator"
 validator = true
 rpc_port = 10006
 prometheus_port = 20006
 balance = 1000000000000000
 
 [[relaychain.nodes]]
-name = "Validator-8-paseo-validator"
+name = "two-paseo-validator"
 validator = true
 rpc_port = 10007
 prometheus_port = 20007

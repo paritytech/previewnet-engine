@@ -19,12 +19,13 @@ import { loadNetwork } from './load.js';
 import { dubCustomProcesses } from './dub.js';
 import { addMissing, flagOf, overrideArgs } from './args.js';
 
-const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'] as const;
+/** The well-known dev accounts, as polkadot-sdk's keyring lists them. */
+const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'one', 'two'] as const;
 
 /**
- * The name of the i-th relay node: the well-known names, then `Validator-<i+1>`. A fork uses them
- * as they are, which zombienet maps to the well-known dev keys for the first six; past them, and
- * for genesis names with the network's suffix, zombienet derives a node's keys from `//<Name>` —
+ * The name of the i-th relay node: the dev account names, then `Validator-<i+1>`. A fork uses them
+ * as they are, which zombienet maps to the well-known dev keys; for genesis names with the
+ * network's suffix and past the dev accounts, zombienet derives a node's keys from `//<Name>` —
  * the same rule that makes `Collator-<paraId>` work — so any name serves, as long as a bite
  * installs the keys derived from it (cli fork/validators.ts).
  */
