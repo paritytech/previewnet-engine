@@ -343,10 +343,10 @@ jobs:
           # environment into custom_processes; that file exists for exactly this.
           rm -rf ${{ env.ZOMBIE_DIR }} data/identity-pgdata
           mkdir -p ${{ env.ZOMBIE_DIR }}
-          # One People RPC node through the network overlay, so the spawn covers what a
+          # One People RPC node and safeRpc through the network overlay, so the spawn covers what a
           # deployment's overlay generates. A separate file keeps local-dev.toml as checked in.
           OVERLAY="$RUNNER_TEMP/network-overlay.json"
-          echo '{"previewnet":{"parachains":{"people":{"rpcNodes":1}}}}' > "$OVERLAY"
+          echo '{"previewnet":{"safeRpc":true,"parachains":{"people":{"rpcNodes":1}}}}' > "$OVERLAY"
           PPN_NETWORK_OVERLAY="$OVERLAY" node bin/ppn.mjs genesis-toml > zombienet-configs/ci.toml
           printf 'DUB_POSTGRES_DATA_DIR=%s\nPPN_NETWORK_OVERLAY=%s\n' "${{ env.ZOMBIE_DIR }}/identity-pgdata" "$OVERLAY" > config/ports.local.env
           # Spawn network in background, store state in ZOMBIE_DIR
