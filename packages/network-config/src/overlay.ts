@@ -1,6 +1,6 @@
 // A deployment's own shape for a network, without a release of the engine: RPC nodes in front of
 // a chain, different flags on its nodes, the products its TURN proof route accepts, or node RPC
-// kept to the host. Keyed by network, so loading another network (as `ppn networks` does) is
+// on localhost only. Keyed by network, so loading another network (as `ppn networks` does) is
 // unaffected by a section written for this one.
 //
 //   PPN_NETWORK_OVERLAY=/etc/ppn/network-overlay.json
@@ -19,8 +19,8 @@ const PARACHAIN_FIELDS = ['extraArgs', 'rpcNodes', 'rpcNodeArgs'];
 /**
  * `net` with the overlay file's section for it applied: its extraArgs and rpcNodeArgs override
  * the descriptor's flag by flag, and rpcNodes, turnProofProducts and safeRpc replace the descriptor's.
- * Throws on an unreadable file,
- * an unknown network, chain or field, or a value the descriptor itself would reject.
+ * Throws on an unreadable file, an unknown network, chain or field, a value the descriptor itself
+ * would reject, or `--rpc-external`/`--unsafe-rpc-external` in a node's flags under safeRpc.
  */
 export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
   const bad = (why: string): never => {
@@ -55,7 +55,7 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
     bad(`${net.name} has no parachains ${unknownKeys.join(', ')} (declared: ${parachainKeys.join(', ')})`);
   }
 
-  return {
+  const overlaid: NetworkDef = {
     ...net,
     safeRpc: section.safeRpc ?? net.safeRpc,
     turnProofProducts:
@@ -78,4 +78,10 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
       };
     }),
   };
+  if (overlaid.safeRpc) {
+    const nodeArgs = [overlaid.relay.extraArgs, ...overlaid.parachains.flatMap((p) => [p.extraArgs, p.rpcNodeArgs])].flat();
+    const external = nodeArgs.filter((arg) => arg === '--rpc-external' || arg === '--unsafe-rpc-external');
+    if (external.length) bad(`${net.name}.safeRpc puts RPC on localhost only, so ${[...new Set(external)].join(' and ')} cannot be set`);
+  }
+  return overlaid;
 }

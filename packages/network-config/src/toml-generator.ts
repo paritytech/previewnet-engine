@@ -304,23 +304,35 @@ function buildArgs(chainKey: ChainKey, logTargets?: Record<string, LogLevel>, en
 }
 
 /** A node's `env` line in the TOML, or nothing when it sets no variables. */
-function tomlEnv(variables: Record<string, string>): string {
+export function tomlEnv(variables: Record<string, string>): string {
   const entries = Object.entries(variables);
   return entries.length
     ? `\nenv = [${entries.map(([name, value]) => `{ name = "${name}", value = "${value}" }`).join(', ')}]`
     : '';
 }
 
-// zombienet passes every node `--rpc-methods unsafe` and drops the flag from the node's own
-// args, so under safeRpc the launchers put the method set in its place (scripts/lib/rpc-methods.sh).
-const rpcMethodsEnv = (): Record<string, string> => (genesisNet().safeRpc ? { PPN_RPC_METHODS: 'safe' } : {});
+/** The variable every node's launcher reads to apply safeRpc (scripts/lib/safe-rpc.sh). */
+export const safeRpcEnv = (net: NetworkDef): Record<string, string> => (net.safeRpc ? { PPN_SAFE_RPC: '1' } : {});
+
+/**
+ * The relay's node command: the descriptor's binary, or under safeRpc scripts/polkadot.sh, which
+ * runs `polkadot` with the arguments safeRpc requires. Throws under safeRpc for any other relay
+ * binary.
+ */
+export function relayCommand(net: NetworkDef, binDir: string, scriptsDir: string): string {
+  if (!net.safeRpc) return `${binDir}/${net.relay.binary.name}`;
+  if (net.relay.binary.name !== 'polkadot') {
+    throw new Error(`${net.name}: safeRpc runs the relay with polkadot, not ${net.relay.binary.name}`);
+  }
+  return `${scriptsDir}/polkadot.sh`;
+}
 
 // The genesis collator command is always the omni-node.sh wrapper (it carries the
 // libp2p fix any cumulus collator needs); which binary it execs comes from the
-// descriptor via env. Empty for the default binary, keeping previewnet's TOML stable.
+// descriptor via env. Empty for the default binary without safeRpc, so previewnet's TOML is stable.
 function genesisCollatorEnv(key: Parachain): string {
   const name = genesisNet().parachains.find((p) => p.key === key)?.binary.name;
-  return tomlEnv({ ...(name && name !== 'polkadot-omni-node' ? { PPN_COLLATOR_BINARY: name } : {}), ...rpcMethodsEnv() });
+  return tomlEnv({ ...(name && name !== 'polkadot-omni-node' ? { PPN_COLLATOR_BINARY: name } : {}), ...safeRpcEnv(genesisNet()) });
 }
 
 function genesisChainArgs(key: ChainKey, logTargets?: Record<string, LogLevel>, enableHop?: boolean): string[] {
@@ -328,9 +340,7 @@ function genesisChainArgs(key: ChainKey, logTargets?: Record<string, LogLevel>, 
     key === 'relay'
       ? genesisNet().relay.extraArgs
       : genesisNet().parachains.find((p) => p.key === key)?.extraArgs ?? [];
-  const args = overrideArgs(buildArgs(key, logTargets, enableHop), extras);
-  // Without --unsafe-rpc-external a node's RPC listens on localhost only.
-  return genesisNet().safeRpc ? args.filter((arg) => arg !== '--unsafe-rpc-external') : args;
+  return overrideArgs(buildArgs(key, logTargets, enableHop), extras);
 }
 
 function tomlArgs(args: string[]): string {
@@ -358,8 +368,7 @@ ${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
 }
 
 function validatorNodes(count: number): string {
-  const name = genesisNet().relay.binary.name;
-  const env = tomlEnv({ ...rpcMethodsEnv(), ...(genesisNet().safeRpc && name !== 'polkadot' ? { PPN_RELAY_BINARY: name } : {}) });
+  const env = tomlEnv(safeRpcEnv(genesisNet()));
   return VALIDATORS.slice(0, count)
     .map(
       (v, i) => `
@@ -503,7 +512,7 @@ max_validators_per_core = 1
 [relaychain]
 chain = "${genesisSpecOf('relay').chainId}"
 chain_spec_path = "{{BIN}}/${genesisSpecOf('relay').file}"
-default_command = "${genesisNet().safeRpc ? '{{SCRIPTS}}/polkadot.sh' : `{{BIN}}/${genesisNet().relay.binary.name}`}"
+default_command = "${relayCommand(genesisNet(), '{{BIN}}', '{{SCRIPTS}}')}"
 default_args = ${relayArgs}
 ${validatorNodes(validatorCount)}
 ${section(

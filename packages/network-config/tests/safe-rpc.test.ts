@@ -19,10 +19,28 @@ const write = (name: string, body: unknown): string => {
 // Set before anything loads the network: the genesis generator reads it once per process.
 process.env.PPN_NETWORK_OVERLAY = write('safe.json', { previewnet: { safeRpc: true, parachains: { people: { rpcNodes: 1 } } } });
 
-const { generateToml, VALID_PARACHAINS } = await import('../src/toml-generator.js');
-const { loadNetwork } = await import('../src/load.js');
+const { generateToml, VALID_PARACHAINS, paraIds } = await import('../src/toml-generator.js');
+const { generateForkToml } = await import('../src/fork-toml.js');
+const { loadDescriptor } = await import('../src/networks.js');
 const { applyOverlay } = await import('../src/overlay.js');
 const { repoRoot } = await import('../src/repo-root.js');
+
+/** A previewnet fork bundle with what the generator reads: a manifest and the specs' ids. */
+function forkBundle(): string {
+  const bundle = fs.mkdtempSync(path.join(os.tmpdir(), 'safe-rpc-bundle-'));
+  fs.mkdirSync(path.join(bundle, 'specs'));
+  const specs = { relay: 'paseo', 'asset-hub': 'asset-hub', people: 'individuality', bulletin: 'bulletin', 'web3-storage': 'web3-storage' };
+  const chains = Object.fromEntries(
+    Object.entries(specs).map(([key, spec]) => {
+      fs.writeFileSync(path.join(bundle, 'specs', `${spec}.json`), JSON.stringify({ id: key === 'relay' ? 'paseo-local' : `${key}-local` }));
+      const paraId = key === 'relay' ? null : paraIds()[key as keyof ReturnType<typeof paraIds>];
+      return [key, { paraId, spec, specName: spec, specVersion: 1, headAtStart: 1, genesis: '0x00' }];
+    })
+  );
+  const manifest = { bittenAt: '2026-01-01T00:00:00.000Z', source: 'wss://previewnet.substrate.dev', nodeVersion: '1.25.3', epochDuration: 10, chains, biteBlocks: {} };
+  fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify(manifest));
+  return bundle;
+}
 
 /** name -> that node's TOML block. */
 function nodeBlocks(toml: string): Map<string, string> {
@@ -35,50 +53,85 @@ function nodeBlocks(toml: string): Map<string, string> {
 }
 
 describe('safeRpc in the network overlay', () => {
-  const toml = generateToml([...VALID_PARACHAINS]);
-  const nodes = nodeBlocks(toml);
+  for (const [mode, toml] of [
+    ['genesis', generateToml([...VALID_PARACHAINS])],
+    ['fork', generateForkToml({ repoDir: '/repo', bundleDir: forkBundle() })],
+  ]) {
+    it(`runs every ${mode} node through a launcher that applies it`, () => {
+      assert.match(toml, /^default_command = "[^"]*\/polkadot\.sh"$/m);
+      const nodes = nodeBlocks(toml);
+      assert.ok(nodes.size >= 2);
+      for (const [name, block] of nodes) {
+        assert.match(block, /\{ name = "PPN_SAFE_RPC", value = "1" \}/, name);
+      }
+    });
+  }
 
-  it('binds no node RPC beyond localhost', () => {
-    assert.ok(!toml.includes('--unsafe-rpc-external'));
-  });
-
-  it("runs every node through a launcher that serves safe methods only", () => {
-    assert.match(toml, /^default_command = "\{\{SCRIPTS\}\}\/polkadot\.sh"$/m);
-    assert.ok(nodes.has('people-rpc1'));
-    for (const [name, block] of nodes) {
-      assert.match(block, /\{ name = "PPN_RPC_METHODS", value = "safe" \}/, name);
-    }
+  it('reaches the RPC nodes in front of a chain', () => {
+    assert.ok(nodeBlocks(generateToml([...VALID_PARACHAINS])).get('people-rpc1')?.includes('PPN_SAFE_RPC'));
   });
 
   it('is off unless the overlay turns it on', () => {
-    assert.equal(loadNetwork('devnet').safeRpc, false);
-    assert.throws(() => applyOverlay(loadNetwork('previewnet'), write('bad.json', { previewnet: { safeRpc: 'yes' } })), /safeRpc must be true or false/);
+    assert.equal(loadDescriptor('previewnet').safeRpc, false);
+  });
+
+  it('rejects an overlay that contradicts it', () => {
+    const overlay = (section: unknown) => () => applyOverlay(loadDescriptor('previewnet'), write('bad.json', { previewnet: section }));
+    assert.throws(overlay({ safeRpc: 'yes' }), /safeRpc must be true or false/);
+    assert.throws(overlay({ safeRpc: true, parachains: { people: { rpcNodeArgs: ['--rpc-external'] } } }), /--rpc-external cannot be set/);
   });
 });
 
-// zombienet hands every node `--rpc-methods unsafe`; the launchers replace it, and only when asked.
-describe('node launchers', () => {
+describe('node launchers under PPN_SAFE_RPC=1', () => {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'safe-rpc-bin-'));
   for (const binary of ['polkadot', 'polkadot-omni-node']) {
     fs.writeFileSync(path.join(bin, binary), '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
   }
-  const run = (launcher: string, args: string[], methods?: string): string[] => {
-    const env = { ...process.env, PPN_BIN_DIR: bin, ...(methods ? { PPN_RPC_METHODS: methods } : {}) };
+  const run = (launcher: string, args: string[], safeRpc = true): string[] => {
+    const env = { ...process.env, PPN_BIN_DIR: bin, ...(safeRpc ? { PPN_SAFE_RPC: '1' } : {}) };
     delete env.PPN_COLLATOR_AURA;
     const result = spawnSync('bash', [path.join(repoRoot(), 'scripts', launcher), ...args], { encoding: 'utf-8', env });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim().split('\n');
   };
-  const methodsOf = (args: string[]) => args[args.indexOf('--rpc-methods') + 1];
+  // What zombienet and the engine pass a node.
+  const nodeArgs = ['--name', 'alice', '--rpc-cors', 'all', '--rpc-methods', 'unsafe', '--unsafe-rpc-external', '--prometheus-external'];
 
-  it('polkadot.sh serves the method set PPN_RPC_METHODS names', () => {
-    assert.equal(methodsOf(run('polkadot.sh', ['--name', 'alice', '--rpc-methods', 'unsafe'], 'safe')), 'safe');
-    assert.equal(methodsOf(run('polkadot.sh', ['--name', 'alice', '--rpc-methods', 'unsafe'])), 'unsafe');
+  it('serve safe methods on localhost, RPC and Prometheus alike', () => {
+    assert.deepEqual(run('polkadot.sh', nodeArgs), ['--name', 'alice', '--rpc-cors', 'all', '--rpc-methods', 'safe']);
   });
 
-  it("omni-node.sh does the same, keeping the relay side's flags after --", () => {
-    const args = run('omni-node.sh', ['--rpc-methods', 'unsafe', '--', '--chain', 'relay.json'], 'safe');
-    assert.equal(methodsOf(args), 'safe');
-    assert.deepEqual(args.slice(args.indexOf('--')), ['--', '--chain', 'relay.json', '--network-backend=libp2p', '--discover-local', '--allow-private-ip']);
+  it('pass the arguments through without it', () => {
+    assert.deepEqual(run('polkadot.sh', nodeArgs, false), nodeArgs);
+  });
+
+  it('set safe methods when zombienet passes no --rpc-methods', () => {
+    assert.deepEqual(run('polkadot.sh', ['--name', 'alice']), ['--name', 'alice', '--rpc-methods', 'safe']);
+    assert.deepEqual(run('omni-node.sh', ['--name', 'collator', '--', '--chain', 'relay.json']).slice(0, 5), [
+      '--name',
+      'collator',
+      '--rpc-methods',
+      'safe',
+      '--',
+    ]);
+  });
+
+  it("cover the collator's relay-chain node after -- as well", () => {
+    assert.deepEqual(run('omni-node.sh', [...nodeArgs, '--', '--chain', 'relay.json', '--prometheus-external']), [
+      '--name',
+      'alice',
+      '--rpc-cors',
+      'all',
+      '--rpc-methods',
+      'safe',
+      '--',
+      '--chain',
+      'relay.json',
+      '--rpc-methods',
+      'safe',
+      '--network-backend=libp2p',
+      '--discover-local',
+      '--allow-private-ip',
+    ]);
   });
 });

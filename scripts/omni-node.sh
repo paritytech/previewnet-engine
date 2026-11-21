@@ -36,7 +36,7 @@ set -euo pipefail
 # So: the explicit env first, then the workspace, and only then this script's own tree, which is
 # the right answer in a checkout and a harmless miss anywhere else.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/workspace.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/lib/rpc-methods.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/safe-rpc.sh"
 REPO_BIN="$PPN_WS_BIN"
 # `ppn start` exports BIN as the directory this run resolved to — bin/ for previewnet,
 # bin/<network> for everything else — and the probe below inherits it even though it gets
@@ -104,7 +104,7 @@ if [[ "${PPN_COLLATOR_AURA:-}" == "ed25519" ]]; then
   fi
 fi
 
-rpc_method_args "$@"
+safe_rpc_args "$@"
 for arg in "$@"; do
   if [[ "$arg" == "--" ]]; then
     exec "$BIN" "${NODE_ARGS[@]}" --network-backend=libp2p --discover-local --allow-private-ip

@@ -389,6 +389,23 @@ jobs:
           curl -sf -m 5 "http://127.0.0.1:$((RPC_PORT + PROMETHEUS_PORT_OFFSET))/metrics" | grep -q '^substrate_block_height' \
             || { echo "ERROR: no metrics on $((RPC_PORT + PROMETHEUS_PORT_OFFSET))"; exit 1; }
 
+      - name: Verify every node listens on localhost only and rejects unsafe RPC methods
+        run: |
+          for port in $(sed -nE 's/^(rpc_port|prometheus_port) = ([0-9]+)$/\2/p' zombienet-configs/ci.toml); do
+            listeners=$(ss -Hltn "sport = :$port" | awk '{print $4}')
+            [ -n "$listeners" ] || { echo "ERROR: nothing listens on $port"; exit 1; }
+            if echo "$listeners" | grep -vqE '^(127\.0\.0\.1|\[::1\]):'; then
+              echo "ERROR: port $port listens beyond localhost: $listeners"; exit 1
+            fi
+          done
+          for port in $(sed -nE 's/^rpc_port = ([0-9]+)$/\1/p' zombienet-configs/ci.toml); do
+            error=$(curl -s -m 5 -H 'Content-Type: application/json' \
+              -d '{"jsonrpc":"2.0","id":1,"method":"author_rotateKeys","params":[]}' \
+              "http://127.0.0.1:$port" | jq -r '.error.message // empty')
+            [ -n "$error" ] || { echo "ERROR: the node on $port ran author_rotateKeys"; exit 1; }
+            echo "$port rejects author_rotateKeys: $error"
+          done
+
       - name: Verify raw chainspecs have bootNodes
         run: |
           echo "Checking raw chainspecs in ${{ env.ZOMBIE_DIR }}..."
