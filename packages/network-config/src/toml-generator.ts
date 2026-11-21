@@ -303,7 +303,7 @@ function buildArgs(chainKey: ChainKey, logTargets?: Record<string, LogLevel>, en
   return args;
 }
 
-/** A node block's `env` line, or nothing when it sets no variables. */
+/** A node block's `env` line, or an empty string when `variables` is empty. */
 function nodeEnvLine(variables: Record<string, string>): string {
   const entries = Object.entries(variables);
   return entries.length

@@ -7,10 +7,10 @@
 # `--rpc-methods safe`.
 #
 # Usage:  source "$(dirname "${BASH_SOURCE[0]}")/lib/safe-rpc.sh"
-#         safe_rpc_args "$@"; exec <node> "${NODE_ARGS[@]}"
+#         rewrite_node_args "$@"; exec <node> "${NODE_ARGS[@]}"
 # Sets:   NODE_ARGS   the arguments to run the node with; unchanged without PPN_SAFE_RPC=1
 
-safe_rpc_args() {
+rewrite_node_args() {
     if [[ "${PPN_SAFE_RPC:-}" != 1 ]]; then NODE_ARGS=("$@"); return; fi
     NODE_ARGS=()
     local arg skip_value=false

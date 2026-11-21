@@ -98,7 +98,7 @@ describe('node launchers under PPN_SAFE_RPC=1', () => {
     assert.deepEqual(run('polkadot.sh', nodeArgs, false), nodeArgs);
   });
 
-  it('set safe methods when zombienet passes no --rpc-methods', () => {
+  it("set safe methods when zombienet doesn't pass --rpc-methods", () => {
     assert.deepEqual(run('polkadot.sh', ['--name', 'alice']), ['--name', 'alice', '--rpc-methods', 'safe']);
     assert.deepEqual(run('omni-node.sh', ['--name', 'collator', '--', '--chain', 'relay.json']).slice(0, 5), [
       '--name',

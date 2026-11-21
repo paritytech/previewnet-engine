@@ -101,7 +101,7 @@ if [[ "${PPN_COLLATOR_AURA:-}" == "ed25519" ]]; then
   fi
 fi
 
-safe_rpc_args "$@"
+rewrite_node_args "$@"
 for arg in "$@"; do
   if [[ "$arg" == "--" ]]; then
     exec "$BIN" "${NODE_ARGS[@]}" --network-backend=libp2p --discover-local --allow-private-ip

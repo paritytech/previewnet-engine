@@ -55,7 +55,7 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
     bad(`${net.name} has no parachains ${unknownKeys.join(', ')} (declared: ${parachainKeys.join(', ')})`);
   }
 
-  const overlaid: NetworkDef = {
+  const overlayNet: NetworkDef = {
     ...net,
     safeRpc: section.safeRpc ?? net.safeRpc,
     turnProofProducts:
@@ -78,10 +78,10 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
       };
     }),
   };
-  if (overlaid.safeRpc) {
-    const nodeArgs = [overlaid.relay.extraArgs, ...overlaid.parachains.flatMap((p) => [p.extraArgs, p.rpcNodeArgs])].flat();
+  if (overlayNet.safeRpc) {
+    const nodeArgs = [overlayNet.relay.extraArgs, ...overlayNet.parachains.flatMap((p) => [p.extraArgs, p.rpcNodeArgs])].flat();
     const external = nodeArgs.filter((arg) => arg === '--rpc-external' || arg === '--unsafe-rpc-external');
     if (external.length) bad(`${net.name}.safeRpc puts RPC on localhost only, so ${[...new Set(external)].join(' and ')} cannot be set`);
   }
-  return overlaid;
+  return overlayNet;
 }

@@ -6,5 +6,5 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/workspace.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/safe-rpc.sh"
 
-safe_rpc_args "$@"
+rewrite_node_args "$@"
 exec "$PPN_NODE_BIN_DIR/polkadot" "${NODE_ARGS[@]}"
