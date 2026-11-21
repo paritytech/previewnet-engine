@@ -12,6 +12,9 @@
 # Usage:  source "$(dirname "${BASH_SOURCE[0]}")/lib/workspace.sh"   (adjust depth)
 # Sets:   PPN_WS       the workspace root
 #         PPN_WS_BIN   its bin/ (callers append /<network> for non-previewnet binaries)
+#         PPN_NODE_BIN_DIR  where a node launcher finds its binary: a node's PPN_BIN_DIR, else
+#                      the BIN `ppn start` exports (which zombienet's argument probe inherits
+#                      without the node-level env), else PPN_WS_BIN
 
 ppn_workspace_root() {
     if [[ -n "${PPN_HOME:-}" ]]; then
@@ -45,3 +48,4 @@ ppn_workspace_root() {
 
 PPN_WS="$(ppn_workspace_root)"
 PPN_WS_BIN="$PPN_WS/bin"
+PPN_NODE_BIN_DIR="${PPN_BIN_DIR:-${BIN:-$PPN_WS_BIN}}"

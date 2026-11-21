@@ -303,14 +303,40 @@ function buildArgs(chainKey: ChainKey, logTargets?: Record<string, LogLevel>, en
   return args;
 }
 
+/** A node block's `env` line, or an empty string when `variables` is empty. */
+function nodeEnvLine(variables: Record<string, string>): string {
+  const entries = Object.entries(variables);
+  return entries.length
+    ? `\nenv = [${entries.map(([name, value]) => `{ name = "${name}", value = "${value}" }`).join(', ')}]`
+    : '';
+}
+
+/** The variable every node's launcher reads to apply safeRpc (scripts/lib/safe-rpc.sh). */
+function safeRpcEnv(net: NetworkDef): Record<string, string> {
+  return net.safeRpc ? { PPN_SAFE_RPC: '1' } : {};
+}
+
+/**
+ * The relay's node command: the descriptor's binary, or under safeRpc scripts/polkadot.sh, which
+ * runs `polkadot` with the arguments safeRpc requires. Throws under safeRpc for any other relay
+ * binary.
+ */
+function relayCommand(net: NetworkDef, binDir: string, scriptsDir: string): string {
+  if (!net.safeRpc) return `${binDir}/${net.relay.binary.name}`;
+  if (net.relay.binary.name !== 'polkadot') {
+    throw new Error(`${net.name}: safeRpc runs the relay with polkadot, not ${net.relay.binary.name}`);
+  }
+  return `${scriptsDir}/polkadot.sh`;
+}
+
 // The genesis collator command is always the omni-node.sh wrapper (it carries the
 // libp2p fix any cumulus collator needs); which binary it execs comes from the
-// descriptor via env. Empty for the default binary, keeping previewnet's TOML stable.
+// descriptor via env. Empty for the default binary without safeRpc, so previewnet's TOML is stable.
 function genesisCollatorEnv(key: Parachain): string {
   const name = genesisNet().parachains.find((p) => p.key === key)?.binary.name;
-  return name && name !== 'polkadot-omni-node'
-    ? `\nenv = [{ name = "PPN_COLLATOR_BINARY", value = "${name}" }]`
-    : '';
+  const env = safeRpcEnv(genesisNet());
+  if (name && name !== 'polkadot-omni-node') env.PPN_COLLATOR_BINARY = name;
+  return nodeEnvLine(env);
 }
 
 function genesisChainArgs(key: ChainKey, logTargets?: Record<string, LogLevel>, enableHop?: boolean): string[] {
@@ -346,6 +372,7 @@ ${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
 }
 
 function validatorNodes(count: number): string {
+  const env = nodeEnvLine(safeRpcEnv(genesisNet()));
   return VALIDATORS.slice(0, count)
     .map(
       (v, i) => `
@@ -354,7 +381,7 @@ name = "${v}-${genesisConfig().validatorNameSuffix}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
 prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}
-balance = 1000000000000000`
+balance = 1000000000000000${env}`
     )
     .join('\n');
 }
@@ -489,7 +516,7 @@ max_validators_per_core = 1
 [relaychain]
 chain = "${genesisSpecOf('relay').chainId}"
 chain_spec_path = "{{BIN}}/${genesisSpecOf('relay').file}"
-default_command = "{{BIN}}/${genesisNet().relay.binary.name}"
+default_command = "${relayCommand(genesisNet(), '{{BIN}}', '{{SCRIPTS}}')}"
 default_args = ${relayArgs}
 ${validatorNodes(validatorCount)}
 ${section(
@@ -640,4 +667,7 @@ export {
   prometheusPort,
   rpcNodePorts,
   rpcNodeBlocks,
+  nodeEnvLine,
+  safeRpcEnv,
+  relayCommand,
 };

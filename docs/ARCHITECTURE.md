@@ -203,8 +203,8 @@ shape zombienet's `custom_processes` contract requires:
 exec node "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/ppn.mjs" service patch-bootnodes
 ```
 
-`eth-rpc.sh`, `ipfs-daemon.sh`, `ipfs-swarm.sh`, `omni-node.sh` and `identity/*.sh` are
-genuinely just launching a binary with arguments, and stay shell.
+`eth-rpc.sh`, `ipfs-daemon.sh`, `ipfs-swarm.sh`, `omni-node.sh`, `polkadot.sh` and `identity/*.sh`
+are genuinely just launching a binary with arguments, and stay shell.
 
 One thing improved on the way through: `force-open-hrmp` used to parse the *generated*
 zombienet TOML to rediscover which channels to open. The topology now has one home,

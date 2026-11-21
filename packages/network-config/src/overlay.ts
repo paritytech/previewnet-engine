@@ -1,10 +1,11 @@
 // A deployment's own shape for a network, without a release of the engine: RPC nodes in front of
-// a chain, different flags on its nodes, or the products its TURN proof route accepts. Keyed by
-// network, so loading another network (as `ppn networks` does) is unaffected by a section written
-// for this one.
+// a chain, different flags on its nodes, the products its TURN proof route accepts, or node RPC
+// on localhost only. Keyed by network, so loading another network (as `ppn networks` does) is
+// unaffected by a section written for this one.
 //
 //   PPN_NETWORK_OVERLAY=/etc/ppn/network-overlay.json
 //   { "previewnet": {
+//       "safeRpc": true,
 //       "relay": { "extraArgs": ["--rpc-max-connections=2000"] },
 //       "parachains": { "people": { "rpcNodes": 2, "rpcNodeArgs": ["--rpc-max-connections=5000"] } } } }
 
@@ -17,9 +18,9 @@ const PARACHAIN_FIELDS = ['extraArgs', 'rpcNodes', 'rpcNodeArgs'];
 
 /**
  * `net` with the overlay file's section for it applied: its extraArgs and rpcNodeArgs override
- * the descriptor's flag by flag, and rpcNodes and turnProofProducts replace the descriptor's.
- * Throws on an unreadable file,
- * an unknown network, chain or field, or a value the descriptor itself would reject.
+ * the descriptor's flag by flag, and rpcNodes, turnProofProducts and safeRpc replace the descriptor's.
+ * Throws on an unreadable file, an unknown network, chain or field, a value the descriptor itself
+ * would reject, or `--rpc-external`/`--unsafe-rpc-external` in a node's flags under safeRpc.
  */
 export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
   const bad = (why: string): never => {
@@ -44,7 +45,8 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
   if (strangers.length) bad(`unknown networks ${strangers.join(', ')} (known: ${networks.join(', ')})`);
   if (raw[net.name] === undefined) return net;
 
-  const section = object(net.name, raw[net.name], ['relay', 'parachains', 'turnProofProducts']);
+  const section = object(net.name, raw[net.name], ['relay', 'parachains', 'turnProofProducts', 'safeRpc']);
+  if (section.safeRpc !== undefined && typeof section.safeRpc !== 'boolean') bad(`${net.name}.safeRpc must be true or false`);
   const relay = object(`${net.name}.relay`, section.relay ?? {}, RELAY_FIELDS);
   const parachains = object(`${net.name}.parachains`, section.parachains ?? {});
   const parachainKeys: string[] = net.parachains.map((parachain) => parachain.key);
@@ -53,8 +55,9 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
     bad(`${net.name} has no parachains ${unknownKeys.join(', ')} (declared: ${parachainKeys.join(', ')})`);
   }
 
-  return {
+  const overlayNet: NetworkDef = {
     ...net,
+    safeRpc: section.safeRpc ?? net.safeRpc,
     turnProofProducts:
       section.turnProofProducts === undefined
         ? net.turnProofProducts
@@ -75,4 +78,10 @@ export function applyOverlay(net: NetworkDef, file: string): NetworkDef {
       };
     }),
   };
+  if (overlayNet.safeRpc) {
+    const nodeArgs = [overlayNet.relay.extraArgs, ...overlayNet.parachains.flatMap((p) => [p.extraArgs, p.rpcNodeArgs])].flat();
+    const external = nodeArgs.filter((arg) => arg === '--rpc-external' || arg === '--unsafe-rpc-external');
+    if (external.length) bad(`${net.name}.safeRpc puts RPC on localhost only, so ${[...new Set(external)].join(' and ')} cannot be set`);
+  }
+  return overlayNet;
 }

@@ -158,6 +158,8 @@ describe('published packages', () => {
       // then fails on every custom process.
       for (const launcher of [
         'scripts/omni-node.sh',
+        'scripts/polkadot.sh',
+        'scripts/lib/safe-rpc.sh',
         'scripts/eth-rpc.sh',
         'scripts/ipfs-daemon.sh',
         'scripts/patch-bootnodes.sh',
@@ -204,7 +206,7 @@ describe('published packages', () => {
         /PPN_HOME/.test(p.read('scripts/lib/workspace.sh')),
         'the workspace helper never consults PPN_HOME'
       );
-      for (const launcher of ['scripts/omni-node.sh', 'scripts/eth-rpc.sh']) {
+      for (const launcher of ['scripts/omni-node.sh', 'scripts/polkadot.sh', 'scripts/eth-rpc.sh']) {
         const body = p.read(launcher);
         assert.ok(
           body.includes('lib/workspace.sh'),

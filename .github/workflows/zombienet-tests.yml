@@ -343,10 +343,10 @@ jobs:
           # environment into custom_processes; that file exists for exactly this.
           rm -rf ${{ env.ZOMBIE_DIR }} data/identity-pgdata
           mkdir -p ${{ env.ZOMBIE_DIR }}
-          # One People RPC node through the network overlay, so the spawn covers what a
+          # One People RPC node and safeRpc through the network overlay, so the spawn covers what a
           # deployment's overlay generates. A separate file keeps local-dev.toml as checked in.
           OVERLAY="$RUNNER_TEMP/network-overlay.json"
-          echo '{"previewnet":{"parachains":{"people":{"rpcNodes":1}}}}' > "$OVERLAY"
+          echo '{"previewnet":{"safeRpc":true,"parachains":{"people":{"rpcNodes":1}}}}' > "$OVERLAY"
           PPN_NETWORK_OVERLAY="$OVERLAY" node bin/ppn.mjs genesis-toml > zombienet-configs/ci.toml
           printf 'DUB_POSTGRES_DATA_DIR=%s\nPPN_NETWORK_OVERLAY=%s\n' "${{ env.ZOMBIE_DIR }}/identity-pgdata" "$OVERLAY" > config/ports.local.env
           # Spawn network in background, store state in ZOMBIE_DIR
@@ -388,6 +388,24 @@ jobs:
           [ "$roles" = '["Full"]' ] || { echo "ERROR: people-rpc1 should be a full node, is $roles"; exit 1; }
           curl -sf -m 5 "http://127.0.0.1:$((RPC_PORT + PROMETHEUS_PORT_OFFSET))/metrics" | grep -q '^substrate_block_height' \
             || { echo "ERROR: no metrics on $((RPC_PORT + PROMETHEUS_PORT_OFFSET))"; exit 1; }
+
+      - name: Verify the nodes' RPC and Prometheus ports listen on localhost only and reject unsafe RPC methods
+        run: |
+          for port in $(sed -nE 's/^(rpc_port|prometheus_port) = ([0-9]+)$/\2/p' zombienet-configs/ci.toml); do
+            listeners=$(ss -Hltn "sport = :$port" | awk '{print $4}')
+            [ -n "$listeners" ] || { echo "ERROR: nothing listens on $port"; exit 1; }
+            if echo "$listeners" | grep -vqE '^(127\.0\.0\.1|\[::1\]):'; then
+              echo "ERROR: port $port listens beyond localhost: $listeners"; exit 1
+            fi
+          done
+          for port in $(sed -nE 's/^rpc_port = ([0-9]+)$/\1/p' zombienet-configs/ci.toml); do
+            response=$(curl -sf -m 5 -H 'Content-Type: application/json' \
+              -d '{"jsonrpc":"2.0","id":1,"method":"author_rotateKeys","params":[]}' \
+              "http://127.0.0.1:$port") || { echo "ERROR: no RPC answer on $port"; exit 1; }
+            error=$(jq -r '.error.message // empty' <<<"$response")
+            [ -n "$error" ] || { echo "ERROR: the node on $port accepted author_rotateKeys"; exit 1; }
+            echo "$port rejects author_rotateKeys: $error"
+          done
 
       - name: Verify raw chainspecs have bootNodes
         run: |

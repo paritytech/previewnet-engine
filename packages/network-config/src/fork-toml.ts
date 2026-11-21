@@ -50,6 +50,9 @@ import {
   requiredPort,
   prometheusPort,
   rpcNodeBlocks,
+  nodeEnvLine,
+  safeRpcEnv,
+  relayCommand,
 } from './toml-generator.js';
 import type { Parachain } from './types.js';
 import type { ForkManifest } from './bundle.js';
@@ -206,7 +209,13 @@ function chainIdOf(specPath: string): string {
 
 // As many as the bite installed keys for: the well-known six, then names zombienet derives
 // keys from (see relayNodeName). One RPC port each, counting up from the relay base port.
-function relayNodes(count: number): string {
+// Under safeRpc scripts/polkadot.sh runs them, finding polkadot in PPN_BIN_DIR.
+function relayNodes(count: number, net: NetworkDef, binDir: string): string {
+  const env = nodeEnvLine({
+    ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION: '1',
+    ...safeRpcEnv(net),
+    ...(net.safeRpc ? { PPN_BIN_DIR: binDir } : {}),
+  });
   return Array.from(
     { length: count },
     (_, i) => `
@@ -214,8 +223,7 @@ function relayNodes(count: number): string {
 name = "${relayNodeName(i)}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
-prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}
-env = [{ name = "ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION", value = "1" }]`
+prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}${env}`
   ).join('\n');
 }
 
@@ -248,18 +256,14 @@ function parachainSection(
   // which bin directory, is the wrapper's PPN_* environment: non-previewnet networks
   // keep their node binaries in bin/<network>, and the descriptor binds each chain's
   // binary explicitly (binary: { name, release }).
-  const env: string[] = [];
-  if (binDirOverride) env.push(`{ name = "PPN_BIN_DIR", value = "${binDirOverride}" }`);
-  if (desc.binary.name !== 'polkadot-omni-node') {
-    env.push(`{ name = "PPN_COLLATOR_BINARY", value = "${desc.binary.name}" }`);
-  }
+  const env: Record<string, string> = { ...safeRpcEnv(net) };
+  if (binDirOverride) env.PPN_BIN_DIR = binDirOverride;
+  if (desc.binary.name !== 'polkadot-omni-node') env.PPN_COLLATOR_BINARY = desc.binary.name;
   // zombienet files the collator's ed25519 key under `gran`, and its `aura` key is always
   // sr25519 — so on a chain whose Aura is ed25519 the node finds no key it can author with.
   // The wrapper inserts one; see scripts/omni-node.sh.
-  if (desc.aura === 'ed25519') {
-    env.push(`{ name = "PPN_COLLATOR_AURA", value = "ed25519" }`);
-  }
-  const envLine = env.length ? `\nenv = [${env.join(', ')}]` : '';
+  if (desc.aura === 'ed25519') env.PPN_COLLATOR_AURA = 'ed25519';
+  const envLine = nodeEnvLine(env);
 
   // As many collators as the bite installed as authorities (manifest.topology), every one
   // restoring the same snapshot. Only the first holds the documented ports; the rest take
@@ -409,10 +413,10 @@ node_spawn_timeout = 400
 [relaychain]
 chain = "${chainIdOf(relaySpecPath)}"
 chain_spec_path = "${relaySpecPath}"
-default_command = "${binDir}/${net.relay.binary.name}"
+default_command = "${relayCommand(net, binDir, scriptsDir)}"
 default_db_snapshot = "${bundleDir}/snapshots/relay.tgz"
 default_args = ${tomlArgs(relayArgs)}
-${relayNodes(manifest.topology?.validators ?? net.relay.validators)}
+${relayNodes(manifest.topology?.validators ?? net.relay.validators, net, binDir)}
 ${parachains
     .map((p) => parachainSection(p, manifest, bundleDir, scriptsDir, enableHop, net, options.binDir))
     .join('')}

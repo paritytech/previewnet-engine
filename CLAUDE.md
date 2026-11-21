@@ -153,7 +153,9 @@ design-families/              # Proof of Ink design families (fetched, gitignore
 
 scripts/                      # Shell launchers zombienet execs; the logic lives in the CLI
 ├── lib/workspace.sh          # Workspace resolution, sourced by every launcher
+├── lib/safe-rpc.sh           # safeRpc argument rewrite, sourced by the node launchers
 ├── omni-node.sh              # Collator wrapper: forces libp2p on the relay-chain side
+├── polkadot.sh               # Relay launcher under safeRpc
 ├── assign-cores.sh           # Elastic scaling core assignment
 ├── eth-rpc.sh                # eth-rpc launcher
 ├── ipfs-daemon.sh            # IPFS daemon launcher
