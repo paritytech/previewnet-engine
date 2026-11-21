@@ -389,7 +389,7 @@ jobs:
           curl -sf -m 5 "http://127.0.0.1:$((RPC_PORT + PROMETHEUS_PORT_OFFSET))/metrics" | grep -q '^substrate_block_height' \
             || { echo "ERROR: no metrics on $((RPC_PORT + PROMETHEUS_PORT_OFFSET))"; exit 1; }
 
-      - name: Verify every node listens on localhost only and rejects unsafe RPC methods
+      - name: Verify the nodes' RPC and Prometheus ports listen on localhost only and reject unsafe RPC methods
         run: |
           for port in $(sed -nE 's/^(rpc_port|prometheus_port) = ([0-9]+)$/\2/p' zombienet-configs/ci.toml); do
             listeners=$(ss -Hltn "sport = :$port" | awk '{print $4}')
@@ -399,9 +399,10 @@ jobs:
             fi
           done
           for port in $(sed -nE 's/^rpc_port = ([0-9]+)$/\1/p' zombienet-configs/ci.toml); do
-            error=$(curl -s -m 5 -H 'Content-Type: application/json' \
+            response=$(curl -sf -m 5 -H 'Content-Type: application/json' \
               -d '{"jsonrpc":"2.0","id":1,"method":"author_rotateKeys","params":[]}' \
-              "http://127.0.0.1:$port" | jq -r '.error.message // empty')
+              "http://127.0.0.1:$port") || { echo "ERROR: no RPC answer on $port"; exit 1; }
+            error=$(jq -r '.error.message // empty' <<<"$response")
             [ -n "$error" ] || { echo "ERROR: the node on $port accepted author_rotateKeys"; exit 1; }
             echo "$port rejects author_rotateKeys: $error"
           done
