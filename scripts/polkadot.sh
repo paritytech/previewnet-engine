@@ -7,4 +7,4 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/workspace.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/safe-rpc.sh"
 
 safe_rpc_args "$@"
-exec "${PPN_BIN_DIR:-${BIN:-$PPN_WS_BIN}}/polkadot" "${NODE_ARGS[@]}"
+exec "$PPN_NODE_BIN_DIR/polkadot" "${NODE_ARGS[@]}"

@@ -303,8 +303,8 @@ function buildArgs(chainKey: ChainKey, logTargets?: Record<string, LogLevel>, en
   return args;
 }
 
-/** A node's `env` line in the TOML, or nothing when it sets no variables. */
-export function tomlEnv(variables: Record<string, string>): string {
+/** A node block's `env` line, or nothing when it sets no variables. */
+function nodeEnvLine(variables: Record<string, string>): string {
   const entries = Object.entries(variables);
   return entries.length
     ? `\nenv = [${entries.map(([name, value]) => `{ name = "${name}", value = "${value}" }`).join(', ')}]`
@@ -312,14 +312,16 @@ export function tomlEnv(variables: Record<string, string>): string {
 }
 
 /** The variable every node's launcher reads to apply safeRpc (scripts/lib/safe-rpc.sh). */
-export const safeRpcEnv = (net: NetworkDef): Record<string, string> => (net.safeRpc ? { PPN_SAFE_RPC: '1' } : {});
+function safeRpcEnv(net: NetworkDef): Record<string, string> {
+  return net.safeRpc ? { PPN_SAFE_RPC: '1' } : {};
+}
 
 /**
  * The relay's node command: the descriptor's binary, or under safeRpc scripts/polkadot.sh, which
  * runs `polkadot` with the arguments safeRpc requires. Throws under safeRpc for any other relay
  * binary.
  */
-export function relayCommand(net: NetworkDef, binDir: string, scriptsDir: string): string {
+function relayCommand(net: NetworkDef, binDir: string, scriptsDir: string): string {
   if (!net.safeRpc) return `${binDir}/${net.relay.binary.name}`;
   if (net.relay.binary.name !== 'polkadot') {
     throw new Error(`${net.name}: safeRpc runs the relay with polkadot, not ${net.relay.binary.name}`);
@@ -332,7 +334,9 @@ export function relayCommand(net: NetworkDef, binDir: string, scriptsDir: string
 // descriptor via env. Empty for the default binary without safeRpc, so previewnet's TOML is stable.
 function genesisCollatorEnv(key: Parachain): string {
   const name = genesisNet().parachains.find((p) => p.key === key)?.binary.name;
-  return tomlEnv({ ...(name && name !== 'polkadot-omni-node' ? { PPN_COLLATOR_BINARY: name } : {}), ...safeRpcEnv(genesisNet()) });
+  const env = safeRpcEnv(genesisNet());
+  if (name && name !== 'polkadot-omni-node') env.PPN_COLLATOR_BINARY = name;
+  return nodeEnvLine(env);
 }
 
 function genesisChainArgs(key: ChainKey, logTargets?: Record<string, LogLevel>, enableHop?: boolean): string[] {
@@ -368,7 +372,7 @@ ${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
 }
 
 function validatorNodes(count: number): string {
-  const env = tomlEnv(safeRpcEnv(genesisNet()));
+  const env = nodeEnvLine(safeRpcEnv(genesisNet()));
   return VALIDATORS.slice(0, count)
     .map(
       (v, i) => `
@@ -663,4 +667,7 @@ export {
   prometheusPort,
   rpcNodePorts,
   rpcNodeBlocks,
+  nodeEnvLine,
+  safeRpcEnv,
+  relayCommand,
 };

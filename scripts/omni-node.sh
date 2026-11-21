@@ -38,10 +38,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/workspace.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/safe-rpc.sh"
 REPO_BIN="$PPN_WS_BIN"
-# `ppn start` exports BIN as the directory this run resolved to — bin/ for previewnet,
-# bin/<network> for everything else — and the probe below inherits it even though it gets
-# none of the node-level env.
-BIN_DIR="${PPN_BIN_DIR:-${BIN:-$REPO_BIN}}"
+BIN_DIR="$PPN_NODE_BIN_DIR"
 BINARY="${PPN_COLLATOR_BINARY:-polkadot-omni-node}"
 BIN="$BIN_DIR/$BINARY"
 

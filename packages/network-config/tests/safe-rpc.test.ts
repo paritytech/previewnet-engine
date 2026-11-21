@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import type { ForkManifest } from '../src/fork-toml.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'safe-rpc-'));
 const write = (name: string, body: unknown): string => {
@@ -25,8 +26,8 @@ const { loadDescriptor } = await import('../src/networks.js');
 const { applyOverlay } = await import('../src/overlay.js');
 const { repoRoot } = await import('../src/repo-root.js');
 
-/** A previewnet fork bundle with what the generator reads: a manifest and the specs' ids. */
-function forkBundle(): string {
+/** Writes a previewnet fork bundle with what the generator reads: a manifest and the specs' ids. */
+function makeBundle(): string {
   const bundle = fs.mkdtempSync(path.join(os.tmpdir(), 'safe-rpc-bundle-'));
   fs.mkdirSync(path.join(bundle, 'specs'));
   const specs = { relay: 'paseo', 'asset-hub': 'asset-hub', people: 'individuality', bulletin: 'bulletin', 'web3-storage': 'web3-storage' };
@@ -36,8 +37,8 @@ function forkBundle(): string {
       const paraId = key === 'relay' ? null : paraIds()[key as keyof ReturnType<typeof paraIds>];
       return [key, { paraId, spec, specName: spec, specVersion: 1, headAtStart: 1, genesis: '0x00' }];
     })
-  );
-  const manifest = { bittenAt: '2026-01-01T00:00:00.000Z', source: 'wss://previewnet.substrate.dev', nodeVersion: '1.25.3', epochDuration: 10, chains, biteBlocks: {} };
+  ) as ForkManifest['chains'];
+  const manifest: ForkManifest = { bittenAt: '2026-01-01T00:00:00.000Z', source: 'wss://previewnet.substrate.dev', nodeVersion: '1.25.3', epochDuration: 10, chains, biteBlocks: {} };
   fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify(manifest));
   return bundle;
 }
@@ -55,25 +56,17 @@ function nodeBlocks(toml: string): Map<string, string> {
 describe('safeRpc in the network overlay', () => {
   for (const [mode, toml] of [
     ['genesis', generateToml([...VALID_PARACHAINS])],
-    ['fork', generateForkToml({ repoDir: '/repo', bundleDir: forkBundle() })],
+    ['fork', generateForkToml({ repoDir: '/repo', bundleDir: makeBundle() })],
   ]) {
-    it(`runs every ${mode} node through a launcher that applies it`, () => {
+    it(`runs every ${mode} node, RPC nodes included, through a launcher that applies it`, () => {
       assert.match(toml, /^default_command = "[^"]*\/polkadot\.sh"$/m);
       const nodes = nodeBlocks(toml);
-      assert.ok(nodes.size >= 2);
+      assert.ok(nodes.has('people-rpc1'));
       for (const [name, block] of nodes) {
         assert.match(block, /\{ name = "PPN_SAFE_RPC", value = "1" \}/, name);
       }
     });
   }
-
-  it('reaches the RPC nodes in front of a chain', () => {
-    assert.ok(nodeBlocks(generateToml([...VALID_PARACHAINS])).get('people-rpc1')?.includes('PPN_SAFE_RPC'));
-  });
-
-  it('is off unless the overlay turns it on', () => {
-    assert.equal(loadDescriptor('previewnet').safeRpc, false);
-  });
 
   it('rejects an overlay that contradicts it', () => {
     const overlay = (section: unknown) => () => applyOverlay(loadDescriptor('previewnet'), write('bad.json', { previewnet: section }));

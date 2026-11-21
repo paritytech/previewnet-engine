@@ -402,7 +402,7 @@ jobs:
             error=$(curl -s -m 5 -H 'Content-Type: application/json' \
               -d '{"jsonrpc":"2.0","id":1,"method":"author_rotateKeys","params":[]}' \
               "http://127.0.0.1:$port" | jq -r '.error.message // empty')
-            [ -n "$error" ] || { echo "ERROR: the node on $port ran author_rotateKeys"; exit 1; }
+            [ -n "$error" ] || { echo "ERROR: the node on $port accepted author_rotateKeys"; exit 1; }
             echo "$port rejects author_rotateKeys: $error"
           done
 

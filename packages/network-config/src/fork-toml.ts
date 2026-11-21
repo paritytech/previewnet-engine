@@ -50,7 +50,7 @@ import {
   requiredPort,
   prometheusPort,
   rpcNodeBlocks,
-  tomlEnv,
+  nodeEnvLine,
   safeRpcEnv,
   relayCommand,
 } from './toml-generator.js';
@@ -211,7 +211,7 @@ function chainIdOf(specPath: string): string {
 // keys from (see relayNodeName). One RPC port each, counting up from the relay base port.
 // Under safeRpc scripts/polkadot.sh runs them, finding polkadot in PPN_BIN_DIR.
 function relayNodes(count: number, net: NetworkDef, binDir: string): string {
-  const env = tomlEnv({
+  const env = nodeEnvLine({
     ZOMBIE_DISPUTE_CANDIDATE_LIFETIME_AFTER_FINALIZATION: '1',
     ...safeRpcEnv(net),
     ...(net.safeRpc ? { PPN_BIN_DIR: binDir } : {}),
@@ -263,7 +263,7 @@ function parachainSection(
   // sr25519 — so on a chain whose Aura is ed25519 the node finds no key it can author with.
   // The wrapper inserts one; see scripts/omni-node.sh.
   if (desc.aura === 'ed25519') env.PPN_COLLATOR_AURA = 'ed25519';
-  const envLine = tomlEnv(env);
+  const envLine = nodeEnvLine(env);
 
   // As many collators as the bite installed as authorities (manifest.topology), every one
   // restoring the same snapshot. Only the first holds the documented ports; the rest take
