@@ -40,6 +40,7 @@
     {
       "key": "asset-hub",
       "paraId": 1000,
+      "cores": 3,
       "spec": "asset-hub",
       "rpc": "wss://asset-hub-paseo-rpc.n.dwellir.com",
       "rpcAlternates": [
@@ -55,6 +56,7 @@
     {
       "key": "people",
       "paraId": 1004,
+      "cores": 3,
       "spec": "people",
       "rpc": "wss://people-paseo.rotko.net",
       "rpcAlternates": [

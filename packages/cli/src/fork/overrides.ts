@@ -20,6 +20,7 @@ import {
   hrmpParaKey,
   paraMessagingWipes,
   planCores,
+  replacesCoreLayout,
   transactionStorageWipes,
   validatorGroups,
   type PlannedPara,
@@ -268,7 +269,7 @@ async function coreLayoutCandidates(
   const config = patchNumCores(index, liveConfig, plan.length);
 
   console.log(
-    `  cores: ${paras.map((p) => `${p.key}=${coresFor(p.key, cores)}`).join(', ')} on cores 0-${plan.length - 1}, ` +
+    `  cores: ${paras.map((p) => `${p.key}=${coresFor(p, cores)}`).join(', ')} on cores 0-${plan.length - 1}, ` +
       `num_cores ${config.before} -> ${plan.length}, ${validators} validators`
   );
 
@@ -386,11 +387,9 @@ export async function relayOverrides(
   const validators = await devValidators(layout.validators);
   console.log('relay:');
 
-  // Production's own core layout is kept unless it has to move: a shared relay's is wrong for
-  // us, and a bite asked for cores is asking for a layout production does not have. Order
-  // matters: these values replace the ones relayCandidates() sets (ValidatorGroups above all),
-  // so they come second.
-  const relaid = layout.sharedRelay || Object.keys(layout.cores ?? {}).length > 0;
+  // Order matters: these values replace the ones relayCandidates() sets (ValidatorGroups above
+  // all), so they come second.
+  const relaid = replacesCoreLayout(layout.sharedRelay, layout.cores);
   const candidates = {
     ...relayCandidates(validators),
     ...(relaid ? await coreLayoutCandidates(index, relayUrl, layout) : {}),

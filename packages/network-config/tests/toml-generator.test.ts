@@ -76,22 +76,20 @@ describe('generateToml', () => {
     assert.ok(toml.includes('[settings]'));
     assert.ok(toml.includes('timeout = 600'));
 
-    // Elastic scaling for asset-hub
+    // Elastic scaling: two extra cores each for asset-hub and people
     assert.ok(toml.includes('[relaychain.genesis.configuration.config.scheduler_params]'));
-    assert.ok(toml.includes('num_cores = 2'));
+    assert.ok(toml.includes('num_cores = 4'));
 
     // Relay chain
     assert.ok(toml.includes('[relaychain]'));
     assert.ok(toml.includes('chain = "paseo-local"'));
     assert.ok(toml.includes('chain_spec_path = "{{BIN}}/relay_paseo.json"'));
 
-    // 6 validators (3 parachains + 2 for asset-hub + 1 = 6, clamped to 6)
-    assert.ok(toml.includes('alice-paseo-validator'));
-    assert.ok(toml.includes('bob-paseo-validator'));
-    assert.ok(toml.includes('charlie-paseo-validator'));
-    assert.ok(toml.includes('dave-paseo-validator'));
-    assert.ok(toml.includes('eve-paseo-validator'));
-    assert.ok(toml.includes('ferdie-paseo-validator'));
+    // 7 validators: one per core (3 + 3 + 1), past the descriptor's 6
+    for (const name of ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'one']) {
+      assert.ok(toml.includes(`name = "${name}-paseo-validator"`), name);
+    }
+    assert.ok(!toml.includes('two-paseo-validator'));
 
     // All parachains
     assert.ok(toml.includes('id = 1500'));
@@ -145,12 +143,12 @@ describe('generateToml', () => {
   it('generates TOML for people + bulletin', () => {
     const toml = generateToml(['people', 'bulletin']);
 
-    // No elastic scaling
-    assert.ok(!toml.includes('num_cores'));
+    // People's two extra cores
+    assert.ok(toml.includes('num_cores = 2'));
 
-    // 4 validators (2 + 0 + 1 = 3, clamped to 4)
-    assert.ok(toml.includes('dave-paseo-validator'));
-    assert.ok(!toml.includes('eve-paseo-validator'));
+    // 5 validators (3 + 1 + 1)
+    assert.ok(toml.includes('eve-paseo-validator'));
+    assert.ok(!toml.includes('ferdie-paseo-validator'));
 
     // People and bulletin only
     assert.ok(!toml.includes('id = 1500'));
@@ -167,7 +165,7 @@ describe('generateToml', () => {
     assert.ok(toml.includes('name = "force-open-hrmp"'));
     assert.ok(toml.includes('name = "increase-people-lite-attestation-allowance"'));
     assert.ok(!toml.includes('name = "eth-rpc"'));
-    assert.ok(!toml.includes('name = "assign-cores"'));
+    assert.ok(toml.includes('name = "assign-cores"'));
   });
 
   it('generates TOML for bulletin only', () => {
@@ -204,7 +202,8 @@ describe('generateToml', () => {
     assert.ok(!toml.includes('name = "inject-bootnodes"'));
     assert.ok(!toml.includes('name = "eth-rpc"'));
     assert.ok(!toml.includes('name = "ipfs-daemon"'));
-    assert.ok(!toml.includes('name = "assign-cores"'));
+    assert.ok(toml.includes('name = "assign-cores"'));
+    assert.ok(!toml.includes('name = "set-dispatcher-address"'));
     assert.ok(toml.includes('name = "increase-people-lite-attestation-allowance"'));
   });
 
@@ -432,26 +431,24 @@ describe('generateToml validation', () => {
 });
 
 describe('calcValidatorCount', () => {
-  it('returns 4 for single non-asset-hub parachain', () => {
+  it('returns 4 for a single one-core parachain', () => {
     assert.equal(calcValidatorCount(['bulletin']), 4);
+  });
+
+  it('returns 4 for a three-core parachain alone (3+1=4)', () => {
+    assert.equal(calcValidatorCount(['asset-hub']), 4);
     assert.equal(calcValidatorCount(['people']), 4);
   });
 
-  it('returns 4 for asset-hub alone (1+2+1=4)', () => {
-    assert.equal(calcValidatorCount(['asset-hub']), 4);
-  });
-
-  it('returns 5 for asset-hub + one other (2+2+1=5)', () => {
-    assert.equal(calcValidatorCount(['asset-hub', 'people']), 5);
+  it('gives every core of the selection a validator, plus one up to the descriptor count', () => {
     assert.equal(calcValidatorCount(['asset-hub', 'bulletin']), 5);
+    assert.equal(calcValidatorCount(['people', 'bulletin']), 5);
+    assert.equal(calcValidatorCount(['asset-hub', 'people']), 6);
   });
 
-  it('returns 4 for two non-asset-hub (2+0+1=3, clamped to 4)', () => {
-    assert.equal(calcValidatorCount(['people', 'bulletin']), 4);
-  });
-
-  it('returns 6 for all parachains (3+2+1=6)', () => {
-    assert.equal(calcValidatorCount(['asset-hub', 'people', 'bulletin']), 6);
+  it('runs one validator per core past the descriptor count', () => {
+    assert.equal(calcValidatorCount(['asset-hub', 'people', 'bulletin']), 7);
+    assert.equal(calcValidatorCount([...VALID_PARACHAINS]), 8);
   });
 
   it('returns 4 for empty/null input', () => {
