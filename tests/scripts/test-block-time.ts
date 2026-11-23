@@ -2,13 +2,19 @@ import type { PolkadotClient } from "polkadot-api";
 import type { NetworkInfo } from "./types/zombienet";
 import { SUCCESS, FAILURE, CHAINS, connectWithRetry, safeDisconnect, sleep, waitForChainReady, type ChainName } from "./utils";
 
-const WINDOW_SECONDS = 60;
+const WINDOW_MS = 60_000;
+const SAMPLE_INTERVAL_MS = 5_000;
+// Under the 300 s the .zndsl files allow, so this script reports its own failure first.
+const TIMEOUT_MS = 240_000;
 
 /**
- * Passes when chain `args[0]` (a CHAINS key) averages at most `args[1]` seconds per block over a
- * minute. On one core a parachain makes a block every 6 s; on three cores, every 2 s.
+ * Passes once chain `args[0]` (a CHAINS key) averages at most `args[1]` seconds per block over a
+ * minute, and fails when no minute within the deadline does. On one core a parachain makes a
+ * block every 6 s; on three cores, every 2 s. The first minute of block production after a
+ * genesis spawn can run slower than the cores allow.
  */
 export async function run(nodeName: string, networkInfo: NetworkInfo, args: string[]): Promise<number> {
+  const deadline = Date.now() + TIMEOUT_MS;
   let client: PolkadotClient | null = null;
   try {
     const [chain, max] = args;
@@ -23,12 +29,25 @@ export async function run(nodeName: string, networkInfo: NetworkInfo, args: stri
     const api = connection.api;
     await waitForChainReady(api);
 
-    const start = await api.query.System.Number.getValue({ at: "best" });
-    await sleep(WINDOW_SECONDS * 1000);
-    const blocks = (await api.query.System.Number.getValue({ at: "best" })) - start;
-    const average = WINDOW_SECONDS / blocks;
-    console.log(`[TEST] ${blocks} ${chain} blocks in ${WINDOW_SECONDS}s: ${average.toFixed(2)}s per block, at most ${maxSeconds}s`);
-    return average <= maxSeconds ? SUCCESS : FAILURE;
+    const samples: { time: number; block: number }[] = [];
+    let lastWindow = "no full minute";
+    while (Date.now() < deadline) {
+      const sample = { time: Date.now(), block: await api.query.System.Number.getValue({ at: "best" }) };
+      samples.push(sample);
+      const windowStart = samples.filter((previous) => sample.time - previous.time >= WINDOW_MS).at(-1);
+      if (windowStart) {
+        const blocks = sample.block - windowStart.block;
+        const seconds = (sample.time - windowStart.time) / 1000;
+        lastWindow = `${blocks} blocks in ${seconds.toFixed(0)}s`;
+        if (blocks > 0 && seconds / blocks <= maxSeconds) {
+          console.log(`[TEST] ${chain}: ${lastWindow}, ${(seconds / blocks).toFixed(2)}s per block, at most ${maxSeconds}s`);
+          return SUCCESS;
+        }
+      }
+      await sleep(SAMPLE_INTERVAL_MS);
+    }
+    console.error(`[TEST] ${chain}: no minute in ${TIMEOUT_MS / 1000}s averaged at most ${maxSeconds}s per block, the last: ${lastWindow}`);
+    return FAILURE;
   } catch (error) {
     console.error(`[TEST] ${(error as Error).message}`);
     return FAILURE;
