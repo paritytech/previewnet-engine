@@ -242,8 +242,8 @@ jobs:
 
           # The dashboard spawns with the network and serves the contract, the provenance
           # stamped at fetch time, and the UI — a checkout run cannot prove any of this
-          # from an install. zombienet writes zombie.json once it has started the custom
-          # processes, not once they listen, so the first request retries.
+          # from an install. zombie.json can appear before the dashboard listens, so curl
+          # retries the first request.
           curl -sf --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:8090/api/network | grep -q '"name": "previewnet"' \
             || { echo "ERROR: dashboard /api/network did not answer"; exit 1; }
           curl -sf http://127.0.0.1:8090/api/provenance | grep -q '"resolved"' \

@@ -3,9 +3,9 @@ import type { NetworkInfo } from "./types/zombienet";
 import { SUCCESS, FAILURE, CHAINS, connectWithRetry, safeDisconnect, sleep, waitForChainReady, type ChainName } from "./utils";
 
 const WINDOW_MS = 60_000;
-const SAMPLE_MS = 5_000;
+const SAMPLE_INTERVAL_MS = 5_000;
 // Under the 300 s the .zndsl files allow, leaving room to connect.
-const DEADLINE_MS = 240_000;
+const TIMEOUT_MS = 240_000;
 
 /**
  * Passes once chain `args[0]` (a CHAINS key) averages at most `args[1]` seconds per block over a
@@ -29,22 +29,24 @@ export async function run(nodeName: string, networkInfo: NetworkInfo, args: stri
     await waitForChainReady(api);
 
     const samples: { time: number; block: number }[] = [];
-    const deadline = Date.now() + DEADLINE_MS;
-    let average = Infinity;
+    const deadline = Date.now() + TIMEOUT_MS;
+    let lastWindow = "no full minute";
     while (Date.now() < deadline) {
       const sample = { time: Date.now(), block: await api.query.System.Number.getValue({ at: "best" }) };
       samples.push(sample);
-      const windowStart = samples.filter((earlier) => sample.time - earlier.time >= WINDOW_MS).at(-1);
-      if (windowStart && sample.block > windowStart.block) {
-        average = (sample.time - windowStart.time) / 1000 / (sample.block - windowStart.block);
-        if (average <= maxSeconds) {
-          console.log(`[TEST] ${chain}: ${average.toFixed(2)}s per block over the last minute, at most ${maxSeconds}s`);
+      const windowStart = samples.filter((previous) => sample.time - previous.time >= WINDOW_MS).at(-1);
+      if (windowStart) {
+        const blocks = sample.block - windowStart.block;
+        const seconds = (sample.time - windowStart.time) / 1000;
+        lastWindow = `${blocks} blocks in ${seconds.toFixed(0)}s`;
+        if (blocks > 0 && seconds / blocks <= maxSeconds) {
+          console.log(`[TEST] ${chain}: ${lastWindow}, ${(seconds / blocks).toFixed(2)}s per block, at most ${maxSeconds}s`);
           return SUCCESS;
         }
       }
-      await sleep(SAMPLE_MS);
+      await sleep(SAMPLE_INTERVAL_MS);
     }
-    console.error(`[TEST] ${chain}: ${average.toFixed(2)}s per block over the last minute, at most ${maxSeconds}s, within ${DEADLINE_MS / 1000}s`);
+    console.error(`[TEST] ${chain}: no minute in ${TIMEOUT_MS / 1000}s averaged at most ${maxSeconds}s per block, the last: ${lastWindow}`);
     return FAILURE;
   } catch (error) {
     console.error(`[TEST] ${(error as Error).message}`);
