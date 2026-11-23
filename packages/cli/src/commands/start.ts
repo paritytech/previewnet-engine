@@ -406,11 +406,11 @@ async function ensureDeps(netDef: NetworkDef, opts: StartOptions, binDir: string
  */
 export function assertBundleTopology(forkDir: string, network: string, asked: ForkTopology | undefined): void {
   const m = JSON.parse(fs.readFileSync(path.join(forkDir, 'manifest.json'), 'utf-8')) as ForkManifest;
-  if (m.topology) console.log(`  bitten with ${topologyFlags(m.topology)} (${m.topology.validators} validators)`);
+  if (m.topology) console.log(`  bitten with ${topologyFlags(m.topology) || 'the defaults'} (${m.topology.validators} validators)`);
   if (sameTopology(asked, m.topology)) return;
   throw new Error(
     `--cores/--collators change how the bite lays the network out, and the bundle in ${forkDir} was bitten` +
-      (m.topology ? ` with ${topologyFlags(m.topology)}.` : ' with the defaults.') +
+      ` with ${(m.topology && topologyFlags(m.topology)) || 'the defaults'}.` +
       `\n       Re-bite with it: ppn start ${network} --fork --fresh-bite${asked ? ' ' + topologyFlags(asked) : ''}`
   );
 }

@@ -17,6 +17,7 @@ import {
   asHttp,
   asWs,
   DEFAULT_NETWORK,
+  type NetworkDef,
 } from '../src/networks.js';
 import { loadNetwork } from '../src/load.js';
 import { repoRoot } from '../src/repo-root.js';
@@ -56,6 +57,10 @@ describe('network descriptors', () => {
     assert.equal(net.parachains.find((p) => p.key === 'people')!.spec, 'individuality');
     assert.equal(net.relay.chain, 'paseo');
     assert.equal(net.relay.validators, 6);
+    assert.deepEqual(
+      Object.fromEntries(net.parachains.map((p) => [p.key, p.cores])),
+      { 'asset-hub': 3, people: 3, bulletin: 1, 'web3-storage': 1 }
+    );
   });
 
   // The rule this whole registry exists to encode.
@@ -286,25 +291,28 @@ describe('product import', () => {
   });
 });
 
-describe('turnProofProducts', () => {
-  function loadWith(fields: Record<string, unknown>): () => ReturnType<typeof loadNetwork> {
-    return () => {
-      const saved = process.env.PPN_HOME;
-      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-home-'));
-      fs.mkdirSync(path.join(home, 'networks'));
-      const raw = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks/previewnet.json'), 'utf-8'));
-      fs.writeFileSync(path.join(home, 'networks', 'proof-test.json'), JSON.stringify({ ...raw, name: 'proof-test', ...fields }));
-      process.env.PPN_HOME = home;
-      try {
-        return loadNetwork('proof-test');
-      } finally {
-        if (saved === undefined) delete process.env.PPN_HOME;
-        else process.env.PPN_HOME = saved;
-        fs.rmSync(home, { recursive: true, force: true });
-      }
-    };
-  }
+type RawDescriptor = Record<string, unknown> & { relay: Record<string, unknown>; parachains: Record<string, unknown>[] };
 
+/** Loads previewnet's descriptor as changed by `edit`, under another name. */
+function loadEdited(edit: (raw: RawDescriptor) => RawDescriptor): () => NetworkDef {
+  return () => {
+    const saved = process.env.PPN_HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ppn-home-'));
+    fs.mkdirSync(path.join(home, 'networks'));
+    const raw = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'networks/previewnet.json'), 'utf-8'));
+    fs.writeFileSync(path.join(home, 'networks', 'edited.json'), JSON.stringify({ ...edit(raw), name: 'edited' }));
+    process.env.PPN_HOME = home;
+    try {
+      return loadNetwork('edited');
+    } finally {
+      if (saved === undefined) delete process.env.PPN_HOME;
+      else process.env.PPN_HOME = saved;
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  };
+}
+
+describe('turnProofProducts', () => {
   it('accepts Jollity on previewnet, under its TLD', () => {
     assert.deepEqual(loadNetwork('previewnet').turnProofProducts, ['dim2.testnet']);
   });
@@ -314,7 +322,30 @@ describe('turnProofProducts', () => {
   });
 
   it('rejects a product that is not a name under the network TLD', () => {
-    assert.throws(loadWith({ turnProofProducts: ['dim2'] }), /dotNS names under \.testnet/);
-    assert.throws(loadWith({ turnProofProducts: ['dim2.paseo'] }), /dotNS names under \.testnet/);
+    assert.throws(loadEdited((raw) => ({ ...raw, turnProofProducts: ['dim2'] })), /dotNS names under \.testnet/);
+    assert.throws(loadEdited((raw) => ({ ...raw, turnProofProducts: ['dim2.paseo'] })), /dotNS names under \.testnet/);
+  });
+});
+
+// A core whose validator group is empty backs nothing, so a descriptor that lays its parachains
+// out on more cores than it has validators describes a network whose blocks stall.
+describe('cores', () => {
+  it('defaults a parachain to one core', () => {
+    const net = loadEdited((raw) => ({ ...raw, parachains: raw.parachains.map(({ cores: _, ...p }) => p) }))();
+    assert.deepEqual(net.parachains.map((p) => p.cores), [1, 1, 1, 1]);
+  });
+
+  it('rejects more cores than a relay can have validators for', () => {
+    assert.throws(
+      loadEdited((raw) => ({ ...raw, parachains: raw.parachains.map((p) => (p.key === 'people' ? { ...p, cores: 6 } : p)) })),
+      /run on 11 cores, one validator per core, and a relay runs at most 10 validators/
+    );
+  });
+
+  it('rejects a parachain on no core', () => {
+    assert.throws(
+      loadEdited((raw) => ({ ...raw, parachains: raw.parachains.map((p) => (p.key === 'people' ? { ...p, cores: 0 } : p)) })),
+      /parachains\.people\.cores must be an integer of at least 1/
+    );
   });
 });

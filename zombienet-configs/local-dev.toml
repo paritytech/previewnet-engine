@@ -5,9 +5,9 @@
 timeout = 600
 node_spawn_timeout = 240
 
-# Elastic scaling: 2 extra cores for Asset Hub 2-second blocks
+# Elastic scaling: the cores beyond each parachain's first, which assign-cores hands out
 [relaychain.genesis.configuration.config.scheduler_params]
-num_cores = 2
+num_cores = 4
 max_validators_per_core = 1
 
 [relaychain]
@@ -59,7 +59,21 @@ rpc_port = 10005
 prometheus_port = 20005
 balance = 1000000000000000
 
-## Asset Hub Paseo Next (Parachain 1500) - Elastic Scaling with 2-second blocks
+[[relaychain.nodes]]
+name = "one-paseo-validator"
+validator = true
+rpc_port = 10006
+prometheus_port = 20006
+balance = 1000000000000000
+
+[[relaychain.nodes]]
+name = "two-paseo-validator"
+validator = true
+rpc_port = 10007
+prometheus_port = 20007
+balance = 1000000000000000
+
+## Asset Hub Paseo Next (Parachain 1500) - Elastic Scaling on 3 cores
 [[parachains]]
 id = 1500
 cumulus_based = true
@@ -74,7 +88,7 @@ prometheus_port = 20020
 command = "{{SCRIPTS}}/omni-node.sh"
 args = ["-lxcm=trace", "--rpc-max-connections=500", "--force-authoring", "--authoring=slot-based", "--unsafe-rpc-external", "--rpc-max-response-size=50", "--listen-addr=/ip4/127.0.0.1/udp/30335/webrtc-direct"]
 
-## People Chain (Parachain 1502)
+## People Chain (Parachain 1502) - Elastic Scaling on 3 cores
 [[parachains]]
 id = 1502
 cumulus_based = true

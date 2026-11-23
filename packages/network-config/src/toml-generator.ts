@@ -14,18 +14,20 @@ import path from 'node:path';
 import { repoRoot } from './repo-root.js';
 import { PARACHAIN_KEYS } from './types.js';
 import type { Parachain, ChainKey, ChainDef, LogLevel, GenerateTomlOptions } from './types.js';
-import { DEFAULT_NETWORK, type NetworkDef, type NetworkParachain } from './networks.js';
+import { DEFAULT_NETWORK, MAX_VALIDATORS, type NetworkDef, type NetworkParachain } from './networks.js';
 import { loadNetwork } from './load.js';
 import { dubCustomProcesses } from './dub.js';
 import { addMissing, flagOf, overrideArgs } from './args.js';
 
-const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'] as const;
+/** The well-known dev accounts, as polkadot-sdk's keyring lists them. */
+const VALIDATORS = ['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie', 'one', 'two'] as const;
 
 /**
- * The name of the i-th relay node in fork mode. The first six are the well-known names, which
- * zombienet maps to the well-known dev keys; past them zombienet derives a node's keys from
- * `//<Name>` — the same rule that makes `Collator-<paraId>` work — so any name serves, as long
- * as the bite installs the keys derived from it (cli fork/validators.ts).
+ * The name of the i-th relay node: the dev account names, then `Validator-<i+1>`. A fork uses them
+ * as they are, which zombienet maps to the well-known dev keys; for genesis names with the
+ * network's suffix and past the dev accounts, zombienet derives a node's keys from `//<Name>` —
+ * the same rule that makes `Collator-<paraId>` work — so any name serves, as long as a bite
+ * installs the keys derived from it (cli fork/validators.ts).
  */
 function relayNodeName(i: number): string {
   return VALIDATORS[i] ?? `Validator-${i + 1}`;
@@ -43,12 +45,12 @@ const VALID_PARACHAINS: Parachain[] = PARACHAIN_KEYS;
 
 // Genesis is previewnet-only by design (see networks/README.md), but everything about
 // previewnet that the descriptor states — para ids, chain ids, spec files, binaries,
-// per-chain flags, validator count and naming, which services run — is read from it
-// here rather than restated, so this generator and fork mode cannot disagree, and
-// editing the descriptor changes both.
+// per-chain flags, core counts, validator naming, which services run — is read from it here
+// rather than restated, so this generator and fork mode cannot disagree, and editing the
+// descriptor changes both.
 //
-// What stays in code is what the descriptor does not describe: the elastic-scaling
-// core count, the HRMP topology, and the bootstrap processes' own arguments.
+// What stays in code is what the descriptor does not describe: the HRMP topology and the
+// bootstrap processes' own arguments.
 // Loaded on first use, not at import. A module-level load makes importing this package
 // require a descriptor on disk — which is fine in a checkout and fatal once published: a
 // consumer that only wants the types or the generators cannot even import it, and the failure
@@ -137,7 +139,8 @@ function prometheusPort(rpcPort: number): number {
 /** RPC ports of a parachain's RPC nodes: the chain's own port + 1..rpcNodes. Throws on a port another chain uses. */
 function rpcNodePorts(parachain: NetworkParachain): number[] {
   const ports = Array.from({ length: parachain.rpcNodes }, (_, index) => PORTS[parachain.key] + index + 1);
-  const used = [...Object.values(PORTS), ...VALIDATORS.map((_, index) => RELAY_BASE_PORT + index)];
+  const relayPorts = Array.from({ length: MAX_VALIDATORS }, (_, index) => RELAY_BASE_PORT + index);
+  const used = [...Object.values(PORTS), ...relayPorts];
   const clash = ports.find((port) => used.includes(port));
   if (clash !== undefined) {
     throw new Error(
@@ -325,12 +328,13 @@ function tomlArgs(args: string[]): string {
   return '[' + args.map((a) => `"${a}"`).join(', ') + ']';
 }
 
-function genesisParachainSection(key: Parachain, title: string, args: string[]): string {
+function genesisParachainSection(key: Parachain, name: string, args: string[]): string {
+  const chain = genesisChainOf(key) as NetworkParachain;
   const launch = `command = "{{SCRIPTS}}/omni-node.sh"${genesisCollatorEnv(key)}`;
   return `
-## ${title}
+## ${name} (Parachain ${chain.paraId})${chain.cores > 1 ? ` - Elastic Scaling on ${chain.cores} cores` : ''}
 [[parachains]]
-id = ${paraIds()[key]}
+id = ${chain.paraId}
 cumulus_based = true
 chain = "${genesisSpecOf(key).chainId}"
 chain_spec_path = "{{BIN}}/${genesisSpecOf(key).file}"
@@ -342,21 +346,20 @@ p2p_port = ${P2P_PORTS[key]}
 prometheus_port = ${prometheusPort(PORTS[key])}
 ${launch}
 args = ${tomlArgs(args)}
-${rpcNodeBlocks(genesisChainOf(key) as NetworkParachain, args, launch)}`;
+${rpcNodeBlocks(chain, args, launch)}`;
 }
 
 function validatorNodes(count: number): string {
-  return VALIDATORS.slice(0, count)
-    .map(
-      (v, i) => `
+  return Array.from(
+    { length: count },
+    (_, i) => `
 [[relaychain.nodes]]
-name = "${v}-${genesisConfig().validatorNameSuffix}"
+name = "${relayNodeName(i)}-${genesisConfig().validatorNameSuffix}"
 validator = true
 rpc_port = ${RELAY_BASE_PORT + i}${i === 0 ? `\np2p_port = ${P2P_PORTS.relay}` : ''}
 prometheus_port = ${prometheusPort(RELAY_BASE_PORT + i)}
 balance = 1000000000000000`
-    )
-    .join('\n');
+  ).join('\n');
 }
 
 /** Which parachains talk to each other. Both directions are opened for each pair. */
@@ -408,12 +411,10 @@ function calcValidatorCount(parachains: Parachain[] | null): number {
   const selected = new Set(
     (parachains || []).filter((p) => VALID_PARACHAINS.includes(p))
   );
-  // Asset Hub's elastic scaling needs two extra validators for the extra cores. The
-  // ceiling is what the descriptor says this network runs with.
-  return Math.max(
-    4,
-    Math.min(genesisNet().relay.validators, selected.size + (selected.has('asset-hub') ? 2 : 0) + 1)
-  );
+  const cores = genesisNet().parachains.filter((p) => selected.has(p.key)).reduce((sum, p) => sum + p.cores, 0);
+  // One more validator than cores, up to the descriptor's count, and never fewer than the cores:
+  // a core without a validator group of its own backs nothing.
+  return Math.max(4, cores, Math.min(genesisNet().relay.validators, cores + 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +465,9 @@ function generateToml(parachains: Parachain[] | null, options: GenerateTomlOptio
   const lt = options.logTargets || {};
 
   const validatorCount = calcValidatorCount(parachains);
+  // The relay puts each parachain registered at genesis on one core after these; assign-cores
+  // hands these out to the chains that run on more than one.
+  const extraCores = genesisNet().parachains.filter((p) => has(p.key)).reduce((sum, p) => sum + p.cores - 1, 0);
 
   const hasChannels = both('people', 'bulletin') || both('people', 'asset-hub');
 
@@ -478,11 +482,11 @@ function generateToml(parachains: Parachain[] | null, options: GenerateTomlOptio
 timeout = 600
 node_spawn_timeout = 240
 ${section(
-  has('asset-hub'),
+  extraCores > 0,
   `
-# Elastic scaling: 2 extra cores for Asset Hub 2-second blocks
+# Elastic scaling: the cores beyond each parachain's first, which assign-cores hands out
 [relaychain.genesis.configuration.config.scheduler_params]
-num_cores = 2
+num_cores = ${extraCores}
 max_validators_per_core = 1
 `
 )}
@@ -494,28 +498,16 @@ default_args = ${relayArgs}
 ${validatorNodes(validatorCount)}
 ${section(
   has('asset-hub'),
-  genesisParachainSection(
-    'asset-hub',
-    `Asset Hub Paseo Next (Parachain ${paraIds()['asset-hub']}) - Elastic Scaling with 2-second blocks`,
-    genesisChainArgs('asset-hub', lt['asset-hub'])
-  )
+  genesisParachainSection('asset-hub', 'Asset Hub Paseo Next', genesisChainArgs('asset-hub', lt['asset-hub']))
 )}${section(
   has('people'),
-  genesisParachainSection('people', `People Chain (Parachain ${paraIds().people})`, genesisChainArgs('people', lt.people))
+  genesisParachainSection('people', 'People Chain', genesisChainArgs('people', lt.people))
 )}${section(
   has('bulletin'),
-  genesisParachainSection(
-    'bulletin',
-    `Bulletin Chain (Parachain ${paraIds().bulletin})`,
-    genesisChainArgs('bulletin', lt.bulletin, options.enableHop)
-  )
+  genesisParachainSection('bulletin', 'Bulletin Chain', genesisChainArgs('bulletin', lt.bulletin, options.enableHop))
 )}${section(
   has('web3-storage'),
-  genesisParachainSection(
-    'web3-storage',
-    `Web3 Storage Chain (Parachain ${paraIds()['web3-storage']})`,
-    genesisChainArgs('web3-storage', lt['web3-storage'])
-  )
+  genesisParachainSection('web3-storage', 'Web3 Storage Chain', genesisChainArgs('web3-storage', lt['web3-storage']))
 )}${section(both('people', 'bulletin'), hrmpPair(paraIds().people, paraIds().bulletin))}
 ${section(both('people', 'asset-hub'), hrmpPair(paraIds().people, paraIds()['asset-hub']))}
 ${section(
@@ -602,12 +594,15 @@ ${section(serviceEnabled('pin-design-families'), `
 name = "pin-design-families"
 command = "{{SCRIPTS}}/pin-design-families.sh"
 `)}${section(
-  has('asset-hub') && serviceEnabled('assign-cores'),
+  extraCores > 0 && serviceEnabled('assign-cores'),
   `
 [[custom_processes]]
 name = "assign-cores"
 command = "{{SCRIPTS}}/assign-cores.sh"
-
+`
+)}${section(
+  has('asset-hub') && serviceEnabled('set-dispatcher-address'),
+  `
 [[custom_processes]]
 name = "set-dispatcher-address"
 command = "{{SCRIPTS}}/set-dispatcher-address.sh"

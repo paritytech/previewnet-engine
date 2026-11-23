@@ -128,17 +128,29 @@ export interface NetworkParachain {
   rpcNodes: number;
   /** Extra args for the RPC nodes, applied over the chain's own args. */
   rpcNodeArgs: string[];
+  /**
+   * Relay cores this chain is laid out on, 1 when absent. More than one is elastic scaling,
+   * which shortens block time only when the runtime is built for that many blocks per relay block.
+   */
+  cores: number;
 }
 
 /** RPC node i of a parachain listens on the chain's port + i, below the next chain's port. */
 export const MAX_RPC_NODES = 9;
 
-type ChainFields = Omit<NetworkParachain, 'key' | 'paraId' | 'rpcNodes' | 'rpcNodeArgs'>;
+/** Relay RPC ports are `RELAY_BASE_PORT + i`, and the eleventh would land on People's. */
+export const MAX_VALIDATORS = 10;
+
+type ChainFields = Omit<NetworkParachain, 'key' | 'paraId' | 'rpcNodes' | 'rpcNodeArgs' | 'cores'>;
 
 export interface NetworkRelay extends ChainFields {
   /** Built-in chain name doppelganger runs with (ZOMBIE_CHAIN), e.g. 'paseo'. */
   chain: string;
-  /** Dev-key validators the fork runs with, max 6 (alice…ferdie). */
+  /**
+   * Dev-key validators the fork runs with, max 6 (alice…ferdie). A genesis spawn runs one per
+   * parachain core where that is more, called Validator-7… past the six: a core without a
+   * validator group backs nothing.
+   */
   validators: number;
   /** Same as `runtime`, but used when `PPN_PROFILE` is `local`. Needs a different `file`. */
   fastRuntime?: RuntimeRef;
@@ -425,6 +437,17 @@ export function loadDescriptor(name: string): NetworkDef {
     }
   }
 
+  const cores = Object.fromEntries(
+    raw.parachains.map((p: NetworkParachain) => {
+      const count = p.cores ?? 1;
+      if (!Number.isInteger(count) || count < 1) bad(`parachains.${p.key}.cores must be an integer of at least 1`);
+      return [p.key, count];
+    })
+  );
+  const totalCores = Object.values(cores).reduce((sum, count) => sum + count, 0);
+  if (totalCores > MAX_VALIDATORS) {
+    bad(`the parachains run on ${totalCores} cores, one validator per core, and a relay runs at most ${MAX_VALIDATORS} validators`);
+  }
   const validators = raw.relay.validators ?? 6;
   if (!Number.isInteger(validators) || validators < 1 || validators > 6) {
     bad('relay.validators must be 1..6 (alice…ferdie)');
@@ -477,6 +500,7 @@ export function loadDescriptor(name: string): NetworkDef {
       extraArgs: checkArgs(`parachains.${p.key}`, p.extraArgs),
       rpcNodes: parseRpcNodes(`parachains.${p.key}.rpcNodes`, p.rpcNodes, bad),
       rpcNodeArgs: parseArgs(`parachains.${p.key}.rpcNodeArgs`, p.rpcNodeArgs, bad),
+      cores: cores[p.key],
     })),
     services,
     turnProofProducts: parseTurnProofProducts(

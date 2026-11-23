@@ -48,17 +48,21 @@ export interface CoreAssignment {
 export interface PlannedPara {
   key: string;
   paraId: number;
+  cores: number;
+}
+
+/** How many cores a parachain gets: the descriptor's count, unless `ppn bite --cores` sets another. */
+export function coresFor(para: PlannedPara, cores: Record<string, number> = {}): number {
+  return cores[para.key] ?? para.cores;
 }
 
 /**
- * How many cores each parachain gets.
- *
- * Asset Hub keeps three: that is what gives it 2-second blocks through elastic scaling, and it
- * is the one place where the number is a property of the network rather than a default. The
- * rest get one each — unless the bite was asked for more (`ppn bite --cores people=3`).
+ * Whether a bite lays the relay's cores out anew. A shared relay's layout is wrong for us, and a
+ * bite with `--cores` lays out cores production does not have; otherwise production's own layout
+ * is kept, with the validators it already staffs.
  */
-export function coresFor(key: string, cores: Record<string, number> = {}): number {
-  return cores[key] ?? (key === 'asset-hub' ? 3 : 1);
+export function replacesCoreLayout(sharedRelay: boolean, cores: Record<string, number> = {}): boolean {
+  return sharedRelay || Object.keys(cores).length > 0;
 }
 
 /**
@@ -72,7 +76,7 @@ export function planCores(paras: PlannedPara[], cores: Record<string, number> = 
   const plan: CoreAssignment[] = [];
   let core = 0;
   for (const para of paras) {
-    for (let i = 0; i < coresFor(para.key, cores); i++) plan.push({ core: core++, paraId: para.paraId });
+    for (let i = 0; i < coresFor(para, cores); i++) plan.push({ core: core++, paraId: para.paraId });
   }
   return plan;
 }
@@ -231,8 +235,8 @@ export function transactionStorageWipes(): Record<string, string> {
  * map, where the one bug this file's verification already caught in a sibling value was a
  * missing compact length. The registry knows the shape; we should not restate it.
  *
- * `ratio`/`step` of 57600 is a whole core (the parts-per-core unit the relay uses), matching
- * what `ppn service assign-cores` submits for Asset Hub's extra cores on a genesis network.
+ * `ratio`/`step` of 57600 is a whole core (the parts-per-core unit the relay uses), which is also
+ * what `ppn service assign-cores` gives each extra core on a genesis network.
  */
 export const FULL_CORE = 57600;
 

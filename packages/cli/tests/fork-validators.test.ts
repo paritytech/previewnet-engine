@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   ALICE_SR,
-  MAX_VALIDATORS,
   collatorKey,
   collatorKeys,
   devValidators,
@@ -21,6 +20,7 @@ import {
   authorizedUpgradeCandidate,
   type DevValidator,
 } from '../src/fork/validators.js';
+import { MAX_VALIDATORS } from '@parity/ppn-network-config';
 import { verify, verifyInjects } from '../src/fork/overrides.js';
 import { compactLen, keyOf, twox64Concat, u32le } from '../src/fork/codec.js';
 import { TypeRegistry } from '@polkadot/types';
@@ -79,15 +79,16 @@ describe('the dev authority set', () => {
   // keystore from that name — the keys here must be the same derivation, or the node holds
   // keys no authority entry mentions and never authors.
   it('extends past the well-known six with keys derived from the node names', async () => {
-    const eight = await devValidators(8);
-    assert.deepEqual(eight.slice(0, 6), ZOMBIE_BITE_KEYS, 'the first six do not move');
+    const ten = await devValidators(10);
+    assert.deepEqual(ten.slice(0, 6), ZOMBIE_BITE_KEYS, 'the first six do not move');
     const { Keyring } = await import('@polkadot/keyring');
     const hex = (k: Uint8Array) => Buffer.from(k).toString('hex');
-    assert.equal(eight[6].babe, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Validator-7').publicKey));
-    assert.equal(eight[6].stash, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Validator-7//stash').publicKey));
-    assert.equal(eight[6].grandpa, hex(new Keyring({ type: 'ed25519' }).addFromUri('//Validator-7').publicKey));
-    assert.equal(eight[6].beefy, hex(new Keyring({ type: 'ecdsa' }).addFromUri('//Validator-7').publicKey));
-    assert.equal(eight[7].babe, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Validator-8').publicKey));
+    assert.equal(ten[6].babe, hex(new Keyring({ type: 'sr25519' }).addFromUri('//One').publicKey));
+    assert.equal(ten[6].stash, hex(new Keyring({ type: 'sr25519' }).addFromUri('//One//stash').publicKey));
+    assert.equal(ten[6].grandpa, hex(new Keyring({ type: 'ed25519' }).addFromUri('//One').publicKey));
+    assert.equal(ten[6].beefy, hex(new Keyring({ type: 'ecdsa' }).addFromUri('//One').publicKey));
+    assert.equal(ten[7].babe, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Two').publicKey));
+    assert.equal(ten[8].babe, hex(new Keyring({ type: 'sr25519' }).addFromUri('//Validator-9').publicKey));
   });
 
   it('has no duplicate keys, however many', async () => {

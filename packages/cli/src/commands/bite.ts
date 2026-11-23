@@ -529,7 +529,7 @@ export async function run(args: string[], opts: BiteOptions = {}): Promise<void>
   // after minutes of syncing.
   const staged = stageUpgrades(opts.upgrades, chains, out, opts.upgradeCheckVersion ?? true);
   const topology = resolveTopology(opts, net);
-  if (topology) console.log(`  topology: ${topologyFlags(topology)} → ${topology.validators} validators`);
+  if (topology) console.log(`  topology: ${topologyFlags(topology) || 'the defaults'} → ${topology.validators} validators`);
 
   console.log(`=== 1/6 collecting chain specs (network: ${net.name}) ===`);
   for (const chain of chains) await collectSpec(chain, net, out, baseUrl, dgDir);

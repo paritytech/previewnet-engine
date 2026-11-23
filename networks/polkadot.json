@@ -35,6 +35,7 @@
     {
       "key": "asset-hub",
       "paraId": 1000,
+      "cores": 3,
       "spec": "asset-hub",
       "rpc": "wss://polkadot-asset-hub-rpc.polkadot.io",
       "specSource": "builtin:asset-hub-polkadot",
@@ -48,6 +49,7 @@
     {
       "key": "people",
       "paraId": 1004,
+      "cores": 3,
       "spec": "people",
       "rpc": "wss://polkadot-people-rpc.polkadot.io",
       "specSource": "builtin:people-polkadot",
