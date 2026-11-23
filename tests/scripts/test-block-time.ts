@@ -4,16 +4,17 @@ import { SUCCESS, FAILURE, CHAINS, connectWithRetry, safeDisconnect, sleep, wait
 
 const WINDOW_MS = 60_000;
 const SAMPLE_INTERVAL_MS = 5_000;
-// Under the 300 s the .zndsl files allow, leaving room to connect.
+// Under the 300 s the .zndsl files allow, so this script reports its own failure first.
 const TIMEOUT_MS = 240_000;
 
 /**
  * Passes once chain `args[0]` (a CHAINS key) averages at most `args[1]` seconds per block over a
  * minute, and fails when no minute within the deadline does. On one core a parachain makes a
- * block every 6 s; on three cores, every 2 s. The extra cores take effect a few relay blocks
- * after assign-cores sends them, so the first minute after a spawn may still run on one.
+ * block every 6 s; on three cores, every 2 s. The first minute of block production after a
+ * genesis spawn can run slower than the cores allow.
  */
 export async function run(nodeName: string, networkInfo: NetworkInfo, args: string[]): Promise<number> {
+  const deadline = Date.now() + TIMEOUT_MS;
   let client: PolkadotClient | null = null;
   try {
     const [chain, max] = args;
@@ -29,7 +30,6 @@ export async function run(nodeName: string, networkInfo: NetworkInfo, args: stri
     await waitForChainReady(api);
 
     const samples: { time: number; block: number }[] = [];
-    const deadline = Date.now() + TIMEOUT_MS;
     let lastWindow = "no full minute";
     while (Date.now() < deadline) {
       const sample = { time: Date.now(), block: await api.query.System.Number.getValue({ at: "best" }) };
