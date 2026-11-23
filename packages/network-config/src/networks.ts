@@ -224,6 +224,11 @@ export interface NetworkDef {
    * `/api/v1/turn/issue-with-proof`, such as `dim2.testnet`. Empty leaves the route off.
    */
   turnProofProducts: string[];
+  /**
+   * Every node's RPC and Prometheus listen on localhost only and RPC serves only safe methods, for
+   * a host whose nginx publishes the chains. Off unless a deployment's network overlay turns it on.
+   */
+  safeRpc: boolean;
   /** Local tools this network needs that are neither a chain nor a service. */
   tools: Record<string, BinaryRef>;
   /**
@@ -503,6 +508,7 @@ export function loadDescriptor(name: string): NetworkDef {
       cores: cores[p.key],
     })),
     services,
+    safeRpc: false,
     turnProofProducts: parseTurnProofProducts(
       'turnProofProducts',
       raw.turnProofProducts,
